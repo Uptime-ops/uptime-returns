@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Warehance Returns Management</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+        
+        .settings-container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+        
+        .settings-header {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        }
+        
+        .settings-section {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,.08);
+        }
+        
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .section-icon {
+            color: #667eea;
+            margin-right: 10px;
+        }
+        
+        .form-label {
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 8px;
+        }
+        
+        .form-text {
+            color: #999;
+            font-size: 0.85rem;
+        }
+        
+        .btn-save {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 10px 30px;
+            border-radius: 5px;
+            font-weight: 500;
+        }
+        
+        .btn-save:hover {
+            background: linear-gradient(135deg, #5569d8 0%, #6a4190 100%);
+            color: white;
+        }
+        
+        .btn-test {
+            background: #28a745;
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 5px;
+        }
+        
+        .btn-test:hover {
+            background: #218838;
+            color: white;
+        }
+        
+        .alert-custom {
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        
+        .alert-success-custom {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+        
+        .alert-error-custom {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+        
+        .password-toggle {
+            cursor: pointer;
+            position: absolute;
+            right: 10px;
+            top: 38px;
+            color: #999;
+        }
+        
+        .nav-tabs .nav-link {
+            color: #666;
+            border: none;
+            padding: 12px 20px;
+        }
+        
+        .nav-tabs .nav-link.active {
+            color: #667eea;
+            background: #f8f9fa;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-left: 10px;
+        }
+        
+        .status-configured {
+            background: #28a745;
+        }
+        
+        .status-not-configured {
+            background: #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-box-open"></i> Warehance Returns
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-dashboard"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/settings">
+                            <i class="fas fa-cog"></i> Settings
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="settings-container">
+        <!-- Header -->
+        <div class="settings-header">
+            <h2><i class="fas fa-cog section-icon"></i>System Settings</h2>
+            <p class="text-muted mb-0">Configure your Warehance Returns system settings</p>
+        </div>
+
+        <!-- Alert Container -->
+        <div id="alertContainer"></div>
+
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-4" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="email-tab" data-bs-toggle="tab" data-bs-target="#email-settings" type="button">
+                    <i class="fas fa-envelope"></i> Email Settings
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="api-tab" data-bs-toggle="tab" data-bs-target="#api-settings" type="button">
+                    <i class="fas fa-plug"></i> API Settings
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sync-tab" data-bs-toggle="tab" data-bs-target="#sync-settings" type="button">
+                    <i class="fas fa-sync"></i> Sync Settings
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="general-tab" data-bs-toggle="tab" data-bs-target="#general-settings" type="button">
+                    <i class="fas fa-building"></i> General Settings
+                </button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Email Settings -->
+            <div class="tab-pane fade show active" id="email-settings" role="tabpanel">
+                <!-- OAuth Configuration Section -->
+                <div class="settings-section mb-4">
+                    <h4 class="section-title">
+                        <i class="fas fa-key section-icon"></i>OAuth2 Configuration (Recommended)
+                        <span id="oauthStatus" class="status-indicator"></span>
+                    </h4>
+                    
+                    <div class="alert alert-success mb-3">
+                        <i class="fas fa-shield-alt"></i> <strong>Microsoft Graph API with OAuth2:</strong>
+                        <p class="mb-2">This is the recommended method for Office 365/Exchange Online. No SMTP authentication issues!</p>
+                        <small>You'll need to register an app in Azure AD. <a href="#" onclick="showAzureGuide()" class="text-primary">View setup guide</a></small>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="oauth_tenant_id" class="form-label">Tenant ID</label>
+                                <input type="text" class="form-control" id="oauth_tenant_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                                <small class="form-text">Your Azure AD tenant ID</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="oauth_client_id" class="form-label">Client ID (Application ID)</label>
+                                <input type="text" class="form-control" id="oauth_client_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                                <small class="form-text">Your app registration client ID</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3 position-relative">
+                                <label for="oauth_client_secret" class="form-label">Client Secret</label>
+                                <input type="password" class="form-control" id="oauth_client_secret" placeholder="Enter client secret">
+                                <i class="fas fa-eye password-toggle" onclick="togglePassword('oauth_client_secret')"></i>
+                                <small class="form-text">Your app registration client secret</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="oauth_sender_email" class="form-label">Shared Mailbox Address</label>
+                                <input type="email" class="form-control" id="oauth_sender_email" value="returns@uptimeops.net">
+                                <small class="form-text">The shared mailbox to send from</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button class="btn btn-save me-2" onclick="saveOAuthSettings()">
+                            <i class="fas fa-save"></i> Save OAuth Settings
+                        </button>
+                        <button class="btn btn-test" onclick="testOAuthConnection()">
+                            <i class="fas fa-check-circle"></i> Test OAuth Connection
+                        </button>
+                    </div>
+                </div>
+                
+                <hr class="my-4">
+                
+                <!-- SMTP Configuration Section -->
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="fas fa-mail-bulk section-icon"></i>SMTP Configuration (Legacy)
+                        <span id="emailStatus" class="status-indicator"></span>
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="smtp_server" class="form-label">SMTP Server</label>
+                                <input type="text" class="form-control" id="smtp_server" placeholder="smtp.office365.com">
+                                <small class="form-text">Your Exchange or Office 365 SMTP server</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="smtp_port" class="form-label">SMTP Port</label>
+                                <input type="number" class="form-control" id="smtp_port" placeholder="587" value="587">
+                                <small class="form-text">Usually 587 for TLS or 25 for standard</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle"></i> <strong>Shared Mailbox Configuration:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Use your personal account that has "Send As" permissions for the shared mailbox</li>
+                            <li><strong>Important:</strong> If SMTP authentication is disabled, create an App Password:
+                                <ol class="mt-1">
+                                    <li>Go to <a href="https://account.microsoft.com/security" target="_blank">Microsoft Account Security</a></li>
+                                    <li>Create an App Password under "Advanced security options"</li>
+                                    <li>Use the App Password instead of your regular password</li>
+                                </ol>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="smtp_auth_email" class="form-label">Your Email (Authentication)</label>
+                                <input type="email" class="form-control" id="smtp_auth_email" placeholder="your.email@yourcompany.com">
+                                <small class="form-text">Your personal email with Send As permissions</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3 position-relative">
+                                <label for="smtp_auth_password" class="form-label">Your Password</label>
+                                <input type="password" class="form-control" id="smtp_auth_password" placeholder="Your account password">
+                                <i class="fas fa-eye password-toggle" onclick="togglePassword('smtp_auth_password')"></i>
+                                <small class="form-text">Your personal account password</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="smtp_sender_email" class="form-label">Shared Mailbox Address</label>
+                                <input type="email" class="form-control" id="smtp_sender_email" placeholder="returns@yourcompany.com">
+                                <small class="form-text">The shared mailbox (will appear as sender)</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="smtp_sender_name" class="form-label">Sender Display Name</label>
+                                <input type="text" class="form-control" id="smtp_sender_name" placeholder="Warehance Returns Team">
+                                <small class="form-text">Display name for the shared mailbox</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Security</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="smtp_use_tls" checked>
+                                    <label class="form-check-label" for="smtp_use_tls">
+                                        Use TLS/STARTTLS
+                                    </label>
+                                </div>
+                                <small class="form-text">Enable for secure connection</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button class="btn btn-save me-2" onclick="saveEmailSettings()">
+                            <i class="fas fa-save"></i> Save Email Settings
+                        </button>
+                        <button class="btn btn-test" onclick="testEmailConnection()">
+                            <i class="fas fa-check-circle"></i> Test Connection
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Settings -->
+            <div class="tab-pane fade" id="api-settings" role="tabpanel">
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="fas fa-key section-icon"></i>Warehance API Configuration
+                    </h4>
+                    
+                    <div class="mb-3">
+                        <label for="api_key" class="form-label">API Key</label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="api_key" placeholder="WH_...">
+                            <button class="btn btn-outline-secondary" type="button" onclick="togglePassword('api_key')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                        <small class="form-text">Your Warehance API key for accessing returns data</small>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button class="btn btn-save" onclick="saveAPISettings()">
+                            <i class="fas fa-save"></i> Save API Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sync Settings -->
+            <div class="tab-pane fade" id="sync-settings" role="tabpanel">
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="fas fa-sync-alt section-icon"></i>Synchronization Settings
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sync_batch_size" class="form-label">Batch Size</label>
+                                <input type="number" class="form-control" id="sync_batch_size" min="1" max="100">
+                                <small class="form-text">Number of orders to fetch per batch (1-100)</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sync_max_orders" class="form-label">Max Orders per Sync</label>
+                                <input type="number" class="form-control" id="sync_max_orders" min="50" max="1000">
+                                <small class="form-text">Maximum orders to process in one sync (50-1000)</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button class="btn btn-save" onclick="saveSyncSettings()">
+                            <i class="fas fa-save"></i> Save Sync Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- General Settings -->
+            <div class="tab-pane fade" id="general-settings" role="tabpanel">
+                <div class="settings-section">
+                    <h4 class="section-title">
+                        <i class="fas fa-building section-icon"></i>Company Information
+                    </h4>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="company_name" class="form-label">Company Name</label>
+                                <input type="text" class="form-control" id="company_name">
+                                <small class="form-text">Your company name for reports</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="support_email" class="form-label">Support Email</label>
+                                <input type="email" class="form-control" id="support_email">
+                                <small class="form-text">Contact email for customer support</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="support_phone" class="form-label">Support Phone</label>
+                                <input type="text" class="form-control" id="support_phone">
+                                <small class="form-text">Contact phone for customer support</small>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="export_limit" class="form-label">Export Row Limit</label>
+                                <input type="number" class="form-control" id="export_limit" min="100" max="10000">
+                                <small class="form-text">Maximum rows in CSV exports</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button class="btn btn-save" onclick="saveGeneralSettings()">
+                            <i class="fas fa-save"></i> Save General Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Load settings on page load
+        $(document).ready(function() {
+            loadAllSettings();
+        });
+        
+        function loadAllSettings() {
+            $.get('/api/settings', function(data) {
+                // Populate all fields with settings
+                data.forEach(setting => {
+                    const element = $('#' + setting.key);
+                    if (element.length) {
+                        if (element.attr('type') === 'checkbox') {
+                            element.prop('checked', setting.value === 'true');
+                        } else {
+                            element.val(setting.value);
+                        }
+                    }
+                });
+                
+                // Check email configuration status
+                checkEmailStatus();
+            });
+        }
+        
+        function checkEmailStatus() {
+            const hasAuthPassword = $('#smtp_auth_password').val() !== '';
+            const hasAuthEmail = $('#smtp_auth_email').val() !== '';
+            const hasSenderEmail = $('#smtp_sender_email').val() !== '';
+            const statusIndicator = $('#emailStatus');
+            
+            if (hasAuthPassword && hasAuthEmail && hasSenderEmail) {
+                statusIndicator.removeClass('status-not-configured').addClass('status-configured');
+            } else {
+                statusIndicator.removeClass('status-configured').addClass('status-not-configured');
+            }
+        }
+        
+        function togglePassword(fieldId) {
+            const field = $('#' + fieldId);
+            const icon = field.siblings('.password-toggle').find('i, svg');
+            
+            if (field.attr('type') === 'password') {
+                field.attr('type', 'text');
+                icon.removeClass('fa-eye').addClass('fa-eye-slash');
+            } else {
+                field.attr('type', 'password');
+                icon.removeClass('fa-eye-slash').addClass('fa-eye');
+            }
+        }
+        
+        function showAlert(message, type = 'success') {
+            const alertHtml = `
+                <div class="alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show" role="alert">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            $('#alertContainer').html(alertHtml);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                $('.alert').fadeOut();
+            }, 5000);
+        }
+        
+        function saveEmailSettings() {
+            const settings = {
+                smtp_server: $('#smtp_server').val(),
+                smtp_port: $('#smtp_port').val(),
+                auth_email: $('#smtp_auth_email').val(),
+                auth_password: $('#smtp_auth_password').val(),
+                sender_email: $('#smtp_sender_email').val(),
+                sender_name: $('#smtp_sender_name').val(),
+                use_tls: $('#smtp_use_tls').is(':checked')
+            };
+            
+            saveSettings(settings, 'Email settings saved successfully!');
+        }
+        
+        function saveAPISettings() {
+            const settings = {
+                api_key: $('#api_key').val()
+            };
+            
+            saveSettings(settings, 'API settings saved successfully!');
+        }
+        
+        function saveSyncSettings() {
+            const settings = {
+                sync_batch_size: $('#sync_batch_size').val(),
+                sync_max_orders: $('#sync_max_orders').val()
+            };
+            
+            saveSettings(settings, 'Sync settings saved successfully!');
+        }
+        
+        function saveGeneralSettings() {
+            const settings = {
+                company_name: $('#company_name').val(),
+                support_email: $('#support_email').val(),
+                support_phone: $('#support_phone').val(),
+                export_limit: $('#export_limit').val()
+            };
+            
+            saveSettings(settings, 'General settings saved successfully!');
+        }
+        
+        function saveSettings(settings, successMessage) {
+            $.ajax({
+                url: '/api/settings',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(settings),
+                success: function() {
+                    showAlert(successMessage, 'success');
+                    checkEmailStatus();
+                },
+                error: function(xhr) {
+                    showAlert('Error saving settings: ' + xhr.responseJSON.detail, 'error');
+                }
+            });
+        }
+        
+        function saveOAuthSettings() {
+            const settings = {
+                oauth_tenant_id: $('#oauth_tenant_id').val(),
+                oauth_client_id: $('#oauth_client_id').val(),
+                oauth_client_secret: $('#oauth_client_secret').val(),
+                oauth_sender_email: $('#oauth_sender_email').val()
+            };
+            
+            saveSettings(settings, 'OAuth settings saved successfully!');
+        }
+        
+        function testOAuthConnection() {
+            const testRecipient = prompt('Enter email address to send test email to:', 'chrisc@uptimeops.net');
+            if (!testRecipient) return;
+            
+            const config = {
+                tenant_id: $('#oauth_tenant_id').val(),
+                client_id: $('#oauth_client_id').val(),
+                client_secret: $('#oauth_client_secret').val(),
+                sender_email: $('#oauth_sender_email').val(),
+                test_recipient: testRecipient
+            };
+            
+            showAlert('Testing OAuth connection...', 'info');
+            
+            $.ajax({
+                url: '/api/test-email-oauth',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config),
+                success: function(response) {
+                    showAlert('OAuth test successful! Email sent to ' + testRecipient, 'success');
+                },
+                error: function(xhr) {
+                    showAlert('OAuth test failed: ' + (xhr.responseJSON?.detail || 'Unknown error'), 'error');
+                }
+            });
+        }
+        
+        function showAzureGuide() {
+            const guideHtml = `
+                <div class="modal fade" id="azureGuideModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Azure AD App Registration Guide</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <h6>Step 1: Register a new application</h6>
+                                <ol>
+                                    <li>Go to <a href="https://portal.azure.com" target="_blank">Azure Portal</a></li>
+                                    <li>Navigate to Azure Active Directory → App registrations</li>
+                                    <li>Click "New registration"</li>
+                                    <li>Name: "Warehance Returns Email"</li>
+                                    <li>Account types: "Accounts in this organizational directory only"</li>
+                                    <li>Click "Register"</li>
+                                </ol>
+                                
+                                <h6 class="mt-3">Step 2: Configure API permissions</h6>
+                                <ol>
+                                    <li>In your app, go to "API permissions"</li>
+                                    <li>Click "Add a permission" → "Microsoft Graph"</li>
+                                    <li>Choose "Application permissions"</li>
+                                    <li>Add these permissions:
+                                        <ul>
+                                            <li><code>Mail.Send</code></li>
+                                            <li><code>User.Read.All</code> (optional)</li>
+                                        </ul>
+                                    </li>
+                                    <li>Click "Grant admin consent" (requires admin)</li>
+                                </ol>
+                                
+                                <h6 class="mt-3">Step 3: Create client secret</h6>
+                                <ol>
+                                    <li>Go to "Certificates & secrets"</li>
+                                    <li>Click "New client secret"</li>
+                                    <li>Description: "Warehance Returns"</li>
+                                    <li>Expiry: Choose appropriate duration</li>
+                                    <li><strong>Copy the secret value immediately!</strong></li>
+                                </ol>
+                                
+                                <h6 class="mt-3">Step 4: Get your IDs</h6>
+                                <ul>
+                                    <li><strong>Tenant ID:</strong> Azure AD → Overview</li>
+                                    <li><strong>Client ID:</strong> Your app → Overview → Application (client) ID</li>
+                                    <li><strong>Client Secret:</strong> The value you copied in Step 3</li>
+                                </ul>
+                                
+                                <div class="alert alert-warning mt-3">
+                                    <i class="fas fa-exclamation-triangle"></i> 
+                                    Make sure an admin grants consent for the Mail.Send permission!
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            $('body').append(guideHtml);
+            $('#azureGuideModal').modal('show');
+            $('#azureGuideModal').on('hidden.bs.modal', function() {
+                $(this).remove();
+            });
+        }
+        
+        function testEmailConnection() {
+            const testRecipient = prompt('Enter email address to send test email to:', $('#smtp_auth_email').val());
+            if (!testRecipient) return;
+            
+            const config = {
+                smtp_server: $('#smtp_server').val(),
+                smtp_port: $('#smtp_port').val(),
+                auth_email: $('#smtp_auth_email').val(),
+                auth_password: $('#smtp_auth_password').val(),
+                sender_email: $('#smtp_sender_email').val(),
+                sender_name: $('#smtp_sender_name').val(),
+                use_tls: $('#smtp_use_tls').is(':checked'),
+                test_recipient: testRecipient
+            };
+            
+            showAlert('Sending test email...', 'info');
+            
+            $.ajax({
+                url: '/api/test-email',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(config),
+                success: function(response) {
+                    showAlert('Test email sent successfully! Check ' + testRecipient + ' inbox.', 'success');
+                },
+                error: function(xhr) {
+                    showAlert('Email test failed: ' + (xhr.responseJSON?.detail || 'Unknown error'), 'error');
+                }
+            });
+        }
+    </script>
+</body>
+</html>

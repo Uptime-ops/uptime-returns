@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:developer.warehance.com)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\web\\templates/**)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\web\\templates/**)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\web/**)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\web/**)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\web/**)",
+      "Read(/C:\\Users\\ccayo\\OneDrive\\Desktop\\Warehance Returns\\database/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

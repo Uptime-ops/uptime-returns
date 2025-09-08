@@ -1,0 +1,68 @@
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Database (exclude local SQLite files)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+warehance_returns.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Azure
+.deployment
+local.settings.json
+.azure/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+nul
+
+# Test/Development files
+test_*.csv
+*_test.csv
+current_export.csv
+final_export*.csv
+new_format*.csv
+real_products_export.csv
+return_api_response.json
+bash.exe.stackdump
+
+# Local test scripts
+populate_*.py
+test_*.py
+check_*.py
+clear_*.py
+
+# Sensitive data
+*_config_local.py
+secrets/
