@@ -2,17 +2,9 @@
 
 echo "Starting Uptime Returns application..."
 
-# Navigate to the application directory
-cd /home/site/wwwroot
+# Navigate to web directory where the app is
+cd /home/site/wwwroot/web
 
-# Install Python dependencies
-echo "Installing dependencies..."
-pip install --upgrade pip
-pip install -r requirements.txt
-
-# Navigate to web directory
-cd web
-
-# Start the application
+# Start the application directly (dependencies should be pre-installed during build)
 echo "Starting FastAPI application..."
 python enhanced_app.py
