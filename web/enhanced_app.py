@@ -154,40 +154,49 @@ async def get_dashboard_stats():
     row = cursor.fetchone()
     stats['processed_returns'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(DISTINCT client_id) FROM returns WHERE client_id IS NOT NULL")
-    stats['total_clients'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
+    row = cursor.fetchone()
+    stats['total_clients'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(DISTINCT warehouse_id) FROM returns WHERE warehouse_id IS NOT NULL")
-    stats['total_warehouses'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
+    row = cursor.fetchone()
+    stats['total_warehouses'] = row[0] if row else 0
     
     # Get return counts by time period
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE DATE(created_at) = DATE('now')")
-    stats['returns_today'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
+    row = cursor.fetchone()
+    stats['returns_today'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
-    stats['returns_this_week'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
+    row = cursor.fetchone()
+    stats['returns_this_week'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
-    stats['returns_this_month'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
+    row = cursor.fetchone()
+    stats['returns_this_month'] = row[0] if row else 0
     
     # Count of unshared returns
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
-    stats['unshared_returns'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
+    row = cursor.fetchone()
+    stats['unshared_returns'] = row[0] if row else 0
     
     # Get last sync time
-    cursor.execute("SELECT MAX(completed_at) FROM sync_logs WHERE status = 'completed'")
-    last_sync = cursor.fetchone()[0]
-    stats['last_sync'] = last_sync
+    cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
+    row = cursor.fetchone()
+    stats['last_sync'] = row[0] if row else None
     
     # Get product statistics
-    cursor.execute("SELECT COUNT(*) FROM products")
-    stats['total_products'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM products")
+    row = cursor.fetchone()
+    stats['total_products'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) FROM return_items")
-    stats['total_return_items'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM return_items")
+    row = cursor.fetchone()
+    stats['total_return_items'] = row[0] if row else 0
     
-    cursor.execute("SELECT SUM(quantity) FROM return_items")
-    stats['total_returned_quantity'] = cursor.fetchone()[0] or 0
+    cursor.execute("SELECT SUM(quantity) as total FROM return_items")
+    row = cursor.fetchone()
+    stats['total_returned_quantity'] = row[0] if row else 0
     
     conn.close()
     return stats
@@ -703,8 +712,16 @@ async def get_sync_status():
     """)
     result = cursor.fetchone()
     
-    if result and result[0]:
-        sync_status["last_sync"] = result[0]
+    # Handle both SQLite and Azure SQL
+    last_sync_value = None
+    if result:
+        if USE_AZURE_SQL:
+            last_sync_value = result[0] if result else None
+        else:
+            last_sync_value = result[0] if result else None
+    
+    if last_sync_value:
+        sync_status["last_sync"] = last_sync_value
     
     conn.close()
     
@@ -957,12 +974,14 @@ async def send_returns_email(request_data: dict):
             params.append(client_id)
         
         # Total returns
-        cursor.execute(f"SELECT COUNT(*) FROM returns r {where_clause}", params)
-        total_returns = cursor.fetchone()[0]
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", params)
+        row = cursor.fetchone()
+        total_returns = row[0] if row else 0
         
         # Processed returns
-        cursor.execute(f"SELECT COUNT(*) FROM returns r {where_clause} AND r.processed = 1", params)
-        processed_returns = cursor.fetchone()[0]
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", params)
+        row = cursor.fetchone()
+        processed_returns = row[0] if row else 0
         
         # Pending returns
         pending_returns = total_returns - processed_returns
@@ -974,7 +993,8 @@ async def send_returns_email(request_data: dict):
             JOIN returns r ON ri.return_id = r.id 
             {where_clause}
         """, params)
-        total_items = cursor.fetchone()[0] or 0
+        row = cursor.fetchone()
+        total_items = row[0] if row else 0
         
         # Top return reason
         cursor.execute(f"""
