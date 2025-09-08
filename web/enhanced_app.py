@@ -3,6 +3,14 @@ Enhanced FastAPI app with product details and CSV export
 """
 import sys
 import os
+
+# VERSION IDENTIFIER - Update this when deploying
+import datetime
+DEPLOYMENT_VERSION = "2025-01-08-20:00-PYMSSQL-FIX"
+DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
+print(f"=== STARTING ENHANCED_APP.PY VERSION: {DEPLOYMENT_VERSION} ===")
+print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import database drivers early
