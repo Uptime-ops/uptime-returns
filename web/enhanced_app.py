@@ -5,6 +5,13 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import database drivers early
+import sqlite3
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None  # Will use SQLite if pyodbc not available
+
 # Azure Environment Detection
 IS_AZURE = os.getenv('WEBSITE_INSTANCE_ID') is not None
 
@@ -57,13 +64,8 @@ from fastapi import FastAPI, Response, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
-import sqlite3
 import json
 import csv
-try:
-    import pyodbc
-except ImportError:
-    pyodbc = None  # Will use SQLite if pyodbc not available
 import io
 from datetime import datetime
 import asyncio
