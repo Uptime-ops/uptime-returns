@@ -49,7 +49,7 @@ else:
     
     def get_db_connection():
         """Get SQLite connection"""
-        conn = get_db_connection()
+        conn = sqlite3.connect(DATABASE_PATH)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -110,6 +110,21 @@ sync_status = {
     "items_synced": 0
 }
 
+# Helper functions for database row conversion
+def row_to_dict(cursor, row):
+    """Convert database row to dictionary for both SQLite and Azure SQL"""
+    if row is None:
+        return None
+    columns = [column[0] for column in cursor.description]
+    return dict(zip(columns, row))
+
+def rows_to_dict(cursor, rows):
+    """Convert multiple database rows to list of dictionaries"""
+    if not rows:
+        return []
+    columns = [column[0] for column in cursor.description]
+    return [dict(zip(columns, row)) for row in rows]
+
 @app.get("/")
 async def root():
     """Serve the main HTML dashboard"""
@@ -118,20 +133,24 @@ async def root():
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # Get various statistics
     stats = {}
     
-    cursor.execute("SELECT COUNT(*) FROM returns")
-    stats['total_returns'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns")
+    row = cursor.fetchone()
+    stats['total_returns'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE processed = 0")
-    stats['pending_returns'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
+    row = cursor.fetchone()
+    stats['pending_returns'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) FROM returns WHERE processed = 1")
-    stats['processed_returns'] = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
+    row = cursor.fetchone()
+    stats['processed_returns'] = row[0] if row else 0
     
     cursor.execute("SELECT COUNT(DISTINCT client_id) FROM returns WHERE client_id IS NOT NULL")
     stats['total_clients'] = cursor.fetchone()[0]
@@ -173,26 +192,51 @@ async def get_dashboard_stats():
 
 @app.get("/api/clients")
 async def get_clients():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM clients ORDER BY name")
-    clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
-    conn.close()
-    return clients
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM clients ORDER BY name")
+        
+        if USE_AZURE_SQL:
+            rows = cursor.fetchall()
+            clients = rows_to_dict(cursor, rows) if rows else []
+        else:
+            clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
+        
+        conn.close()
+        return clients
+    except Exception as e:
+        print(f"Error in get_clients: {str(e)}")
+        if 'conn' in locals():
+            conn.close()
+        return []
 
 @app.get("/api/warehouses")
 async def get_warehouses():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
-    warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
-    conn.close()
-    return warehouses
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
+        
+        if USE_AZURE_SQL:
+            rows = cursor.fetchall()
+            warehouses = rows_to_dict(cursor, rows) if rows else []
+        else:
+            warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
+        
+        conn.close()
+        return warehouses
+    except Exception as e:
+        print(f"Error in get_warehouses: {str(e)}")
+        if 'conn' in locals():
+            conn.close()
+        return []
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # Extract filter parameters
@@ -235,7 +279,8 @@ async def search_returns(filter_params: dict):
     # Get total count for pagination
     count_query = f"SELECT COUNT(*) FROM ({query}) as filtered"
     cursor.execute(count_query, params)
-    total = cursor.fetchone()[0]
+    row = cursor.fetchone()
+    total = row[0] if row else 0
     
     # Add pagination
     query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
@@ -245,30 +290,51 @@ async def search_returns(filter_params: dict):
     rows = cursor.fetchall()
     
     returns = []
+    if USE_AZURE_SQL:
+        rows = rows_to_dict(cursor, rows) if rows else []
+    
     for row in rows:
-        return_dict = {
-            "id": row['id'],
-            "status": row['status'] or '',
-            "created_at": row['created_at'],
-            "tracking_number": row['tracking_number'],
-            "processed": bool(row['processed']),
-            "api_id": row['api_id'],
-            "client_name": row['client_name'],
-            "warehouse_name": row['warehouse_name'],
-            "is_shared": False
-        }
+        if USE_AZURE_SQL:
+            return_dict = {
+                "id": row['id'],
+                "status": row['status'] or '',
+                "created_at": row['created_at'],
+                "tracking_number": row['tracking_number'],
+                "processed": bool(row['processed']),
+                "api_id": row['api_id'],
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name'],
+                "is_shared": False
+            }
+        else:
+            return_dict = {
+                "id": row['id'],
+                "status": row['status'] or '',
+                "created_at": row['created_at'],
+                "tracking_number": row['tracking_number'],
+                "processed": bool(row['processed']),
+                "api_id": row['api_id'],
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name'],
+                "is_shared": False
+            }
         
         # Include items if requested
         if include_items:
+            return_id = row['id'] if USE_AZURE_SQL else row['id']
             cursor.execute("""
                 SELECT ri.*, p.sku, p.name as product_name
                 FROM return_items ri
                 LEFT JOIN products p ON ri.product_id = p.id
                 WHERE ri.return_id = ?
-            """, (row['id'],))
+            """, (return_id,))
+            
+            item_rows = cursor.fetchall()
+            if USE_AZURE_SQL:
+                item_rows = rows_to_dict(cursor, item_rows) if item_rows else []
             
             items = []
-            for item_row in cursor.fetchall():
+            for item_row in item_rows:
                 items.append({
                     "id": item_row['id'],
                     "product_id": item_row['product_id'],
@@ -300,7 +366,8 @@ async def search_returns(filter_params: dict):
 async def get_return_detail(return_id: int):
     """Get detailed information for a specific return including order items if available"""
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # Get return details
@@ -421,7 +488,8 @@ async def get_return_detail(return_id: int):
 async def export_returns_csv(filter_params: dict):
     """Export returns with product details to CSV"""
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # First get all returns matching the filter
@@ -462,6 +530,10 @@ async def export_returns_csv(filter_params: dict):
     cursor.execute(query, params)
     returns = cursor.fetchall()
     
+    # Convert rows to dict for Azure SQL
+    if USE_AZURE_SQL:
+        returns = rows_to_dict(cursor, returns) if returns else []
+    
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
@@ -489,6 +561,10 @@ async def export_returns_csv(filter_params: dict):
             WHERE ri.return_id = ?
         """, (return_id,))
         items = cursor.fetchall()
+        
+        # Convert items to dict for Azure SQL
+        if USE_AZURE_SQL:
+            items = rows_to_dict(cursor, items) if items else []
         
         if items:
             # Write return items from database
@@ -1049,7 +1125,8 @@ async def send_returns_email(request_data: dict):
 async def get_email_history(client_id: Optional[int] = None):
     """Get email history with optional client filter"""
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     query = "SELECT * FROM email_history WHERE 1=1"
@@ -1062,7 +1139,12 @@ async def get_email_history(client_id: Optional[int] = None):
     query += " ORDER BY sent_date DESC"
     
     cursor.execute(query, params)
-    emails = [dict(row) for row in cursor.fetchall()]
+    rows = cursor.fetchall()
+    
+    if USE_AZURE_SQL:
+        emails = rows_to_dict(cursor, rows) if rows else []
+    else:
+        emails = [dict(row) for row in rows]
     
     conn.close()
     
@@ -1101,7 +1183,8 @@ async def settings_page():
 async def get_settings():
     """Get all system settings"""
     conn = get_db_connection()
-    conn.row_factory = sqlite3.Row
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
     # Create settings table if it doesn't exist
@@ -1117,6 +1200,10 @@ async def get_settings():
     # Get all settings
     cursor.execute("SELECT key, value FROM settings")
     settings_rows = cursor.fetchall()
+    
+    # Convert rows for Azure SQL
+    if USE_AZURE_SQL:
+        settings_rows = rows_to_dict(cursor, settings_rows) if settings_rows else []
     
     # Convert to dictionary
     settings = {}
