@@ -11,15 +11,18 @@ if [ ! -z "$WEBSITE_INSTANCE_ID" ]; then
     if odbcinst -q -d 2>/dev/null | grep -q "ODBC Driver.*SQL Server"; then
         echo "ODBC drivers already installed"
     else
-        echo "Installing ODBC drivers..."
+        echo "Attempting to install ODBC drivers..."
         
-        # Add Microsoft's GPG key and repository
-        curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - 2>/dev/null || true
-        curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list 2>/dev/null || true
-        
-        # Update and install
-        apt-get update -qq 2>/dev/null || true
-        ACCEPT_EULA=Y apt-get install -y -qq msodbcsql17 msodbcsql18 unixodbc-dev 2>/dev/null || true
+        # Try to use apt-get if available (may not have permissions)
+        if command -v apt-get &> /dev/null; then
+            # Add Microsoft's GPG key and repository
+            curl -sSL https://packages.microsoft.com/keys/microsoft.asc 2>/dev/null | apt-key add - 2>/dev/null || true
+            curl -sSL https://packages.microsoft.com/config/debian/11/prod.list 2>/dev/null > /etc/apt/sources.list.d/mssql-release.list 2>/dev/null || true
+            
+            # Update and install
+            apt-get update -qq 2>/dev/null || true
+            ACCEPT_EULA=Y apt-get install -y -qq msodbcsql17 msodbcsql18 unixodbc-dev 2>/dev/null || true
+        fi
         
         # If apt-get fails, try alternative method
         if [ $? -ne 0 ]; then

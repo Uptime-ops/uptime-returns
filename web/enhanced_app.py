@@ -9,8 +9,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sqlite3
 try:
     import pyodbc
+    print("pyodbc imported successfully")
 except ImportError:
     pyodbc = None  # Will use SQLite if pyodbc not available
+    print("pyodbc not available")
+    
+# Try pymssql as fallback for Azure SQL
+try:
+    import pymssql
+    print("pymssql imported successfully")
+except ImportError:
+    pymssql = None
+    print("pymssql not available")
 
 # Azure Environment Detection
 IS_AZURE = os.getenv('WEBSITE_INSTANCE_ID') is not None
@@ -112,8 +122,37 @@ if USE_AZURE_SQL:
                 conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
                 conn.setencoding(encoding='utf-8')
                 return conn
+        elif pymssql:
+            # Fallback to pymssql if pyodbc is not available
+            print("Using pymssql as fallback for Azure SQL")
+            
+            # Parse DATABASE_URL for pymssql
+            import re
+            # Extract components from connection string
+            # Expected format: Server=xxx.database.windows.net;Database=xxx;User ID=xxx;Password=xxx
+            pattern = r'Server=([^;]+);.*Database=([^;]+);.*User ID=([^;]+);.*Password=([^;]+)'
+            match = re.search(pattern, DATABASE_URL)
+            
+            if match:
+                server = match.group(1)
+                database = match.group(2)
+                username = match.group(3)
+                password = match.group(4)
+                
+                # Connect using pymssql
+                conn = pymssql.connect(
+                    server=server,
+                    user=username,
+                    password=password,
+                    database=database,
+                    as_dict=True,
+                    tds_version='7.4'
+                )
+                return conn
+            else:
+                raise Exception("Could not parse DATABASE_URL for pymssql")
         else:
-            raise Exception("pyodbc not installed - needed for Azure SQL")
+            raise Exception("Neither pyodbc nor pymssql installed - needed for Azure SQL")
 else:
     # SQLite configuration
     if IS_AZURE:

@@ -1,0 +1,10 @@
+# Azure-specific requirements
+fastapi==0.104.1
+uvicorn[standard]==0.24.0.post1
+pyodbc==5.0.1
+pymssql==2.2.11  # Fallback for SQL Server connection
+sqlalchemy==2.0.23
+python-multipart==0.0.6
+httpx==0.25.2
+requests==2.31.0
+aiofiles==23.2.1
