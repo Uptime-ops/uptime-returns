@@ -29,6 +29,18 @@ USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
+    
+    # First, list all available ODBC drivers for diagnostics
+    print("=== ODBC Driver Diagnostics ===")
+    try:
+        available_drivers = pyodbc.drivers()
+        print(f"Available ODBC drivers: {available_drivers}")
+        if not available_drivers:
+            print("WARNING: No ODBC drivers detected! This may be a configuration issue.")
+    except Exception as e:
+        print(f"ERROR listing drivers: {e}")
+    print("================================")
+    
     # Parse the connection string for pyodbc
     import urllib
     
@@ -61,15 +73,28 @@ if USE_AZURE_SQL:
             
             # Try different connection string formats
             if 'Driver=' not in conn_str and 'DRIVER=' not in conn_str:
+                # Check what drivers are available
+                available_drivers = pyodbc.drivers()
+                print(f"Detected ODBC drivers via pyodbc: {available_drivers}")
+                
                 # Try multiple drivers in order of likelihood
+                # Include some variations that might work on Azure Linux
                 drivers = [
                     'ODBC Driver 17 for SQL Server',
                     'ODBC Driver 18 for SQL Server',
+                    '/opt/microsoft/msodbcsql17/lib64/libmsodbcsql-17.10.so.6.1',  # Direct .so path
+                    '/opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.3.so.2.1',   # Direct .so path
                     'SQL Server Native Client 11.0',
                     'SQL Server',
                     'FreeTDS',
-                    'ODBC Driver 13 for SQL Server'
+                    'ODBC Driver 13 for SQL Server',
+                    'libmsodbcsql-17.so',  # Short .so name
+                    'libmsodbcsql-18.so'   # Short .so name
                 ]
+                
+                # If we detected drivers, prioritize those
+                if available_drivers:
+                    drivers = available_drivers + drivers
                 
                 for driver in drivers:
                     try:
@@ -87,13 +112,20 @@ if USE_AZURE_SQL:
                         conn.setencoding(encoding='utf-8')
                         return conn
                     except Exception as e:
-                        print(f"Failed with {driver}: {str(e)[:100]}")
+                        error_msg = str(e)[:200]
+                        print(f"Failed with {driver}: {error_msg}")
                         continue
                 
-                # If no driver worked, list what's available
-                available = pyodbc.drivers()
-                print(f"ERROR: No driver worked. Available drivers: {available}")
-                raise Exception(f"Could not connect to Azure SQL. Available drivers: {available}")
+                # If no driver worked, show diagnostic info
+                import subprocess
+                try:
+                    odbcinst_output = subprocess.run(['odbcinst', '-q', '-d'], capture_output=True, text=True, timeout=5)
+                    print(f"odbcinst drivers: {odbcinst_output.stdout}")
+                except:
+                    print("Could not run odbcinst command")
+                
+                print(f"ERROR: No driver worked. pyodbc.drivers() returned: {available_drivers}")
+                raise Exception(f"Could not connect to Azure SQL. Available drivers: {available_drivers}")
             else:
                 # Connection string already has a driver
                 conn = pyodbc.connect(conn_str)
