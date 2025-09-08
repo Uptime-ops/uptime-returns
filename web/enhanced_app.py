@@ -38,8 +38,9 @@ if USE_AZURE_SQL:
     
     # Check if the connection string has a driver specified
     if 'Driver=' not in conn_str and 'DRIVER=' not in conn_str:
-        # Add the ODBC driver for Azure SQL
-        conn_str = f"DRIVER={{ODBC Driver 18 for SQL Server}};{conn_str}"
+        # Try different ODBC driver versions that might be available
+        # Azure App Service on Linux typically has ODBC Driver 17
+        conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};{conn_str}"
     
     # Add additional connection parameters if not present
     if 'TrustServerCertificate=' not in conn_str:
@@ -52,7 +53,40 @@ if USE_AZURE_SQL:
     def get_db_connection():
         """Get Azure SQL connection"""
         if pyodbc:
-            conn = pyodbc.connect(conn_str)
+            # Try to connect with the configured connection string
+            try:
+                conn = pyodbc.connect(conn_str)
+            except pyodbc.InterfaceError as e:
+                if 'IM002' in str(e):
+                    # Driver not found, try alternative drivers
+                    drivers_to_try = [
+                        'ODBC Driver 17 for SQL Server',
+                        'ODBC Driver 18 for SQL Server', 
+                        'SQL Server',
+                        'FreeTDS'
+                    ]
+                    
+                    for driver in drivers_to_try:
+                        try:
+                            alt_conn_str = DATABASE_URL
+                            if 'Driver=' not in alt_conn_str and 'DRIVER=' not in alt_conn_str:
+                                alt_conn_str = f"DRIVER={{{driver}}};{alt_conn_str}"
+                            if 'TrustServerCertificate=' not in alt_conn_str:
+                                alt_conn_str += ';TrustServerCertificate=yes'
+                            
+                            print(f"Trying driver: {driver}")
+                            conn = pyodbc.connect(alt_conn_str)
+                            print(f"Successfully connected with driver: {driver}")
+                            break
+                        except:
+                            continue
+                    else:
+                        # No driver worked, list available drivers
+                        print(f"Available ODBC drivers: {pyodbc.drivers()}")
+                        raise Exception(f"Could not connect to Azure SQL. Available drivers: {pyodbc.drivers()}")
+                else:
+                    raise
+            
             # Enable row as dictionary
             conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
             conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
