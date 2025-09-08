@@ -16,4 +16,5 @@ cd /home/site/wwwroot/web
 
 # Start the application directly (dependencies should be pre-installed during build)
 echo "Starting FastAPI application..."
-python enhanced_app.py
+echo "Using app_v2.py to force Azure to use updated code"
+python app_v2.py
