@@ -32,9 +32,22 @@ if USE_AZURE_SQL:
     # Parse the connection string for pyodbc
     import urllib
     
-    # Azure SQL connection string format
-    # Server=tcp:server.database.windows.net,1433;Database=db;User ID=user;Password=pass;...
+    # Azure SQL connection string should be in pyodbc format
+    # If it's not, we need to add the ODBC driver
     conn_str = DATABASE_URL
+    
+    # Check if the connection string has a driver specified
+    if 'Driver=' not in conn_str and 'DRIVER=' not in conn_str:
+        # Add the ODBC driver for Azure SQL
+        conn_str = f"DRIVER={{ODBC Driver 18 for SQL Server}};{conn_str}"
+    
+    # Add additional connection parameters if not present
+    if 'TrustServerCertificate=' not in conn_str:
+        conn_str += ';TrustServerCertificate=yes'
+    if 'Connection Timeout=' not in conn_str:
+        conn_str += ';Connection Timeout=30'
+    
+    print(f"Connection string configured: {conn_str.split('Password')[0]}...")  # Log without password
     
     def get_db_connection():
         """Get Azure SQL connection"""
