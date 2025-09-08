@@ -134,72 +134,93 @@ async def root():
 
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get various statistics
+        stats = {}
+        
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        row = cursor.fetchone()
+        stats['total_returns'] = row[0] if row else 0
+        
+        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
+        row = cursor.fetchone()
+        stats['pending_returns'] = row[0] if row else 0
+        
+        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
+        row = cursor.fetchone()
+        stats['processed_returns'] = row[0] if row else 0
     
-    # Get various statistics
-    stats = {}
+        cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
+        row = cursor.fetchone()
+        stats['total_clients'] = row[0] if row else 0
+        
+        cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
+        row = cursor.fetchone()
+        stats['total_warehouses'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) as count FROM returns")
-    row = cursor.fetchone()
-    stats['total_returns'] = row[0] if row else 0
+        # Get return counts by time period
+        if USE_AZURE_SQL:
+            # Azure SQL syntax
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE CAST(created_at AS DATE) = CAST(GETDATE() AS DATE)")
+            row = cursor.fetchone()
+            stats['returns_today'] = row[0] if row else 0
+            
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -7, GETDATE())")
+            row = cursor.fetchone()
+            stats['returns_this_week'] = row[0] if row else 0
+            
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -30, GETDATE())")
+            row = cursor.fetchone()
+            stats['returns_this_month'] = row[0] if row else 0
+        else:
+            # SQLite syntax
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
+            row = cursor.fetchone()
+            stats['returns_today'] = row[0] if row else 0
+            
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
+            row = cursor.fetchone()
+            stats['returns_this_week'] = row[0] if row else 0
+            
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
+            row = cursor.fetchone()
+            stats['returns_this_month'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
-    row = cursor.fetchone()
-    stats['pending_returns'] = row[0] if row else 0
+        # Count of unshared returns
+        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
+        row = cursor.fetchone()
+        stats['unshared_returns'] = row[0] if row else 0
+        
+        # Get last sync time
+        cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
+        row = cursor.fetchone()
+        stats['last_sync'] = row[0] if row else None
+        
+        # Get product statistics
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        row = cursor.fetchone()
+        stats['total_products'] = row[0] if row else 0
+        
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        row = cursor.fetchone()
+        stats['total_return_items'] = row[0] if row else 0
+        
+        cursor.execute("SELECT SUM(quantity) as total FROM return_items")
+        row = cursor.fetchone()
+        stats['total_returned_quantity'] = row[0] if row else 0
     
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
-    row = cursor.fetchone()
-    stats['processed_returns'] = row[0] if row else 0
-    
-    cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
-    row = cursor.fetchone()
-    stats['total_clients'] = row[0] if row else 0
-    
-    cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
-    row = cursor.fetchone()
-    stats['total_warehouses'] = row[0] if row else 0
-    
-    # Get return counts by time period
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
-    row = cursor.fetchone()
-    stats['returns_today'] = row[0] if row else 0
-    
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
-    row = cursor.fetchone()
-    stats['returns_this_week'] = row[0] if row else 0
-    
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
-    row = cursor.fetchone()
-    stats['returns_this_month'] = row[0] if row else 0
-    
-    # Count of unshared returns
-    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
-    row = cursor.fetchone()
-    stats['unshared_returns'] = row[0] if row else 0
-    
-    # Get last sync time
-    cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
-    row = cursor.fetchone()
-    stats['last_sync'] = row[0] if row else None
-    
-    # Get product statistics
-    cursor.execute("SELECT COUNT(*) as count FROM products")
-    row = cursor.fetchone()
-    stats['total_products'] = row[0] if row else 0
-    
-    cursor.execute("SELECT COUNT(*) as count FROM return_items")
-    row = cursor.fetchone()
-    stats['total_return_items'] = row[0] if row else 0
-    
-    cursor.execute("SELECT SUM(quantity) as total FROM return_items")
-    row = cursor.fetchone()
-    stats['total_returned_quantity'] = row[0] if row else 0
-    
-    conn.close()
-    return stats
+        conn.close()
+        return stats
+    except Exception as e:
+        print(f"Error in dashboard stats: {str(e)}")
+        if 'conn' in locals():
+            conn.close()
+        return {"error": str(e), "stats": {}}
 
 @app.get("/api/clients")
 async def get_clients():
@@ -701,39 +722,50 @@ async def get_sync_status():
     """Get current sync status"""
     global sync_status
     
-    # Get last sync from database
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    try:
+        # Get last sync from database
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT MAX(last_synced_at) as last_sync
+            FROM returns
+            WHERE last_synced_at IS NOT NULL
+        """)
+        result = cursor.fetchone()
+        
+        # Handle both SQLite and Azure SQL
+        last_sync_value = None
+        if result:
+            if USE_AZURE_SQL:
+                last_sync_value = result[0] if result else None
+            else:
+                last_sync_value = result[0] if result else None
+        
+        if last_sync_value:
+            sync_status["last_sync"] = last_sync_value
     
-    cursor.execute("""
-        SELECT MAX(last_synced_at) as last_sync
-        FROM returns
-        WHERE last_synced_at IS NOT NULL
-    """)
-    result = cursor.fetchone()
-    
-    # Handle both SQLite and Azure SQL
-    last_sync_value = None
-    if result:
-        if USE_AZURE_SQL:
-            last_sync_value = result[0] if result else None
-        else:
-            last_sync_value = result[0] if result else None
-    
-    if last_sync_value:
-        sync_status["last_sync"] = last_sync_value
-    
-    conn.close()
-    
-    return {
-        "current_sync": {
-            "status": "running" if sync_status["is_running"] else "completed",
-            "items_synced": sync_status["items_synced"]
-        },
-        "last_sync": sync_status["last_sync"],
-        "last_sync_status": sync_status["last_sync_status"],
-        "last_sync_message": sync_status["last_sync_message"]
-    }
+        conn.close()
+        
+        return {
+            "current_sync": {
+                "status": "running" if sync_status["is_running"] else "completed",
+                "items_synced": sync_status["items_synced"]
+            },
+            "last_sync": sync_status["last_sync"],
+            "last_sync_status": sync_status["last_sync_status"],
+            "last_sync_message": sync_status["last_sync_message"]
+        }
+    except Exception as e:
+        print(f"Error in sync status: {str(e)}")
+        if 'conn' in locals():
+            conn.close()
+        return {
+            "current_sync": {"status": "error", "items_synced": 0},
+            "last_sync": None,
+            "last_sync_status": "error",
+            "last_sync_message": str(e)
+        }
 
 async def run_sync():
     """Run the actual sync process"""
