@@ -13,12 +13,45 @@ AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY', 'WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa')
+if not WAREHANCE_API_KEY:
+    WAREHANCE_API_KEY = 'WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa'  # Fallback for local testing
 
-# Database path configuration
-if IS_AZURE:
-    DATABASE_PATH = '/home/warehance_returns.db'
+# Database configuration
+DATABASE_URL = os.getenv('DATABASE_URL', '')
+USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or 'database.azure.com' in DATABASE_URL))
+
+if USE_AZURE_SQL:
+    print(f"Using Azure SQL Database")
+    # Parse the connection string for pyodbc
+    import urllib
+    
+    # Azure SQL connection string format
+    # Server=tcp:server.database.windows.net,1433;Database=db;User ID=user;Password=pass;...
+    conn_str = DATABASE_URL
+    
+    def get_db_connection():
+        """Get Azure SQL connection"""
+        if pyodbc:
+            conn = pyodbc.connect(conn_str)
+            # Enable row as dictionary
+            conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
+            conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
+            conn.setencoding(encoding='utf-8')
+            return conn
+        else:
+            raise Exception("pyodbc not installed - needed for Azure SQL")
 else:
-    DATABASE_PATH = '../warehance_returns.db'
+    # SQLite configuration
+    if IS_AZURE:
+        DATABASE_PATH = '/home/warehance_returns.db'
+    else:
+        DATABASE_PATH = '../warehance_returns.db'
+    
+    def get_db_connection():
+        """Get SQLite connection"""
+        conn = get_db_connection()
+        conn.row_factory = sqlite3.Row
+        return conn
 
 from fastapi import FastAPI, Response, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -27,6 +60,10 @@ from typing import Optional
 import sqlite3
 import json
 import csv
+try:
+    import pyodbc
+except ImportError:
+    pyodbc = None  # Will use SQLite if pyodbc not available
 import io
 from datetime import datetime
 import asyncio
@@ -80,7 +117,7 @@ async def root():
 
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -136,7 +173,7 @@ async def get_dashboard_stats():
 
 @app.get("/api/clients")
 async def get_clients():
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM clients ORDER BY name")
     clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
@@ -145,7 +182,7 @@ async def get_clients():
 
 @app.get("/api/warehouses")
 async def get_warehouses():
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
     warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
@@ -154,7 +191,7 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -262,7 +299,7 @@ async def search_returns(filter_params: dict):
 @app.get("/api/returns/{return_id}")
 async def get_return_detail(return_id: int):
     """Get detailed information for a specific return including order items if available"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -383,7 +420,7 @@ async def get_return_detail(return_id: int):
 @app.post("/api/returns/export/csv")
 async def export_returns_csv(filter_params: dict):
     """Export returns with product details to CSV"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -505,7 +542,7 @@ async def export_returns_csv(filter_params: dict):
 @app.get("/api/analytics/return-reasons")
 async def get_return_reasons():
     """Get analytics on return reasons"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -535,7 +572,7 @@ async def get_return_reasons():
 @app.get("/api/analytics/top-returned-products")
 async def get_top_returned_products():
     """Get top returned products"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -578,7 +615,7 @@ async def get_sync_status():
     global sync_status
     
     # Get last sync from database
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -616,7 +653,7 @@ async def run_sync():
             "accept": "application/json"
         }
         
-        conn = sqlite3.connect(DATABASE_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # STEP 1: Fetch ALL returns from API with pagination
@@ -823,7 +860,7 @@ async def send_returns_email(request_data: dict):
             raise HTTPException(status_code=400, detail="Recipient email is required")
         
         # Get client info and statistics
-        conn = sqlite3.connect(DATABASE_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Get client name
@@ -1011,7 +1048,7 @@ async def send_returns_email(request_data: dict):
 @app.get("/api/email-history")
 async def get_email_history(client_id: Optional[int] = None):
     """Get email history with optional client filter"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -1063,7 +1100,7 @@ async def settings_page():
 @app.get("/api/settings")
 async def get_settings():
     """Get all system settings"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
@@ -1107,7 +1144,7 @@ async def get_settings():
 @app.post("/api/settings")
 async def save_settings(settings: dict):
     """Save system settings"""
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # Create settings table if it doesn't exist
