@@ -277,7 +277,21 @@ def rows_to_dict(cursor, rows):
 @app.get("/")
 async def root():
     """Serve the main HTML dashboard"""
-    return FileResponse("templates/index.html")
+    # Check multiple possible paths for templates
+    import os
+    possible_paths = [
+        "web/templates/index.html",  # When running from root
+        "templates/index.html",       # When running from web directory
+        "/home/site/wwwroot/web/templates/index.html",  # Azure absolute path
+        os.path.join(os.path.dirname(__file__), "templates", "index.html")  # Relative to this file
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return FileResponse(path)
+    
+    # If no template found, return error with debug info
+    return {"error": "Template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
 
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
@@ -1378,7 +1392,21 @@ async def update_email_config(config: dict):
 @app.get("/settings")
 async def settings_page():
     """Serve the settings page"""
-    return FileResponse('templates/settings.html')
+    # Check multiple possible paths for templates
+    import os
+    possible_paths = [
+        "web/templates/settings.html",  # When running from root
+        "templates/settings.html",       # When running from web directory
+        "/home/site/wwwroot/web/templates/settings.html",  # Azure absolute path
+        os.path.join(os.path.dirname(__file__), "templates", "settings.html")  # Relative to this file
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return FileResponse(path)
+    
+    # If no template found, return error with debug info
+    return {"error": "Settings template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
 
 @app.get("/api/settings")
 async def get_settings():
