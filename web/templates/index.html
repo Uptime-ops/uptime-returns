@@ -1100,6 +1100,9 @@
             $('#emailSharesSection').hide();
         }
         
+        // Store chart instances globally
+        let chartInstances = {};
+        
         // Load analytics charts
         function loadAnalytics() {
             loadReturnReasonsChart();
@@ -1109,9 +1112,14 @@
         
         // Chart functions
         function loadMonthlyChart() {
+            // Destroy existing chart if it exists
+            if (chartInstances.monthlyChart) {
+                chartInstances.monthlyChart.destroy();
+            }
+            
             // Placeholder for monthly returns chart
             const ctx = document.getElementById('monthlyChart').getContext('2d');
-            new Chart(ctx, {
+            chartInstances.monthlyChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
@@ -1146,12 +1154,17 @@
         }
         
         function loadStatusChart() {
+            // Destroy existing chart if it exists
+            if (chartInstances.statusChart) {
+                chartInstances.statusChart.destroy();
+            }
+            
             // Use actual data from dashboard
             const pending = parseInt($('#pendingReturns').text()) || 0;
             const processed = parseInt($('#processedReturns').text()) || 0;
             
             const ctx = document.getElementById('statusChart').getContext('2d');
-            new Chart(ctx, {
+            chartInstances.statusChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
                     labels: ['Pending', 'Processed'],
@@ -1174,12 +1187,17 @@
         }
         
         async function loadReturnReasonsChart() {
+            // Destroy existing chart if it exists
+            if (chartInstances.reasonsChart) {
+                chartInstances.reasonsChart.destroy();
+            }
+            
             try {
                 const response = await fetch('/api/analytics/return-reasons');
                 const data = await response.json();
                 
                 const ctx = document.getElementById('reasonsChart').getContext('2d');
-                new Chart(ctx, {
+                chartInstances.reasonsChart = new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: data.map(d => d.reason),
@@ -1210,9 +1228,14 @@
         }
         
         function loadClientChart() {
+            // Destroy existing chart if it exists
+            if (chartInstances.clientChart) {
+                chartInstances.clientChart.destroy();
+            }
+            
             // Placeholder for client chart
             const ctx = document.getElementById('clientChart').getContext('2d');
-            new Chart(ctx, {
+            chartInstances.clientChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: ['Euro Brands', 'MRG Brands', 'Fast Fwd', 'Articulacy', 'Brians Sports Cards'],
@@ -1240,9 +1263,14 @@
         }
         
         function loadWarehouseChart() {
+            // Destroy existing chart if it exists
+            if (chartInstances.warehouseChart) {
+                chartInstances.warehouseChart.destroy();
+            }
+            
             // Placeholder for warehouse chart
             const ctx = document.getElementById('warehouseChart').getContext('2d');
-            new Chart(ctx, {
+            chartInstances.warehouseChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: ['Warehouse 1', 'Warehouse 2'],
