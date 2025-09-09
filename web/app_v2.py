@@ -81,9 +81,14 @@ if USE_AZURE_SQL:
                 
                 # Extract connection parameters
                 server = conn_params.get('SERVER', '').replace('tcp:', '').replace(',1433', '')
-                database = conn_params.get('DATABASE', '')
+                database = conn_params.get('DATABASE', '') or conn_params.get('INITIAL CATALOG', '') or 'uptime-returns-db'
                 username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
                 password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
+                
+                # If database is empty, use a default name
+                if not database:
+                    database = 'uptime-returns-db'
+                    print(f"No database specified, using default: {database}")
                 
                 if server and database and username and password:
                     print(f"Connecting to {server}/{database} as {username}")
@@ -124,9 +129,14 @@ if USE_AZURE_SQL:
                 server = conn_params.get('SERVER', '').replace('tcp:', '')
                 if ',' in server:
                     server = server.split(',')[0]  # Remove port if present
-                database = conn_params.get('DATABASE', '')
+                database = conn_params.get('DATABASE', '') or conn_params.get('INITIAL CATALOG', '') or 'uptime-returns-db'
                 username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
                 password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
+                
+                # If database is empty, use a default name
+                if not database:
+                    database = 'uptime-returns-db'
+                    print(f"No database specified, using default: {database}")
                 
                 print(f"Parsed - Server: {server}, Database: {database}, User: {username}")
                 
