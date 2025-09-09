@@ -907,6 +907,123 @@ async def trigger_sync(request_data: dict):
     
     return {"message": "Sync started", "status": "started"}
 
+@app.post("/api/database/migrate")
+async def migrate_database():
+    """Add missing columns to existing tables for Azure SQL"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        columns_added = []
+        
+        # Define missing columns for each table
+        migrations = [
+            ("returns", "tracking_number", "NVARCHAR(100)"),
+            ("returns", "processed", "BIT DEFAULT 0"),
+            ("returns", "api_id", "NVARCHAR(100)"),
+            ("returns", "paid_by", "NVARCHAR(50)"),
+            ("returns", "status", "NVARCHAR(50)"),
+            ("returns", "created_at", "DATETIME"),
+            ("returns", "updated_at", "DATETIME"),
+            ("returns", "processed_at", "DATETIME"),
+            ("returns", "warehouse_note", "NVARCHAR(MAX)"),
+            ("returns", "customer_note", "NVARCHAR(MAX)"),
+            ("returns", "tracking_url", "NVARCHAR(500)"),
+            ("returns", "carrier", "NVARCHAR(100)"),
+            ("returns", "service", "NVARCHAR(100)"),
+            ("returns", "label_cost", "DECIMAL(10,2)"),
+            ("returns", "label_pdf_url", "NVARCHAR(500)"),
+            ("returns", "rma_slip_url", "NVARCHAR(500)"),
+            ("returns", "label_voided", "BIT DEFAULT 0"),
+            ("returns", "client_id", "INT"),
+            ("returns", "warehouse_id", "INT"),
+            ("returns", "order_id", "INT"),
+            ("returns", "return_integration_id", "NVARCHAR(100)"),
+            ("returns", "last_synced_at", "DATETIME"),
+        ]
+        
+        for table_name, column_name, column_type in migrations:
+            try:
+                # Check if column exists
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = ? AND COLUMN_NAME = ?
+                """, (table_name, column_name))
+                
+                exists = cursor.fetchone()[0] > 0
+                
+                if not exists:
+                    # Add the column
+                    cursor.execute(f"ALTER TABLE {table_name} ADD {column_name} {column_type}")
+                    conn.commit()
+                    columns_added.append(f"{table_name}.{column_name}")
+            except Exception as e:
+                print(f"Error adding column {table_name}.{column_name}: {e}")
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "columns_added": columns_added,
+            "message": f"Added {len(columns_added)} missing columns"
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/database/reset")
+async def reset_database():
+    """Drop and recreate all tables (WARNING: This will delete all data!)"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, reset not needed"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Drop all tables in correct order (due to foreign keys)
+        tables_to_drop = [
+            'email_share_items',
+            'return_items', 
+            'email_history',
+            'sync_logs',
+            'settings',
+            'returns',
+            'products',
+            'orders',
+            'warehouses',
+            'clients'
+        ]
+        
+        dropped = []
+        for table in tables_to_drop:
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.commit()
+                dropped.append(table)
+            except Exception as e:
+                print(f"Error dropping {table}: {e}")
+        
+        # Now recreate using the init endpoint logic
+        conn.close()
+        
+        # Call the init endpoint
+        init_result = await initialize_database()
+        
+        return {
+            "status": "success",
+            "tables_dropped": dropped,
+            "init_result": init_result,
+            "message": "Database reset complete"
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/database/init")
 async def initialize_database():
     """Initialize database tables for Azure SQL"""
