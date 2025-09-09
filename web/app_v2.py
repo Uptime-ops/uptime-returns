@@ -1060,11 +1060,24 @@ async def get_sync_status():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT MAX(last_synced_at) as last_sync
-            FROM returns
-            WHERE last_synced_at IS NOT NULL
-        """)
+        # Check if last_synced_at column exists
+        try:
+            cursor.execute("""
+                SELECT MAX(last_synced_at) as last_sync
+                FROM returns
+                WHERE last_synced_at IS NOT NULL
+            """)
+        except Exception as e:
+            # Column doesn't exist, try to add it
+            if "Invalid column name" in str(e):
+                try:
+                    cursor.execute("ALTER TABLE returns ADD last_synced_at DATETIME")
+                    conn.commit()
+                    cursor.execute("SELECT NULL as last_sync")
+                except:
+                    cursor.execute("SELECT NULL as last_sync")
+            else:
+                cursor.execute("SELECT NULL as last_sync")
         result = cursor.fetchone()
         
         # Handle both SQLite and Azure SQL
@@ -1139,17 +1152,71 @@ async def run_sync():
                 if ret.get('order') and ret['order'].get('id'):
                     all_order_ids.add(ret['order']['id'])
                 
-                # Update or insert return
-                cursor.execute("""
-                    INSERT OR REPLACE INTO returns (
+                # Update or insert return (using MERGE for Azure SQL compatibility)
+                if USE_AZURE_SQL:
+                    # Use MERGE for Azure SQL
+                    cursor.execute("""
+                        MERGE returns AS target
+                        USING (SELECT ? AS id) AS source
+                        ON target.id = source.id
+                        WHEN MATCHED THEN
+                            UPDATE SET
+                                api_id = ?, paid_by = ?, status = ?, created_at = ?,
+                                updated_at = ?, processed = ?, processed_at = ?,
+                                warehouse_note = ?, customer_note = ?, tracking_number = ?,
+                                tracking_url = ?, carrier = ?, service = ?, label_cost = ?,
+                                label_pdf_url = ?, rma_slip_url = ?, label_voided = ?,
+                                client_id = ?, warehouse_id = ?, order_id = ?,
+                                return_integration_id = ?, last_synced_at = ?
+                        WHEN NOT MATCHED THEN
+                            INSERT (id, api_id, paid_by, status, created_at, updated_at,
+                                    processed, processed_at, warehouse_note, customer_note,
+                                    tracking_number, tracking_url, carrier, service,
+                                    label_cost, label_pdf_url, rma_slip_url, label_voided,
+                                    client_id, warehouse_id, order_id, return_integration_id,
+                                    last_synced_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """, (
+                        ret['id'],  # for source
+                        ret.get('api_id'), ret.get('paid_by', ''),
+                        ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
+                        ret.get('processed', False), ret.get('processed_at'),
+                        ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                        ret.get('tracking_number'), ret.get('tracking_url'),
+                        ret.get('carrier', ''), ret.get('service', ''),
+                        ret.get('label_cost'), ret.get('label_pdf_url'),
+                        ret.get('rma_slip_url'), ret.get('label_voided', False),
+                        ret['client']['id'] if ret.get('client') else None,
+                        ret['warehouse']['id'] if ret.get('warehouse') else None,
+                        ret['order']['id'] if ret.get('order') else None,
+                        ret.get('return_integration_id'),
+                        datetime.now().isoformat(),  # for update
+                        ret['id'], ret.get('api_id'), ret.get('paid_by', ''),  # for insert
+                        ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
+                        ret.get('processed', False), ret.get('processed_at'),
+                        ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                        ret.get('tracking_number'), ret.get('tracking_url'),
+                        ret.get('carrier', ''), ret.get('service', ''),
+                        ret.get('label_cost'), ret.get('label_pdf_url'),
+                        ret.get('rma_slip_url'), ret.get('label_voided', False),
+                        ret['client']['id'] if ret.get('client') else None,
+                        ret['warehouse']['id'] if ret.get('warehouse') else None,
+                        ret['order']['id'] if ret.get('order') else None,
+                        ret.get('return_integration_id'),
+                        datetime.now().isoformat()
+                    ))
+                else:
+                    # Use INSERT OR REPLACE for SQLite
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO returns (
                         id, api_id, paid_by, status, created_at, updated_at,
                         processed, processed_at, warehouse_note, customer_note,
                         tracking_number, tracking_url, carrier, service,
                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
                     ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
                     ret.get('processed', False), ret.get('processed_at'),
@@ -1168,10 +1235,19 @@ async def run_sync():
                 # Also store basic order info from return data
                 if ret.get('order'):
                     order = ret['order']
-                    cursor.execute("""
-                        INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
-                        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """, (order['id'], order.get('order_number', '')))
+                    if USE_AZURE_SQL:
+                        # Check if order exists first
+                        cursor.execute("SELECT COUNT(*) FROM orders WHERE id = ?", (order['id'],))
+                        if cursor.fetchone()[0] == 0:
+                            cursor.execute("""
+                                INSERT INTO orders (id, order_number, created_at, updated_at)
+                                VALUES (?, ?, GETDATE(), GETDATE())
+                            """, (order['id'], order.get('order_number', '')))
+                    else:
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
+                            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """, (order['id'], order.get('order_number', '')))
                 
                 # Store return items if present
                 if ret.get('items'):
