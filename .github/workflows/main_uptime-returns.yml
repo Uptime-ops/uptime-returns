@@ -34,13 +34,14 @@ jobs:
         
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
+      - name: Zip artifact for deployment
+        run: zip release.zip ./* -r
+        
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: |
-            .
-            !venv/
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,6 +56,9 @@ jobs:
         with:
           name: python-app
       
+      - name: Unzip artifact for deployment
+        run: unzip release.zip
+      
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -68,4 +72,5 @@ jobs:
         with:
           app-name: 'uptime-returns'
           slot-name: 'Production'
+          package: .
           
