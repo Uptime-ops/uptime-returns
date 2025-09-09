@@ -38,9 +38,9 @@ IS_AZURE = os.getenv('WEBSITE_INSTANCE_ID') is not None
 AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY', 'WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa')
+WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY', 'WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1')
 if not WAREHANCE_API_KEY:
-    WAREHANCE_API_KEY = 'WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa'  # Fallback for local testing
+    WAREHANCE_API_KEY = 'WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1'  # Fallback with correct API key
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL', '')
@@ -1298,21 +1298,23 @@ async def run_sync():
     sync_status["items_synced"] = 0
     
     try:
-        # Check for API key in environment or use the correct one from .env
-        api_key = WAREHANCE_API_KEY or "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1"
+        # Use the configured API key
+        api_key = WAREHANCE_API_KEY
         
         headers = {
             "X-API-KEY": api_key,
             "accept": "application/json"
         }
         
-        print(f"Starting sync with API key: {api_key[:10]}...")
+        print(f"Starting sync with API key: {api_key[:15]}...")
+        sync_status["last_sync_message"] = f"Starting sync with API key: {api_key[:15]}..."
         
         conn = get_db_connection()
         cursor = conn.cursor()
         
         # STEP 1: Fetch ALL returns from API with pagination
-        sync_status["last_sync_message"] = "Fetching returns..."
+        sync_status["last_sync_message"] = "Fetching returns from Warehance API..."
+        print("Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
         offset = 0
         limit = 100
@@ -1325,8 +1327,10 @@ async def run_sync():
                 response = requests.get(url, headers=headers)
                 
                 if response.status_code != 200:
-                    print(f"API Error: Status {response.status_code}, Response: {response.text[:500]}")
-                    sync_status["last_sync_message"] = f"API Error: {response.status_code}"
+                    error_text = response.text[:500] if response.text else "No response body"
+                    print(f"API Error: Status {response.status_code}, Response: {error_text}")
+                    sync_status["last_sync_message"] = f"API Error: {response.status_code} - {error_text[:100]}"
+                    sync_status["last_sync_status"] = "error"
                     break
                 
                 data = response.json()
