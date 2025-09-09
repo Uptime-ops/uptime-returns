@@ -1258,8 +1258,8 @@ async def run_sync():
     sync_status["items_synced"] = 0
     
     try:
-        # Check for API key in environment or use default
-        api_key = WAREHANCE_API_KEY or "WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa"
+        # Check for API key in environment or use the correct one from .env
+        api_key = WAREHANCE_API_KEY or "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1"
         
         headers = {
             "X-API-KEY": api_key,
