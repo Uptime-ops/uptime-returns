@@ -41,8 +41,6 @@ jobs:
           path: |
             .
             !venv/
-            !.git/
-            !.github/
 
   deploy:
     runs-on: ubuntu-latest
@@ -60,14 +58,14 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_6EB24BE50E684E9B81F8FEBC6ED45E40 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4DD59B10C8CA46B196520443ECA26A36 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D24BB6CA01F64616AA1F8B15F9F14DF9 }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_37852E71CD0B40B3ACEC7F1CF279F079 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F9FEC096D6E7419AA7A0EA1AE79A2EF4 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5C1AC994F77948C8992AC921F36A9EE0 }}
 
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: 'uptime-returns'
-          package: .
+          slot-name: 'Production'
           
