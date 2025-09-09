@@ -1258,10 +1258,15 @@ async def run_sync():
     sync_status["items_synced"] = 0
     
     try:
+        # Check for API key in environment or use default
+        api_key = WAREHANCE_API_KEY or "WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa"
+        
         headers = {
-            "X-API-KEY": "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1",
+            "X-API-KEY": api_key,
             "accept": "application/json"
         }
+        
+        print(f"Starting sync with API key: {api_key[:10]}...")
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -1274,54 +1279,67 @@ async def run_sync():
         total_fetched = 0
         
         while True:
-            response = requests.get(f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}", headers=headers)
-            data = response.json()
-            
-            if 'data' not in data or 'returns' not in data['data']:
-                break
+            try:
+                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
+                print(f"Fetching from: {url}")
+                response = requests.get(url, headers=headers)
                 
-            returns_batch = data['data']['returns']
-            if not returns_batch:
-                break
+                if response.status_code != 200:
+                    print(f"API Error: Status {response.status_code}, Response: {response.text[:500]}")
+                    sync_status["last_sync_message"] = f"API Error: {response.status_code}"
+                    break
                 
-            for ret in returns_batch:
-                # First ensure client and warehouse exist
-                if ret.get('client'):
-                    try:
-                        if USE_AZURE_SQL:
-                            cursor.execute("SELECT COUNT(*) FROM clients WHERE id = ?", (ret['client']['id'],))
-                            if cursor.fetchone()[0] == 0:
-                                cursor.execute("INSERT INTO clients (id, name) VALUES (?, ?)", 
+                data = response.json()
+                print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
+                
+                if 'data' not in data or 'returns' not in data['data']:
+                    print(f"No returns data in response. Full response: {data}")
+                    break
+                    
+                returns_batch = data['data']['returns']
+                print(f"Fetched {len(returns_batch)} returns at offset {offset}")
+                
+                if not returns_batch:
+                    break
+                
+                for ret in returns_batch:
+                    # First ensure client and warehouse exist
+                    if ret.get('client'):
+                        try:
+                            if USE_AZURE_SQL:
+                                cursor.execute("SELECT COUNT(*) FROM clients WHERE id = ?", (ret['client']['id'],))
+                                if cursor.fetchone()[0] == 0:
+                                    cursor.execute("INSERT INTO clients (id, name) VALUES (?, ?)", 
+                                                 (ret['client']['id'], ret['client'].get('name', '')))
+                                    conn.commit()
+                            else:
+                                cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)",
                                              (ret['client']['id'], ret['client'].get('name', '')))
-                                conn.commit()
-                        else:
-                            cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)",
-                                         (ret['client']['id'], ret['client'].get('name', '')))
-                    except Exception as e:
-                        print(f"Error inserting client: {e}")
+                        except Exception as e:
+                            print(f"Error inserting client: {e}")
                 
-                if ret.get('warehouse'):
-                    try:
-                        if USE_AZURE_SQL:
-                            cursor.execute("SELECT COUNT(*) FROM warehouses WHERE id = ?", (ret['warehouse']['id'],))
-                            if cursor.fetchone()[0] == 0:
-                                cursor.execute("INSERT INTO warehouses (id, name) VALUES (?, ?)",
+                    if ret.get('warehouse'):
+                        try:
+                            if USE_AZURE_SQL:
+                                cursor.execute("SELECT COUNT(*) FROM warehouses WHERE id = ?", (ret['warehouse']['id'],))
+                                if cursor.fetchone()[0] == 0:
+                                    cursor.execute("INSERT INTO warehouses (id, name) VALUES (?, ?)",
+                                                 (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                    conn.commit()
+                            else:
+                                cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)",
                                              (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
-                                conn.commit()
-                        else:
-                            cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)",
-                                         (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
-                    except Exception as e:
-                        print(f"Error inserting warehouse: {e}")
+                        except Exception as e:
+                            print(f"Error inserting warehouse: {e}")
                 
-                # Collect order ID if present
-                if ret.get('order') and ret['order'].get('id'):
-                    all_order_ids.add(ret['order']['id'])
-                
-                # Update or insert return (using MERGE for Azure SQL compatibility)
-                if USE_AZURE_SQL:
-                    # Use MERGE for Azure SQL
-                    cursor.execute("""
+                    # Collect order ID if present
+                    if ret.get('order') and ret['order'].get('id'):
+                        all_order_ids.add(ret['order']['id'])
+                    
+                    # Update or insert return (using MERGE for Azure SQL compatibility)
+                    if USE_AZURE_SQL:
+                        # Use MERGE for Azure SQL
+                        cursor.execute("""
                         MERGE returns AS target
                         USING (SELECT ? AS id) AS source
                         ON target.id = source.id
@@ -1521,16 +1539,20 @@ async def run_sync():
                             item.get('quantity_rejected', 0)
                         ))
                 
-                sync_status["items_synced"] += 1
-            
-            total_fetched += len(returns_batch)
-            
-            # Check if we've fetched all returns
-            total_count = data['data'].get('total_count', 0)
-            if total_fetched >= total_count or len(returns_batch) < limit:
-                break
+                    sync_status["items_synced"] += 1
                 
-            offset += limit
+                total_fetched += len(returns_batch)
+                
+                # Check if we've fetched all returns
+                total_count = data['data'].get('total_count', 0)
+                if total_fetched >= total_count or len(returns_batch) < limit:
+                    break
+                    
+                offset += limit
+            except Exception as e:
+                print(f"Error in sync loop: {e}")
+                sync_status["last_sync_message"] = f"Error: {str(e)[:100]}"
+                break
             
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
