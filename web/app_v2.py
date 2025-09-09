@@ -100,7 +100,6 @@ if USE_AZURE_SQL:
                         password=password,
                         database=database,
                         as_dict=True,
-                        tds_version='7.4',
                         port=1433
                     )
                     print("SUCCESS: Connected with pymssql")
@@ -1974,13 +1973,30 @@ async def get_settings():
     cursor = conn.cursor()
     
     # Create settings table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    if USE_AZURE_SQL:
+        # Check if table exists first
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_NAME = 'settings'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                CREATE TABLE settings (
+                    [key] NVARCHAR(100) PRIMARY KEY,
+                    value NVARCHAR(MAX),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """)
+            conn.commit()
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
     conn.commit()
     
     # Get all settings
@@ -2021,13 +2037,30 @@ async def save_settings(settings: dict):
     cursor = conn.cursor()
     
     # Create settings table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+    if USE_AZURE_SQL:
+        # Check if table exists first
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM INFORMATION_SCHEMA.TABLES 
+            WHERE TABLE_NAME = 'settings'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                CREATE TABLE settings (
+                    [key] NVARCHAR(100) PRIMARY KEY,
+                    value NVARCHAR(MAX),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """)
+            conn.commit()
+    else:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
     
     # Update each setting
     for key, value in settings.items():
