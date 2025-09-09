@@ -362,27 +362,43 @@ async def get_dashboard_stats():
             stats['returns_this_month'] = row[0] if row else 0
     
         # Count of unshared returns
-        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
-        row = cursor.fetchone()
-        stats['unshared_returns'] = row[0] if row else 0
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
+            row = cursor.fetchone()
+            stats['unshared_returns'] = row[0] if row else 0
+        except:
+            # Table might not exist yet
+            stats['unshared_returns'] = stats['total_returns']
         
         # Get last sync time
-        cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
-        row = cursor.fetchone()
-        stats['last_sync'] = row[0] if row else None
+        try:
+            cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
+            row = cursor.fetchone()
+            stats['last_sync'] = row[0] if row else None
+        except:
+            stats['last_sync'] = None
         
         # Get product statistics
-        cursor.execute("SELECT COUNT(*) as count FROM products")
-        row = cursor.fetchone()
-        stats['total_products'] = row[0] if row else 0
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM products")
+            row = cursor.fetchone()
+            stats['total_products'] = row[0] if row else 0
+        except:
+            stats['total_products'] = 0
         
-        cursor.execute("SELECT COUNT(*) as count FROM return_items")
-        row = cursor.fetchone()
-        stats['total_return_items'] = row[0] if row else 0
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM return_items")
+            row = cursor.fetchone()
+            stats['total_return_items'] = row[0] if row else 0
+        except:
+            stats['total_return_items'] = 0
         
-        cursor.execute("SELECT SUM(quantity) as total FROM return_items")
-        row = cursor.fetchone()
-        stats['total_returned_quantity'] = row[0] if row else 0
+        try:
+            cursor.execute("SELECT SUM(quantity) as total FROM return_items")
+            row = cursor.fetchone()
+            stats['total_returned_quantity'] = row[0] if row else 0
+        except:
+            stats['total_returned_quantity'] = 0
     
         conn.close()
         return stats
@@ -484,9 +500,13 @@ async def search_returns(filter_params: dict):
     row = cursor.fetchone()
     total = row[0] if row else 0
     
-    # Add pagination
-    query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
-    params.extend([limit, (page - 1) * limit])
+    # Add pagination (different syntax for Azure SQL vs SQLite)
+    if USE_AZURE_SQL:
+        query += " ORDER BY r.created_at DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+        params.extend([(page - 1) * limit, limit])
+    else:
+        query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, (page - 1) * limit])
     
     cursor.execute(query, params)
     rows = cursor.fetchall()
