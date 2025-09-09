@@ -877,6 +877,169 @@ async def trigger_sync(request_data: dict):
     
     return {"message": "Sync started", "status": "started"}
 
+@app.post("/api/database/init")
+async def initialize_database():
+    """Initialize database tables for Azure SQL"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, initialization not needed"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if tables exist and create them if not
+        tables_created = []
+        tables_skipped = []
+        
+        # Table definitions for Azure SQL
+        table_definitions = {
+            'clients': """
+                CREATE TABLE clients (
+                    id INT PRIMARY KEY,
+                    name NVARCHAR(255) NOT NULL,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'warehouses': """
+                CREATE TABLE warehouses (
+                    id INT PRIMARY KEY,
+                    name NVARCHAR(255) NOT NULL,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'orders': """
+                CREATE TABLE orders (
+                    id INT PRIMARY KEY,
+                    order_number NVARCHAR(100),
+                    customer_name NVARCHAR(255),
+                    created_at DATETIME DEFAULT GETDATE(),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'products': """
+                CREATE TABLE products (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    sku NVARCHAR(100),
+                    name NVARCHAR(500),
+                    created_at DATETIME DEFAULT GETDATE(),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'returns': """
+                CREATE TABLE returns (
+                    id INT PRIMARY KEY,
+                    api_id NVARCHAR(100),
+                    paid_by NVARCHAR(50),
+                    status NVARCHAR(50),
+                    created_at DATETIME,
+                    updated_at DATETIME,
+                    processed BIT DEFAULT 0,
+                    processed_at DATETIME,
+                    warehouse_note NVARCHAR(MAX),
+                    customer_note NVARCHAR(MAX),
+                    tracking_number NVARCHAR(100),
+                    tracking_url NVARCHAR(500),
+                    carrier NVARCHAR(100),
+                    service NVARCHAR(100),
+                    label_cost DECIMAL(10,2),
+                    label_pdf_url NVARCHAR(500),
+                    rma_slip_url NVARCHAR(500),
+                    label_voided BIT DEFAULT 0,
+                    client_id INT,
+                    warehouse_id INT,
+                    order_id INT,
+                    return_integration_id NVARCHAR(100),
+                    last_synced_at DATETIME
+                )
+            """,
+            'return_items': """
+                CREATE TABLE return_items (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    return_id INT,
+                    product_id INT,
+                    quantity INT DEFAULT 0,
+                    return_reasons NVARCHAR(MAX),
+                    condition_on_arrival NVARCHAR(MAX),
+                    quantity_received INT DEFAULT 0,
+                    quantity_rejected INT DEFAULT 0,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'email_history': """
+                CREATE TABLE email_history (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    client_id INT,
+                    client_name NVARCHAR(255),
+                    recipient_email NVARCHAR(255),
+                    subject NVARCHAR(500),
+                    attachment_name NVARCHAR(255),
+                    sent_date DATETIME DEFAULT GETDATE(),
+                    sent_by NVARCHAR(100),
+                    status NVARCHAR(50)
+                )
+            """,
+            'email_share_items': """
+                CREATE TABLE email_share_items (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    return_id INT,
+                    share_id INT,
+                    created_at DATETIME DEFAULT GETDATE()
+                )
+            """,
+            'sync_logs': """
+                CREATE TABLE sync_logs (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    status NVARCHAR(50),
+                    items_synced INT DEFAULT 0,
+                    started_at DATETIME DEFAULT GETDATE(),
+                    completed_at DATETIME,
+                    error_message NVARCHAR(MAX)
+                )
+            """,
+            'settings': """
+                CREATE TABLE settings (
+                    [key] NVARCHAR(100) PRIMARY KEY,
+                    value NVARCHAR(MAX),
+                    updated_at DATETIME DEFAULT GETDATE()
+                )
+            """
+        }
+        
+        for table_name, create_sql in table_definitions.items():
+            try:
+                # Check if table exists
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM INFORMATION_SCHEMA.TABLES 
+                    WHERE TABLE_NAME = ?
+                """, (table_name,))
+                
+                exists = cursor.fetchone()[0] > 0
+                
+                if not exists:
+                    cursor.execute(create_sql)
+                    conn.commit()
+                    tables_created.append(table_name)
+                else:
+                    tables_skipped.append(table_name)
+            except Exception as e:
+                print(f"Error creating table {table_name}: {e}")
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "tables_created": tables_created,
+            "tables_already_existed": tables_skipped,
+            "message": f"Created {len(tables_created)} tables, {len(tables_skipped)} already existed"
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/sync/status")
 async def get_sync_status():
     """Get current sync status"""
