@@ -72,26 +72,20 @@ if USE_AZURE_SQL:
         if pymssql:
             try:
                 print("Attempting pymssql connection...")
-                # Parse DATABASE_URL for pymssql
-                # Try multiple patterns
-                patterns = [
-                    r'Server=([^;,]+)[;,].*Database=([^;,]+)[;,].*User ID=([^;,]+)[;,].*Password=([^;,]+)',
-                    r'Server=([^;,]+)[;,].*Database=([^;,]+)[;,].*User=([^;,]+)[;,].*Password=([^;,]+)',
-                    r'server=([^;,]+)[;,].*database=([^;,]+)[;,].*uid=([^;,]+)[;,].*pwd=([^;,]+)',
-                ]
+                # Parse DATABASE_URL - same parsing logic as pyodbc
+                conn_params = {}
+                for part in DATABASE_URL.split(';'):
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        conn_params[key.strip().upper()] = value.strip()
                 
-                match = None
-                for pattern in patterns:
-                    match = re.search(pattern, DATABASE_URL, re.IGNORECASE)
-                    if match:
-                        break
+                # Extract connection parameters
+                server = conn_params.get('SERVER', '').replace('tcp:', '').replace(',1433', '')
+                database = conn_params.get('DATABASE', '')
+                username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
+                password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
                 
-                if match:
-                    server = match.group(1)
-                    database = match.group(2)
-                    username = match.group(3)
-                    password = match.group(4)
-                    
+                if server and database and username and password:
                     print(f"Connecting to {server}/{database} as {username}")
                     
                     # Connect using pymssql
@@ -106,6 +100,8 @@ if USE_AZURE_SQL:
                     )
                     print("SUCCESS: Connected with pymssql")
                     return conn
+                else:
+                    print(f"pymssql: Missing connection parameters - server:{bool(server)}, db:{bool(database)}, user:{bool(username)}, pwd:{bool(password)}")
             except Exception as e:
                 print(f"pymssql failed: {str(e)[:300]}")
         
@@ -116,47 +112,50 @@ if USE_AZURE_SQL:
                 available_drivers = pyodbc.drivers()
                 print(f"Available ODBC drivers: {available_drivers}")
                 
+                # Parse the connection string to get components
+                # Expected format: Server=tcp:server.database.windows.net,1433;Database=dbname;User ID=user;Password=pass
+                conn_params = {}
+                for part in DATABASE_URL.split(';'):
+                    if '=' in part:
+                        key, value = part.split('=', 1)
+                        conn_params[key.strip().upper()] = value.strip()
+                
+                # Extract connection parameters
+                server = conn_params.get('SERVER', '').replace('tcp:', '')
+                if ',' in server:
+                    server = server.split(',')[0]  # Remove port if present
+                database = conn_params.get('DATABASE', '')
+                username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
+                password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
+                
+                print(f"Parsed - Server: {server}, Database: {database}, User: {username}")
+                
                 # Build list of drivers to try
                 drivers_to_try = []
                 
-                # Check if driver is already in connection string
-                if 'Driver=' in DATABASE_URL or 'DRIVER=' in DATABASE_URL:
-                    # Try as-is first
-                    drivers_to_try.append(None)
+                # Add detected drivers first
+                if 'ODBC Driver 18 for SQL Server' in available_drivers:
+                    drivers_to_try.append('ODBC Driver 18 for SQL Server')
+                if 'ODBC Driver 17 for SQL Server' in available_drivers:
+                    drivers_to_try.append('ODBC Driver 17 for SQL Server')
                 
-                # Add detected drivers
-                drivers_to_try.extend(available_drivers)
-                
-                # Add common driver names
-                drivers_to_try.extend([
-                    'ODBC Driver 18 for SQL Server',
-                    'ODBC Driver 17 for SQL Server',
-                    'ODBC Driver 13 for SQL Server',
-                    'SQL Server',
-                    'FreeTDS',
-                ])
-                
-                # Try each driver
+                # Try each driver with properly formatted connection string
                 for driver in drivers_to_try:
                     try:
-                        if driver is None:
-                            # Use connection string as-is
-                            test_conn_str = DATABASE_URL
-                        else:
-                            # Add driver to connection string
-                            test_conn_str = DATABASE_URL
-                            if 'Driver=' not in test_conn_str and 'DRIVER=' not in test_conn_str:
-                                test_conn_str = f"DRIVER={{{driver}}};{test_conn_str}"
+                        # Build proper ODBC connection string
+                        test_conn_str = (
+                            f"DRIVER={{{driver}}};"
+                            f"SERVER={server};"
+                            f"DATABASE={database};"
+                            f"UID={username};"
+                            f"PWD={password};"
+                            f"TrustServerCertificate=yes;"
+                            f"Encrypt=yes"
+                        )
                         
-                        # Ensure TrustServerCertificate is set
-                        if 'TrustServerCertificate=' not in test_conn_str:
-                            test_conn_str += ';TrustServerCertificate=yes'
+                        print(f"Trying driver: {driver}")
+                        print(f"Connection string format: DRIVER={{...}};SERVER={server};DATABASE={database};UID={username[:3]}...;PWD=***")
                         
-                        # Add Encrypt if not present
-                        if 'Encrypt=' not in test_conn_str:
-                            test_conn_str += ';Encrypt=yes'
-                        
-                        print(f"Trying: {driver if driver else 'connection string as-is'}")
                         conn = pyodbc.connect(test_conn_str, timeout=10)
                         
                         # Configure encoding
