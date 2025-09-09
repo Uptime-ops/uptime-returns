@@ -11,10 +11,10 @@ else
     echo "install_odbc.sh not found, skipping ODBC installation"
 fi
 
-# Navigate to web directory where the app is
-cd /home/site/wwwroot/web
+# Navigate to root directory where application.py is
+cd /home/site/wwwroot
 
-# Start the application directly (dependencies should be pre-installed during build)
-echo "Starting FastAPI application..."
-echo "Using app_v2.py to force Azure to use updated code"
-python app_v2.py
+# Start the application with uvicorn for FastAPI ASGI support
+echo "Starting FastAPI application with uvicorn..."
+echo "Using application.py which imports app_v2"
+python -m uvicorn application:app --host 0.0.0.0 --port 8000
