@@ -1285,6 +1285,35 @@ async def run_sync():
                 break
                 
             for ret in returns_batch:
+                # First ensure client and warehouse exist
+                if ret.get('client'):
+                    try:
+                        if USE_AZURE_SQL:
+                            cursor.execute("SELECT COUNT(*) FROM clients WHERE id = ?", (ret['client']['id'],))
+                            if cursor.fetchone()[0] == 0:
+                                cursor.execute("INSERT INTO clients (id, name) VALUES (?, ?)", 
+                                             (ret['client']['id'], ret['client'].get('name', '')))
+                                conn.commit()
+                        else:
+                            cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)",
+                                         (ret['client']['id'], ret['client'].get('name', '')))
+                    except Exception as e:
+                        print(f"Error inserting client: {e}")
+                
+                if ret.get('warehouse'):
+                    try:
+                        if USE_AZURE_SQL:
+                            cursor.execute("SELECT COUNT(*) FROM warehouses WHERE id = ?", (ret['warehouse']['id'],))
+                            if cursor.fetchone()[0] == 0:
+                                cursor.execute("INSERT INTO warehouses (id, name) VALUES (?, ?)",
+                                             (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                conn.commit()
+                        else:
+                            cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)",
+                                         (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                    except Exception as e:
+                        print(f"Error inserting warehouse: {e}")
+                
                 # Collect order ID if present
                 if ret.get('order') and ret['order'].get('id'):
                     all_order_ids.add(ret['order']['id'])
@@ -1372,19 +1401,22 @@ async def run_sync():
                 # Also store basic order info from return data
                 if ret.get('order'):
                     order = ret['order']
-                    if USE_AZURE_SQL:
-                        # Check if order exists first
-                        cursor.execute("SELECT COUNT(*) FROM orders WHERE id = ?", (order['id'],))
-                        if cursor.fetchone()[0] == 0:
+                    try:
+                        if USE_AZURE_SQL:
+                            # Check if order exists first
+                            cursor.execute("SELECT COUNT(*) FROM orders WHERE id = ?", (order['id'],))
+                            if cursor.fetchone()[0] == 0:
+                                cursor.execute("""
+                                    INSERT INTO orders (id, order_number, created_at, updated_at)
+                                    VALUES (?, ?, GETDATE(), GETDATE())
+                                """, (order['id'], order.get('order_number', '')))
+                        else:
                             cursor.execute("""
-                                INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES (?, ?, GETDATE(), GETDATE())
+                                INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
+                                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, (order['id'], order.get('order_number', '')))
-                    else:
-                        cursor.execute("""
-                            INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
-                            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """, (order['id'], order.get('order_number', '')))
+                    except Exception as e:
+                        print(f"Error inserting order {order['id']}: {e}")
                 
                 # Store return items if present
                 if ret.get('items'):
@@ -1410,15 +1442,69 @@ async def run_sync():
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
                             # Ensure product exists
-                            cursor.execute("""
-                                INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                                VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (product_id, product_sku, product_name))
+                            if USE_AZURE_SQL:
+                                cursor.execute("SELECT COUNT(*) FROM products WHERE id = ?", (product_id,))
+                                if cursor.fetchone()[0] == 0:
+                                    # Need separate statements for IDENTITY_INSERT
+                                    cursor.execute("SET IDENTITY_INSERT products ON")
+                                    cursor.execute("""
+                                        INSERT INTO products (id, sku, name, created_at, updated_at)
+                                        VALUES (?, ?, ?, GETDATE(), GETDATE())
+                                    """, (product_id, product_sku, product_name))
+                                    cursor.execute("SET IDENTITY_INSERT products OFF")
+                            else:
+                                cursor.execute("""
+                                    INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                """, (product_id, product_sku, product_name))
                         
                         # Store return item
                         import json
-                        cursor.execute("""
-                            INSERT OR REPLACE INTO return_items (
+                        if USE_AZURE_SQL:
+                            # Check if return item exists
+                            if item.get('id'):
+                                cursor.execute("SELECT COUNT(*) FROM return_items WHERE id = ?", (item['id'],))
+                                if cursor.fetchone()[0] == 0:
+                                    cursor.execute("SET IDENTITY_INSERT return_items ON")
+                                    cursor.execute("""
+                                        INSERT INTO return_items (
+                                            id, return_id, product_id, quantity,
+                                            return_reasons, condition_on_arrival,
+                                            quantity_received, quantity_rejected,
+                                            created_at, updated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                    """, (
+                                        item.get('id'),
+                                        ret['id'],
+                                        product_id if product_id > 0 else None,
+                                        item.get('quantity', 0),
+                                        json.dumps(item.get('return_reasons', [])),
+                                        json.dumps(item.get('condition_on_arrival', [])),
+                                        item.get('quantity_received', 0),
+                                        item.get('quantity_rejected', 0)
+                                    ))
+                                    cursor.execute("SET IDENTITY_INSERT return_items OFF")
+                            else:
+                                # No ID provided, let SQL generate one
+                                cursor.execute("""
+                                    INSERT INTO return_items (
+                                        return_id, product_id, quantity,
+                                        return_reasons, condition_on_arrival,
+                                        quantity_received, quantity_rejected,
+                                        created_at, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                """, (
+                                    ret['id'],
+                                    product_id if product_id > 0 else None,
+                                    item.get('quantity', 0),
+                                    json.dumps(item.get('return_reasons', [])),
+                                    json.dumps(item.get('condition_on_arrival', [])),
+                                    item.get('quantity_received', 0),
+                                    item.get('quantity_rejected', 0)
+                                ))
+                        else:
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO return_items (
                                 id, return_id, product_id, quantity,
                                 return_reasons, condition_on_arrival,
                                 quantity_received, quantity_rejected,
@@ -1865,10 +1951,27 @@ async def save_settings(settings: dict):
         else:
             value_str = str(value)
         
-        cursor.execute("""
-            INSERT OR REPLACE INTO settings (key, value, updated_at)
-            VALUES (?, ?, ?)
-        """, (key, value_str, datetime.now().isoformat()))
+        if USE_AZURE_SQL:
+            # Check if setting exists
+            cursor.execute("SELECT COUNT(*) FROM settings WHERE [key] = ?", (key,))
+            if cursor.fetchone()[0] > 0:
+                # Update existing
+                cursor.execute("""
+                    UPDATE settings 
+                    SET value = ?, updated_at = ?
+                    WHERE [key] = ?
+                """, (value_str, datetime.now().isoformat(), key))
+            else:
+                # Insert new
+                cursor.execute("""
+                    INSERT INTO settings ([key], value, updated_at)
+                    VALUES (?, ?, ?)
+                """, (key, value_str, datetime.now().isoformat()))
+        else:
+            cursor.execute("""
+                INSERT OR REPLACE INTO settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+            """, (key, value_str, datetime.now().isoformat()))
     
     conn.commit()
     
