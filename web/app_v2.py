@@ -894,6 +894,47 @@ async def get_top_returned_products():
     conn.close()
     return products
 
+@app.get("/api/test-warehance")
+async def test_warehance_api():
+    """Test the Warehance API connection"""
+    try:
+        api_key = WAREHANCE_API_KEY or "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1"
+        
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Try to fetch just 1 return to test the API
+        response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers)
+        
+        result = {
+            "api_key_used": api_key[:15] + "...",
+            "status_code": response.status_code,
+            "success": response.status_code == 200
+        }
+        
+        if response.status_code == 200:
+            data = response.json()
+            result["response_keys"] = list(data.keys()) if isinstance(data, dict) else "Not a dict"
+            
+            if 'data' in data and 'returns' in data['data']:
+                result["returns_count"] = len(data['data']['returns'])
+                result["total_count"] = data['data'].get('total_count', 0)
+            else:
+                result["error"] = "Unexpected response format"
+                result["response_sample"] = str(data)[:200]
+        else:
+            result["error"] = response.text[:500]
+        
+        return result
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "api_key_used": (api_key[:15] + "...") if api_key else "No API key"
+        }
+
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
     """Trigger a sync with Warehance API"""
@@ -1292,8 +1333,21 @@ async def run_sync():
                 data = response.json()
                 print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
                 
-                if 'data' not in data or 'returns' not in data['data']:
-                    print(f"No returns data in response. Full response: {data}")
+                # Check for API error response
+                if data.get('status') == 'error':
+                    error_msg = data.get('message', 'Unknown API error')
+                    print(f"API returned error: {error_msg}")
+                    sync_status["last_sync_message"] = f"API Error: {error_msg}"
+                    break
+                
+                if 'data' not in data:
+                    print(f"No 'data' key in API response. Response: {data}")
+                    sync_status["last_sync_message"] = "Invalid API response format"
+                    break
+                
+                if 'returns' not in data['data']:
+                    print(f"No 'returns' key in data. Data keys: {data['data'].keys() if isinstance(data['data'], dict) else 'Not a dict'}")
+                    sync_status["last_sync_message"] = "No returns data in API response"
                     break
                     
                 returns_batch = data['data']['returns']
@@ -1617,16 +1671,26 @@ async def run_sync():
         conn.commit()
         conn.close()
         
-        sync_status["last_sync_status"] = "success"
-        sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names"
+        # Only mark as success if we actually synced something
+        if sync_status['items_synced'] > 0:
+            sync_status["last_sync_status"] = "success"
+            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names"
+        else:
+            sync_status["last_sync_status"] = "warning"
+            sync_status["last_sync_message"] = "No returns found to sync. Check API connection and logs."
+        
         sync_status["last_sync"] = datetime.now().isoformat()
             
     except Exception as e:
+        print(f"Sync error: {str(e)}")
         sync_status["last_sync_status"] = "error"
-        sync_status["last_sync_message"] = f"Sync failed: {str(e)}"
+        sync_status["last_sync_message"] = f"Sync failed: {str(e)[:200]}"
+        if 'conn' in locals():
+            conn.close()
     
     finally:
         sync_status["is_running"] = False
+        print(f"Sync completed. Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
 
 @app.post("/api/returns/send-email")
 async def send_returns_email(request_data: dict):
