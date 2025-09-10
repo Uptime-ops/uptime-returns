@@ -8,16 +8,19 @@ Warehance Returns - A comprehensive returns management system integrated with th
 
 ## Project Status
 
-**Current Version:** Fully functional returns management system with API integration
+**Current Version:** V15 - Fully functional returns management system with Azure SQL compatibility
 **Server Port:** 8015 (http://localhost:8015)
-**Main Application:** web/enhanced_app.py (primary), web/simple_app.py (backup)
+**Main Application:** web/app_v2.py (current primary with Azure SQL support)
+**Backup Applications:** web/enhanced_app.py, web/simple_app.py
 
 ### Technology Stack
 - **Backend**: FastAPI (Python)
-- **Database**: SQLite with SQLAlchemy ORM
+- **Database**: Dual-compatible (SQLite for local development, Azure SQL Server for production)
 - **Frontend**: HTML/JavaScript with Bootstrap 5
 - **API Integration**: Warehance API (returns, products, orders endpoints)
 - **CSV Export**: StreamingResponse with custom formatting
+- **Cloud Platform**: Azure App Service with GitHub Actions CI/CD
+- **Security**: Environment variable configuration for API keys
 
 ### Project Structure
 ```
@@ -134,14 +137,29 @@ Warehance Returns/
 - Original app.py had Query.order_by() issues with LIMIT
 - Solution: Switched to raw SQL queries in enhanced_app.py
 
+### 6. Azure SQL Server Compatibility (RESOLVED - V11-V15)
+- **Date Conversion Errors**: API dates from Warehance need conversion for SQL Server
+- **SQL Parameterization**: Azure SQL requires `%s` placeholders vs SQLite `?`
+- **LIMIT Syntax**: Azure SQL uses `OFFSET/FETCH` instead of `LIMIT/OFFSET`
+- **Column Naming**: Azure SQL requires aliases for aggregate functions like `COUNT(*)`
+- **Empty IN Clauses**: Must check for empty lists before generating `WHERE id IN ()`
+- **Solution**: Implemented dual-compatibility functions in app_v2.py
+
 ## Development Guidelines
 
 ### Running the Application
+
+**Local Development:**
 ```bash
 cd web
-python enhanced_app.py
+python app_v2.py
 # Access at http://localhost:8015
 ```
+
+**Azure Production:**
+- Deployed via GitHub Actions to Azure App Service
+- Environment variables configured in Azure Application Settings
+- Automatic deployment on push to main branch
 
 ### Sync Process
 1. Click "Sync Now" button in UI
@@ -170,17 +188,21 @@ python enhanced_app.py
 ## Important Configuration
 
 ### API Token
-- Warehance API token is hardcoded in enhanced_app.py
-- Consider moving to environment variables for production
+- **SECURITY FIXED**: Warehance API token now uses environment variables
+- Local development: Set `WAREHANCE_API_KEY` environment variable
+- Azure production: Configured in Azure Application Settings
+- **No longer hardcoded** in source code for security
 
 ### Current Data Statistics
-- **Total Returns**: 690+
+- **Total Returns**: 977+ available via Warehance API
 - **Active Clients**: 7+ (Euro Brands, MRG Brands, Fast Fwd, etc.)
 - **Products**: 3,500+ synced from Warehance
-- **Database Size**: Growing with each sync
+- **Database**: Dual-platform support (SQLite + Azure SQL)
+- **Azure Production**: Fully deployed and operational
 
 ## Recent Updates and Fixes
 
+### Legacy Updates (Pre-Azure)
 1. **CSV Export Enhancement**: Modified to show one row per line item with specific columns
 2. **Sync Pagination**: Fixed to fetch all 690+ returns (was limited to 100)
 3. **Sync Status Display**: Added real-time status near Sync Now button
@@ -192,9 +214,75 @@ python enhanced_app.py
 9. **Frontend Updates**: Fixed Return Details modal to show both notes and items
 10. **Database Path Fix**: Corrected relative path to database file
 
+### Azure SQL Compatibility (V11-V15) - September 2025
+11. **V11 - Date Conversion**: Added `convert_date_for_sql()` function to handle Warehance API date formats for Azure SQL Server
+12. **V12 - SQL Parameterization**: Attempted incorrect `%s` → `?` conversion (reverted)
+13. **V13 - Empty IN Clause Fix**: Added null checks to prevent `WHERE id IN ()` syntax errors
+14. **V14 - LIMIT Syntax**: Added `format_limit_clause()` for Azure SQL `OFFSET/FETCH` vs SQLite `LIMIT/OFFSET`
+15. **V14 - Column Naming**: Added aliases for `COUNT(*)` queries to prevent "columns with no names" errors
+16. **V15 - Final Parameterization**: Fixed remaining `?` placeholders in sync queries (clients, warehouses, returns)
+17. **Security Enhancement**: Moved API keys to environment variables, removed from source code
+18. **GitHub Actions**: Enhanced CI/CD pipeline with proper virtual environment handling
+19. **Dual Database Support**: Single codebase now supports both SQLite (local) and Azure SQL (production)
+
+## Azure SQL Compatibility Functions
+
+The application includes several helper functions in `app_v2.py` for database compatibility:
+
+### Core Compatibility Functions
+```python
+def get_param_placeholder():
+    """Returns '%s' for Azure SQL, '?' for SQLite"""
+    return "%s" if USE_AZURE_SQL else "?"
+
+def format_in_clause(count):
+    """Formats IN clause with correct placeholders"""
+    placeholder = get_param_placeholder()
+    return ','.join([placeholder] * count)
+
+def format_limit_clause(limit, offset=0):
+    """Formats LIMIT clause with correct syntax"""
+    if USE_AZURE_SQL:
+        return f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+    else:
+        return f"LIMIT {limit} OFFSET {offset}" if offset > 0 else f"LIMIT {limit}"
+
+def convert_date_for_sql(date_string):
+    """Converts API dates to SQL Server compatible format"""
+    # Handles multiple Warehance API date formats
+    # Returns YYYY-MM-DD HH:MM:SS format for Azure SQL
+```
+
+### Usage Guidelines
+- **Always use these functions** for new SQL queries
+- **Test both databases** when making SQL changes
+- **Add column aliases** for aggregate functions (e.g., `COUNT(*) as total_count`)
+- **Check for empty lists** before generating IN clauses
+
+## Azure Deployment Information
+
+### GitHub Repository
+- **Public Repository**: https://github.com/Uptime-ops/uptime-returns
+- **Main Branch**: Automatic deployment to Azure on push
+- **Security**: API keys stored in GitHub Secrets and Azure Application Settings
+
+### Azure Configuration
+- **Platform**: Azure App Service 
+- **Database**: Azure SQL Server (`uptime-returns-sql.database.windows.net`)
+- **Environment Variables**: Configured in Azure Application Settings
+- **Deployment**: GitHub Actions workflow (`.github/workflows/main_uptime-returns.yml`)
+
+### Version History
+- **V11**: Date conversion for Azure SQL
+- **V12**: Incorrect parameterization attempt (reverted)  
+- **V13**: Empty IN clause fixes
+- **V14**: LIMIT syntax and column naming
+- **V15**: Final parameterization fixes - **CURRENT PRODUCTION VERSION**
+
 ## Notes
 
 - This project directory is located in OneDrive, which may have sync implications
 - Multiple background processes may be running on different ports (check and kill if needed)
 - Returns data includes both historical (with limited info) and recent data (with full details)
 - API updates are not retroactive - older returns maintain their original structure
+- **Azure SQL compatibility is complete** - sync should work with all 977+ returns from Warehance API
