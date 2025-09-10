@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-FINAL-FIX-V12"
+DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-EMPTY-IN-FIX-V13"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -55,6 +55,16 @@ if DATABASE_URL:
     print(f"DATABASE_URL preview: {DATABASE_URL[:50]}...")
 else:
     print("DATABASE_URL is empty - will use SQLite fallback")
+
+# SQL parameterization helper - Azure SQL uses %s, SQLite uses ?
+def get_param_placeholder():
+    """Get the correct parameter placeholder for the current database"""
+    return "%s" if USE_AZURE_SQL else "?"
+
+def format_in_clause(count):
+    """Format IN clause with correct placeholders"""
+    placeholder = get_param_placeholder()
+    return ','.join([placeholder] * count)
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
@@ -495,7 +505,7 @@ async def search_returns(filter_params: dict):
     params = []
     
     if client_id:
-        query += " AND r.client_id = ?"
+        query += " AND r.client_id = %s"
         params.append(client_id)
     
     if status:
@@ -505,7 +515,7 @@ async def search_returns(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE ? OR r.id LIKE ? OR c.name LIKE ?)"
+        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -517,10 +527,10 @@ async def search_returns(filter_params: dict):
     
     # Add pagination (different syntax for Azure SQL vs SQLite)
     if USE_AZURE_SQL:
-        query += " ORDER BY r.created_at DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+        query += " ORDER BY r.created_at DESC OFFSET %s ROWS FETCH NEXT %s ROWS ONLY"
         params.extend([(page - 1) * limit, limit])
     else:
-        query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY r.created_at DESC LIMIT %s OFFSET %s"
         params.extend([limit, (page - 1) * limit])
     
     cursor.execute(query, params)
@@ -563,7 +573,7 @@ async def search_returns(filter_params: dict):
                 SELECT ri.*, p.sku, p.name as product_name
                 FROM return_items ri
                 LEFT JOIN products p ON ri.product_id = p.id
-                WHERE ri.return_id = ?
+                WHERE ri.return_id = %s
             """, (return_id,))
             
             item_rows = cursor.fetchall()
@@ -613,7 +623,7 @@ async def get_return_detail(return_id: int):
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
-        WHERE r.id = ?
+        WHERE r.id = %s
     """, (return_id,))
     
     return_row = cursor.fetchone()
@@ -630,7 +640,7 @@ async def get_return_detail(return_id: int):
         SELECT ri.*, p.sku, p.name as product_name
         FROM return_items ri
         LEFT JOIN products p ON ri.product_id = p.id
-        WHERE ri.return_id = ?
+        WHERE ri.return_id = %s
     """, (return_id,))
     
     return_items = cursor.fetchall()
@@ -708,7 +718,7 @@ async def get_return_detail(return_id: int):
             cursor.execute("""
                 SELECT o.order_number
                 FROM orders o
-                WHERE o.id = ?
+                WHERE o.id = %s
             """, (order_id,))
             
             order_row = cursor.fetchone()
@@ -748,7 +758,7 @@ async def export_returns_csv(filter_params: dict):
     search = search.strip() if search else ''
     
     if client_id:
-        query += " AND r.client_id = ?"
+        query += " AND r.client_id = %s"
         params.append(client_id)
     
     if status:
@@ -758,7 +768,7 @@ async def export_returns_csv(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE ? OR r.id LIKE ? OR c.name LIKE ?)"
+        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -795,7 +805,7 @@ async def export_returns_csv(filter_params: dict):
                    ri.return_reasons, ri.condition_on_arrival
             FROM return_items ri
             LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = ?
+            WHERE ri.return_id = %s
         """, (return_id,))
         items = cursor.fetchall()
         
@@ -1060,7 +1070,7 @@ async def migrate_database():
                 cursor.execute("""
                     SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.COLUMNS 
-                    WHERE TABLE_NAME = ? AND COLUMN_NAME = ?
+                    WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
                 
                 result = cursor.fetchone()
@@ -1271,7 +1281,7 @@ async def initialize_database():
                 cursor.execute("""
                     SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_NAME = ?
+                    WHERE TABLE_NAME = %s
                 """, (table_name,))
                 
                 result = cursor.fetchone()
@@ -1350,7 +1360,7 @@ async def get_sync_status():
             "last_sync_status": sync_status["last_sync_status"],
             "last_sync_message": sync_status["last_sync_message"],
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not ?"
+            "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
     except Exception as e:
         print(f"Error in sync status: {str(e)}")
@@ -1362,7 +1372,7 @@ async def get_sync_status():
             "last_sync_status": "error",
             "last_sync_message": str(e),
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not ?"
+            "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
 
 def convert_date_for_sql(date_string):
@@ -1500,7 +1510,7 @@ async def run_sync():
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
-                                    cursor.execute("INSERT INTO clients (id, name) VALUES (?, ?)", 
+                                    cursor.execute("INSERT INTO clients (id, name) VALUES (%s, %s)", 
                                                  (client_id, client_name))
                                     conn.commit()
                                 except Exception as insert_err:
@@ -1526,7 +1536,7 @@ async def run_sync():
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
-                                    cursor.execute("INSERT INTO warehouses (id, name) VALUES (?, ?)",
+                                    cursor.execute("INSERT INTO warehouses (id, name) VALUES (%s, %s)",
                                                  (warehouse_id, warehouse_name))
                                     conn.commit()
                                 except Exception as insert_err:
@@ -1552,7 +1562,7 @@ async def run_sync():
                     
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = ?", (return_id,))
+                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
                         
@@ -1560,14 +1570,14 @@ async def run_sync():
                             # Update existing return
                             cursor.execute("""
                                 UPDATE returns SET
-                                    api_id = ?, paid_by = ?, status = ?, created_at = ?,
-                                    updated_at = ?, processed = ?, processed_at = ?,
-                                    warehouse_note = ?, customer_note = ?, tracking_number = ?,
-                                    tracking_url = ?, carrier = ?, service = ?, label_cost = ?,
-                                    label_pdf_url = ?, rma_slip_url = ?, label_voided = ?,
-                                    client_id = ?, warehouse_id = ?, order_id = ?,
-                                    return_integration_id = ?, last_synced_at = ?
-                                WHERE id = ?
+                                    api_id = %s, paid_by = %s, status = %s, created_at = %s,
+                                    updated_at = %s, processed = %s, processed_at = %s,
+                                    warehouse_note = %s, customer_note = %s, tracking_number = %s,
+                                    tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
+                                    label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
+                                    client_id = %s, warehouse_id = %s, order_id = %s,
+                                    return_integration_id = %s, last_synced_at = %s
+                                WHERE id = %s
                             """, (
                                 ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
@@ -1619,7 +1629,7 @@ async def run_sync():
                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
@@ -1642,17 +1652,17 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = ?", (str(order['id']),))
+                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (str(order['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES (?, ?, GETDATE(), GETDATE())
+                                    VALUES (%s, %s, GETDATE(), GETDATE())
                                 """, (str(order['id']), order.get('order_number', '')))
                         else:
                             cursor.execute("""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, (str(order['id']), order.get('order_number', '')))
                     except Exception as e:
                         print(f"Error inserting order {str(order['id'])}: {e}")
@@ -1668,7 +1678,7 @@ async def run_sync():
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
                             # Try to find existing product by SKU
-                            cursor.execute("SELECT id as product_id FROM products WHERE sku = ?", (product_sku,))
+                            cursor.execute("SELECT id as product_id FROM products WHERE sku = %s", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
                                 product_id = existing[0]
@@ -1676,26 +1686,26 @@ async def run_sync():
                                 # Create a placeholder product
                                 cursor.execute("""
                                     INSERT INTO products (sku, name, created_at, updated_at)
-                                    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_sku, product_name or 'Unknown Product'))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
                             # Ensure product exists
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = ?", (product_id,))
+                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (product_id,))
                                 product_result = cursor.fetchone()
                                 if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
                                     cursor.execute("""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (?, ?, ?, GETDATE(), GETDATE())
+                                        VALUES (%s, %s, %s, GETDATE(), GETDATE())
                                     """, (product_id, product_sku, product_name))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
                                 cursor.execute("""
                                     INSERT INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_id, product_sku, product_name))
                         
                         # Store return item
@@ -1703,7 +1713,7 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if return item exists
                             if item.get('id'):
-                                cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = ?", (item['id'],))
+                                cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
                                 item_result = cursor.fetchone()
                                 if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
@@ -1713,7 +1723,7 @@ async def run_sync():
                                             return_reasons, condition_on_arrival,
                                             quantity_received, quantity_rejected,
                                             created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                     """, (
                                         item.get('id'),
                                         return_id,
@@ -1733,7 +1743,7 @@ async def run_sync():
                                         return_reasons, condition_on_arrival,
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                 """, (
                                     return_id,
                                     product_id if product_id > 0 else None,
@@ -1750,7 +1760,7 @@ async def run_sync():
                                 return_reasons, condition_on_arrival,
                                 quantity_received, quantity_rejected,
                                 created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """, (
                             item.get('id'),
                             return_id,
@@ -1788,13 +1798,15 @@ async def run_sync():
         sync_status["last_sync_message"] = f"Fetching {len(all_order_ids)} orders with customer info..."
         
         # Check which orders need customer name updates
-        cursor.execute("""
-            SELECT id FROM orders 
-            WHERE id IN ({}) 
-            AND (customer_name IS NULL OR customer_name = '')
-        """.format(','.join('?' * len(all_order_ids))), list(all_order_ids))
-        
-        orders_needing_update = [row[0] for row in cursor.fetchall()]
+        if all_order_ids:
+            cursor.execute("""
+                SELECT id FROM orders 
+                WHERE id IN ({}) 
+                AND (customer_name IS NULL OR customer_name = '')
+            """.format(','.join('%s' * len(all_order_ids))), list(all_order_ids))
+            orders_needing_update = [row[0] for row in cursor.fetchall()]
+        else:
+            orders_needing_update = []
         customers_updated = 0
         
         # Fetch order details in batches (limit to avoid timeout)
@@ -1823,8 +1835,8 @@ async def run_sync():
                         # Update order with full details including customer name
                         cursor.execute("""
                             UPDATE orders 
-                            SET customer_name = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
+                            SET customer_name = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
                         """, (customer_name, order_id))
                         
                         if customer_name:
@@ -1891,7 +1903,7 @@ async def send_returns_email(request_data: dict):
         # Get client name
         client_name = "All Clients"
         if client_id:
-            cursor.execute("SELECT name as client_name FROM clients WHERE id = ?", (client_id,))
+            cursor.execute("SELECT name as client_name FROM clients WHERE id = %s", (client_id,))
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
@@ -1900,7 +1912,7 @@ async def send_returns_email(request_data: dict):
         where_clause = "WHERE 1=1"
         params = []
         if client_id:
-            where_clause += " AND r.client_id = ?"
+            where_clause += " AND r.client_id = %s"
             params.append(client_id)
         
         # Total returns
@@ -2028,7 +2040,7 @@ async def send_returns_email(request_data: dict):
             # Log to email history
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -2046,7 +2058,7 @@ async def send_returns_email(request_data: dict):
             # Save to email history as draft since SMTP not configured
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -2085,7 +2097,7 @@ async def get_email_history(client_id: Optional[int] = None):
     params = []
     
     if client_id:
-        query += " AND client_id = ?"
+        query += " AND client_id = %s"
         params.append(client_id)
     
     query += " ORDER BY sent_date DESC"
@@ -2255,25 +2267,25 @@ async def save_settings(settings: dict):
         
         if USE_AZURE_SQL:
             # Check if setting exists
-            cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = ?", (key,))
+            cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
             setting_result = cursor.fetchone()
             if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
                 # Update existing
                 cursor.execute("""
                     UPDATE settings 
-                    SET value = ?, updated_at = ?
-                    WHERE [key] = ?
+                    SET value = %s, updated_at = %s
+                    WHERE [key] = %s
                 """, (value_str, datetime.now().isoformat(), key))
             else:
                 # Insert new
                 cursor.execute("""
                     INSERT INTO settings ([key], value, updated_at)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                 """, (key, value_str, datetime.now().isoformat()))
         else:
             cursor.execute("""
                 INSERT INTO settings (key, value, updated_at)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
             """, (key, value_str, datetime.now().isoformat()))
     
     conn.commit()
@@ -2683,7 +2695,7 @@ async def test_direct_sync():
             
             try:
                 # Check if return exists
-                cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = ?", (str(return_id),))
+                cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (str(return_id),))
                 result = cursor.fetchone()
                 exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
                 print(f"Return {return_id} exists in DB: {exists}")
