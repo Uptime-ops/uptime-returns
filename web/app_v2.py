@@ -1060,7 +1060,7 @@ async def migrate_database():
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM INFORMATION_SCHEMA.COLUMNS 
-                    WHERE TABLE_NAME = ? AND COLUMN_NAME = ?
+                    WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
                 
                 exists = cursor.fetchone()[0] > 0
@@ -1439,8 +1439,8 @@ async def run_sync():
                                                  (ret['client']['id'], ret['client'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)",
-                                             (ret['client']['id'], ret['client'].get('name', '')))
+                                cursor.execute("IF NOT EXISTS (SELECT 1 FROM clients WHERE id = %s) INSERT INTO clients (id, name) VALUES (%s, %s)",
+                                             (ret['client']['id'], ret['client']['id'], ret['client'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting client: {e}")
                 
@@ -1453,8 +1453,8 @@ async def run_sync():
                                                  (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)",
-                                             (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                cursor.execute("IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = %s) INSERT INTO warehouses (id, name) VALUES (%s, %s)",
+                                             (ret['warehouse']['id'], ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting warehouse: {e}")
                 
@@ -1558,12 +1558,12 @@ async def run_sync():
                             if cursor.fetchone()[0] == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES (?, ?, GETDATE(), GETDATE())
+                                    VALUES (%s, %s, GETDATE(), GETDATE())
                                 """, (order['id'], order.get('order_number', '')))
                         else:
                             cursor.execute("""
                                 INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
-                                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, (order['id'], order.get('order_number', '')))
                     except Exception as e:
                         print(f"Error inserting order {order['id']}: {e}")
@@ -1579,7 +1579,7 @@ async def run_sync():
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
                             # Try to find existing product by SKU
-                            cursor.execute("SELECT id FROM products WHERE sku = ?", (product_sku,))
+                            cursor.execute("SELECT id FROM products WHERE sku = %s", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
                                 product_id = existing[0]
@@ -1587,25 +1587,25 @@ async def run_sync():
                                 # Create a placeholder product
                                 cursor.execute("""
                                     INSERT INTO products (sku, name, created_at, updated_at)
-                                    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_sku, product_name or 'Unknown Product'))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
                             # Ensure product exists
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) FROM products WHERE id = ?", (product_id,))
+                                cursor.execute("SELECT COUNT(*) FROM products WHERE id = %s", (product_id,))
                                 if cursor.fetchone()[0] == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
                                     cursor.execute("""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (?, ?, ?, GETDATE(), GETDATE())
+                                        VALUES (%s, %s, %s, GETDATE(), GETDATE())
                                     """, (product_id, product_sku, product_name))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
                                 cursor.execute("""
                                     INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_id, product_sku, product_name))
                         
                         # Store return item
@@ -1613,7 +1613,7 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if return item exists
                             if item.get('id'):
-                                cursor.execute("SELECT COUNT(*) FROM return_items WHERE id = ?", (item['id'],))
+                                cursor.execute("SELECT COUNT(*) FROM return_items WHERE id = %s", (item['id'],))
                                 if cursor.fetchone()[0] == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
                                     cursor.execute("""
@@ -1622,7 +1622,7 @@ async def run_sync():
                                             return_reasons, condition_on_arrival,
                                             quantity_received, quantity_rejected,
                                             created_at, updated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                     """, (
                                         item.get('id'),
                                         ret['id'],
@@ -1642,7 +1642,7 @@ async def run_sync():
                                         return_reasons, condition_on_arrival,
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                 """, (
                                     ret['id'],
                                     product_id if product_id > 0 else None,
@@ -1659,7 +1659,7 @@ async def run_sync():
                                 return_reasons, condition_on_arrival,
                                 quantity_received, quantity_rejected,
                                 created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """, (
                             item.get('id'),
                             ret['id'],
@@ -1699,7 +1699,7 @@ async def run_sync():
             SELECT id FROM orders 
             WHERE id IN ({}) 
             AND (customer_name IS NULL OR customer_name = '')
-        """.format(','.join('?' * len(all_order_ids))), list(all_order_ids))
+        """.format(','.join('%s' * len(all_order_ids))), list(all_order_ids))
         
         orders_needing_update = [row[0] for row in cursor.fetchall()]
         customers_updated = 0
@@ -1730,8 +1730,8 @@ async def run_sync():
                         # Update order with full details including customer name
                         cursor.execute("""
                             UPDATE orders 
-                            SET customer_name = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
+                            SET customer_name = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
                         """, (customer_name, order_id))
                         
                         if customer_name:
@@ -1789,7 +1789,7 @@ async def send_returns_email(request_data: dict):
         # Get client name
         client_name = "All Clients"
         if client_id:
-            cursor.execute("SELECT name FROM clients WHERE id = ?", (client_id,))
+            cursor.execute("SELECT name FROM clients WHERE id = %s", (client_id,))
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
@@ -1798,7 +1798,7 @@ async def send_returns_email(request_data: dict):
         where_clause = "WHERE 1=1"
         params = []
         if client_id:
-            where_clause += " AND r.client_id = ?"
+            where_clause += " AND r.client_id = %s"
             params.append(client_id)
         
         # Total returns
@@ -1926,7 +1926,7 @@ async def send_returns_email(request_data: dict):
             # Log to email history
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -1944,7 +1944,7 @@ async def send_returns_email(request_data: dict):
             # Save to email history as draft since SMTP not configured
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -1983,7 +1983,7 @@ async def get_email_history(client_id: Optional[int] = None):
     params = []
     
     if client_id:
-        query += " AND client_id = ?"
+        query += " AND client_id = %s"
         params.append(client_id)
     
     query += " ORDER BY sent_date DESC"
@@ -2151,24 +2151,24 @@ async def save_settings(settings: dict):
         
         if USE_AZURE_SQL:
             # Check if setting exists
-            cursor.execute("SELECT COUNT(*) FROM settings WHERE [key] = ?", (key,))
+            cursor.execute("SELECT COUNT(*) FROM settings WHERE [key] = %s", (key,))
             if cursor.fetchone()[0] > 0:
                 # Update existing
                 cursor.execute("""
                     UPDATE settings 
-                    SET value = ?, updated_at = ?
-                    WHERE [key] = ?
+                    SET value = %s, updated_at = %s
+                    WHERE [key] = %s
                 """, (value_str, datetime.now().isoformat(), key))
             else:
                 # Insert new
                 cursor.execute("""
                     INSERT INTO settings ([key], value, updated_at)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                 """, (key, value_str, datetime.now().isoformat()))
         else:
             cursor.execute("""
                 INSERT OR REPLACE INTO settings (key, value, updated_at)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
             """, (key, value_str, datetime.now().isoformat()))
     
     conn.commit()
