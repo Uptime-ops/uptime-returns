@@ -1464,57 +1464,63 @@ async def run_sync():
                     
                     # Update or insert return (using MERGE for Azure SQL compatibility)
                     if USE_AZURE_SQL:
-                        # Use MERGE for Azure SQL
-                        cursor.execute("""
-                        MERGE returns AS target
-                        USING (SELECT %s AS id) AS source
-                        ON target.id = source.id
-                        WHEN MATCHED THEN
-                            UPDATE SET
-                                api_id = %s, paid_by = %s, status = %s, created_at = %s,
-                                updated_at = %s, processed = %s, processed_at = %s,
-                                warehouse_note = %s, customer_note = %s, tracking_number = %s,
-                                tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
-                                label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
-                                client_id = %s, warehouse_id = %s, order_id = %s,
-                                return_integration_id = %s, last_synced_at = %s
-                        WHEN NOT MATCHED THEN
-                            INSERT (id, api_id, paid_by, status, created_at, updated_at,
-                                    processed, processed_at, warehouse_note, customer_note,
-                                    tracking_number, tracking_url, carrier, service,
-                                    label_cost, label_pdf_url, rma_slip_url, label_voided,
-                                    client_id, warehouse_id, order_id, return_integration_id,
-                                    last_synced_at)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                    """, (
-                        ret['id'],  # for source
-                        ret.get('api_id'), ret.get('paid_by', ''),
-                        ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                        ret.get('processed', False), ret.get('processed_at'),
-                        ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                        ret.get('tracking_number'), ret.get('tracking_url'),
-                        ret.get('carrier', ''), ret.get('service', ''),
-                        ret.get('label_cost'), ret.get('label_pdf_url'),
-                        ret.get('rma_slip_url'), ret.get('label_voided', False),
-                        ret['client']['id'] if ret.get('client') else None,
-                        ret['warehouse']['id'] if ret.get('warehouse') else None,
-                        ret['order']['id'] if ret.get('order') else None,
-                        ret.get('return_integration_id'),
-                        datetime.now().isoformat(),  # for update
-                        ret['id'], ret.get('api_id'), ret.get('paid_by', ''),  # for insert
-                        ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                        ret.get('processed', False), ret.get('processed_at'),
-                        ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                        ret.get('tracking_number'), ret.get('tracking_url'),
-                        ret.get('carrier', ''), ret.get('service', ''),
-                        ret.get('label_cost'), ret.get('label_pdf_url'),
-                        ret.get('rma_slip_url'), ret.get('label_voided', False),
-                        ret['client']['id'] if ret.get('client') else None,
-                        ret['warehouse']['id'] if ret.get('warehouse') else None,
-                        ret['order']['id'] if ret.get('order') else None,
-                        ret.get('return_integration_id'),
-                        datetime.now().isoformat()
-                    ))
+                        # Use IF EXISTS for Azure SQL (simpler than MERGE)
+                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (ret['id'],))
+                        exists = cursor.fetchone()[0] > 0
+                        
+                        if exists:
+                            # Update existing return
+                            cursor.execute("""
+                                UPDATE returns SET
+                                    api_id = %s, paid_by = %s, status = %s, created_at = %s,
+                                    updated_at = %s, processed = %s, processed_at = %s,
+                                    warehouse_note = %s, customer_note = %s, tracking_number = %s,
+                                    tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
+                                    label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
+                                    client_id = %s, warehouse_id = %s, order_id = %s,
+                                    return_integration_id = %s, last_synced_at = %s
+                                WHERE id = %s
+                            """, (
+                                ret.get('api_id'), ret.get('paid_by', ''),
+                                ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
+                                ret.get('processed', False), ret.get('processed_at'),
+                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                                ret.get('tracking_number'), ret.get('tracking_url'),
+                                ret.get('carrier', ''), ret.get('service', ''),
+                                ret.get('label_cost'), ret.get('label_pdf_url'),
+                                ret.get('rma_slip_url'), ret.get('label_voided', False),
+                                ret['client']['id'] if ret.get('client') else None,
+                                ret['warehouse']['id'] if ret.get('warehouse') else None,
+                                ret['order']['id'] if ret.get('order') else None,
+                                ret.get('return_integration_id'),
+                                datetime.now().isoformat(),
+                                ret['id']  # WHERE clause
+                            ))
+                        else:
+                            # Insert new return
+                            cursor.execute("""
+                                INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
+                                        processed, processed_at, warehouse_note, customer_note,
+                                        tracking_number, tracking_url, carrier, service,
+                                        label_cost, label_pdf_url, rma_slip_url, label_voided,
+                                        client_id, warehouse_id, order_id, return_integration_id,
+                                        last_synced_at)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """, (
+                                ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
+                                ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
+                                ret.get('processed', False), ret.get('processed_at'),
+                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                                ret.get('tracking_number'), ret.get('tracking_url'),
+                                ret.get('carrier', ''), ret.get('service', ''),
+                                ret.get('label_cost'), ret.get('label_pdf_url'),
+                                ret.get('rma_slip_url'), ret.get('label_voided', False),
+                                ret['client']['id'] if ret.get('client') else None,
+                                ret['warehouse']['id'] if ret.get('warehouse') else None,
+                                ret['order']['id'] if ret.get('order') else None,
+                                ret.get('return_integration_id'),
+                                datetime.now().isoformat()
+                            ))
                 else:
                     # Use INSERT OR REPLACE for SQLite
                     cursor.execute("""
