@@ -216,7 +216,6 @@ else:
         return conn
 
 from fastapi import FastAPI, Response, HTTPException
-from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
@@ -457,13 +456,12 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
-    try:
-        conn = get_db_connection()
-        if not USE_AZURE_SQL:
-            conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Extract filter parameters
+    conn = get_db_connection()
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Extract filter parameters
     page = filter_params.get('page', 1)
     limit = filter_params.get('limit', 20)
     client_id = filter_params.get('client_id')
@@ -578,34 +576,17 @@ async def search_returns(filter_params: dict):
         
         returns.append(return_dict)
     
-        conn.close()
-        
-        total_pages = (total + limit - 1) // limit if total > 0 else 1
-        
-        return {
-            "returns": returns,
-            "total_count": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": total_pages
-        }
-    except Exception as e:
-        print(f"Error in search_returns: {str(e)}")
-        if 'conn' in locals():
-            conn.close()
-        # Return JSON error response instead of HTML
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "Database connection error",
-                "message": "Unable to fetch returns data",
-                "returns": [],
-                "total_count": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0
-            }
-        )
+    conn.close()
+    
+    total_pages = (total + limit - 1) // limit if total > 0 else 1
+    
+    return {
+        "returns": returns,
+        "total_count": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages
+    }
 
 @app.get("/api/returns/{return_id}")
 async def get_return_detail(return_id: int):
