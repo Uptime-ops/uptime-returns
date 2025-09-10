@@ -46,6 +46,16 @@ if not WAREHANCE_API_KEY:
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or 'database.azure.com' in DATABASE_URL))
 
+# Debug database configuration
+print(f"=== DATABASE CONFIGURATION ===")
+print(f"DATABASE_URL exists: {bool(DATABASE_URL)}")
+print(f"USE_AZURE_SQL: {USE_AZURE_SQL}")
+print(f"IS_AZURE: {IS_AZURE}")
+if DATABASE_URL:
+    print(f"DATABASE_URL preview: {DATABASE_URL[:50]}...")
+else:
+    print("DATABASE_URL is empty - will use SQLite fallback")
+
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
     
