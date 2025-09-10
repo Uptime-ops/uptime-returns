@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-SQL-SYNTAX-BIGINT-FIX-V3"
+DEPLOYMENT_VERSION = "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V4"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1152,7 +1152,7 @@ async def initialize_database():
         table_definitions = {
             'clients': """
                 CREATE TABLE clients (
-                    id BIGINT PRIMARY KEY,
+                    id NVARCHAR(50) PRIMARY KEY,
                     name NVARCHAR(255) NOT NULL,
                     created_at DATETIME DEFAULT GETDATE(),
                     updated_at DATETIME DEFAULT GETDATE()
@@ -1160,7 +1160,7 @@ async def initialize_database():
             """,
             'warehouses': """
                 CREATE TABLE warehouses (
-                    id BIGINT PRIMARY KEY,
+                    id NVARCHAR(50) PRIMARY KEY,
                     name NVARCHAR(255) NOT NULL,
                     created_at DATETIME DEFAULT GETDATE(),
                     updated_at DATETIME DEFAULT GETDATE()
@@ -1168,7 +1168,7 @@ async def initialize_database():
             """,
             'orders': """
                 CREATE TABLE orders (
-                    id BIGINT PRIMARY KEY,
+                    id NVARCHAR(50) PRIMARY KEY,
                     order_number NVARCHAR(100),
                     customer_name NVARCHAR(255),
                     created_at DATETIME DEFAULT GETDATE(),
@@ -1186,7 +1186,7 @@ async def initialize_database():
             """,
             'returns': """
                 CREATE TABLE returns (
-                    id BIGINT PRIMARY KEY,
+                    id NVARCHAR(50) PRIMARY KEY,
                     api_id NVARCHAR(100),
                     paid_by NVARCHAR(50),
                     status NVARCHAR(50),
@@ -1204,9 +1204,9 @@ async def initialize_database():
                     label_pdf_url NVARCHAR(500),
                     rma_slip_url NVARCHAR(500),
                     label_voided BIT DEFAULT 0,
-                    client_id BIGINT,
-                    warehouse_id BIGINT,
-                    order_id BIGINT,
+                    client_id NVARCHAR(50),
+                    warehouse_id NVARCHAR(50),
+                    order_id NVARCHAR(50),
                     return_integration_id NVARCHAR(100),
                     last_synced_at DATETIME
                 )
@@ -1214,7 +1214,7 @@ async def initialize_database():
             'return_items': """
                 CREATE TABLE return_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    return_id BIGINT,
+                    return_id NVARCHAR(50),
                     product_id INT,
                     quantity INT DEFAULT 0,
                     return_reasons NVARCHAR(MAX),
@@ -1228,7 +1228,7 @@ async def initialize_database():
             'email_history': """
                 CREATE TABLE email_history (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    client_id BIGINT,
+                    client_id NVARCHAR(50),
                     client_name NVARCHAR(255),
                     recipient_email NVARCHAR(255),
                     subject NVARCHAR(500),
@@ -1241,7 +1241,7 @@ async def initialize_database():
             'email_share_items': """
                 CREATE TABLE email_share_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    return_id BIGINT,
+                    return_id NVARCHAR(50),
                     share_id INT,
                     created_at DATETIME DEFAULT GETDATE()
                 )
@@ -1436,49 +1436,72 @@ async def run_sync():
                     break
                 
                 for ret in returns_batch:
-                    # First ensure client and warehouse exist
+                    # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
+                            client_id = ret['client']['id']
+                            client_name = ret['client'].get('name', '')
+                            
+                            # Convert large IDs to string to prevent arithmetic overflow
+                            if isinstance(client_id, int) and client_id > 2147483647:
+                                client_id = str(client_id)
+                            
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM clients WHERE id = %s", (ret['client']['id'],))
-                                client_result = cursor.fetchone()
-                                if (client_result['count'] if USE_AZURE_SQL else client_result[0]) == 0:
+                                # Use simple INSERT with ignore duplicate errors
+                                try:
                                     cursor.execute("INSERT INTO clients (id, name) VALUES (%s, %s)", 
-                                                 (ret['client']['id'], ret['client'].get('name', '')))
+                                                 (client_id, client_name))
                                     conn.commit()
+                                except Exception as insert_err:
+                                    # Ignore duplicate key errors, log others
+                                    if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
+                                        print(f"Non-duplicate client insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    IF NOT EXISTS (SELECT 1 FROM clients WHERE id = %s)
-                                        INSERT INTO clients (id, name) VALUES (%s, %s)
-                                """, (ret['client']['id'], ret['client']['id'], ret['client'].get('name', '')))
+                                    INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)
+                                """, (client_id, client_name))
                         except Exception as e:
-                            print(f"Error inserting client: {e}")
+                            print(f"Error handling client: {e}")
                 
                     if ret.get('warehouse'):
                         try:
+                            warehouse_id = ret['warehouse']['id']
+                            warehouse_name = ret['warehouse'].get('name', '')
+                            
+                            # Convert large IDs to string to prevent arithmetic overflow
+                            if isinstance(warehouse_id, int) and warehouse_id > 2147483647:
+                                warehouse_id = str(warehouse_id)
+                            
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM warehouses WHERE id = %s", (ret['warehouse']['id'],))
-                                warehouse_result = cursor.fetchone()
-                                if (warehouse_result['count'] if USE_AZURE_SQL else warehouse_result[0]) == 0:
+                                # Use simple INSERT with ignore duplicate errors
+                                try:
                                     cursor.execute("INSERT INTO warehouses (id, name) VALUES (%s, %s)",
-                                                 (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                                 (warehouse_id, warehouse_name))
                                     conn.commit()
+                                except Exception as insert_err:
+                                    # Ignore duplicate key errors, log others
+                                    if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
+                                        print(f"Non-duplicate warehouse insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = %s)
-                                        INSERT INTO warehouses (id, name) VALUES (%s, %s)
-                                """, (ret['warehouse']['id'], ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)
+                                """, (warehouse_id, warehouse_name))
                         except Exception as e:
-                            print(f"Error inserting warehouse: {e}")
+                            print(f"Error handling warehouse: {e}")
                 
                     # Collect order ID if present
                     if ret.get('order') and ret['order'].get('id'):
                         all_order_ids.add(ret['order']['id'])
                     
-                    # Update or insert return (using MERGE for Azure SQL compatibility)
+                    # Update or insert return - with overflow protection
+                    return_id = ret['id']
+                    # Convert large IDs to string to prevent arithmetic overflow
+                    if isinstance(return_id, int) and return_id > 2147483647:
+                        return_id = str(return_id)
+                    
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (ret['id'],))
+                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
                         
@@ -1503,12 +1526,12 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                ret['client']['id'] if ret.get('client') else None,
-                                ret['warehouse']['id'] if ret.get('warehouse') else None,
-                                ret['order']['id'] if ret.get('order') else None,
+                                str(ret['client']['id']) if ret.get('client') else None,
+                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
+                                str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
                                 datetime.now().isoformat(),
-                                ret['id']  # WHERE clause
+                                return_id  # WHERE clause
                             ))
                         else:
                             # Insert new return
@@ -1521,7 +1544,7 @@ async def run_sync():
                                         last_synced_at)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
-                                ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
+                                return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
                                 ret.get('processed', False), ret.get('processed_at'),
                                 ret.get('warehouse_note', ''), ret.get('customer_note', ''),
@@ -1529,9 +1552,9 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                ret['client']['id'] if ret.get('client') else None,
-                                ret['warehouse']['id'] if ret.get('warehouse') else None,
-                                ret['order']['id'] if ret.get('order') else None,
+                                str(ret['client']['id']) if ret.get('client') else None,
+                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
+                                str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
                                 datetime.now().isoformat()
                             ))
@@ -1547,7 +1570,7 @@ async def run_sync():
                         last_synced_at
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                    ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
+                    return_id, ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
                     ret.get('processed', False), ret.get('processed_at'),
                     ret.get('warehouse_note', ''), ret.get('customer_note', ''),
@@ -1555,9 +1578,9 @@ async def run_sync():
                     ret.get('carrier', ''), ret.get('service', ''),
                     ret.get('label_cost'), ret.get('label_pdf_url'),
                     ret.get('rma_slip_url'), ret.get('label_voided', False),
-                    ret['client']['id'] if ret.get('client') else None,
-                    ret['warehouse']['id'] if ret.get('warehouse') else None,
-                    ret['order']['id'] if ret.get('order') else None,
+                    str(ret['client']['id']) if ret.get('client') else None,
+                    str(ret['warehouse']['id']) if ret.get('warehouse') else None,
+                    str(ret['order']['id']) if ret.get('order') else None,
                     ret.get('return_integration_id'),
                     datetime.now().isoformat()
                 ))
@@ -1568,20 +1591,20 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (order['id'],))
+                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (str(order['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES (%s, %s, GETDATE(), GETDATE())
-                                """, (order['id'], order.get('order_number', '')))
+                                """, (str(order['id']), order.get('order_number', '')))
                         else:
                             cursor.execute("""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
                                 VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (order['id'], order.get('order_number', '')))
+                            """, (str(order['id']), order.get('order_number', '')))
                     except Exception as e:
-                        print(f"Error inserting order {order['id']}: {e}")
+                        print(f"Error inserting order {str(order['id'])}: {e}")
                 
                 # Store return items if present
                 if ret.get('items'):
@@ -1642,7 +1665,7 @@ async def run_sync():
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                     """, (
                                         item.get('id'),
-                                        ret['id'],
+                                        return_id,
                                         product_id if product_id > 0 else None,
                                         item.get('quantity', 0),
                                         json.dumps(item.get('return_reasons', [])),
@@ -1661,7 +1684,7 @@ async def run_sync():
                                         created_at, updated_at
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                 """, (
-                                    ret['id'],
+                                    return_id,
                                     product_id if product_id > 0 else None,
                                     item.get('quantity', 0),
                                     json.dumps(item.get('return_reasons', [])),
@@ -1679,7 +1702,7 @@ async def run_sync():
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """, (
                             item.get('id'),
-                            ret['id'],
+                            return_id,
                             product_id if product_id > 0 else None,
                             item.get('quantity', 0),
                             json.dumps(item.get('return_reasons', [])),
