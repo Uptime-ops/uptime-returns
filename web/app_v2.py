@@ -1058,7 +1058,7 @@ async def migrate_database():
             try:
                 # Check if column exists
                 cursor.execute("""
-                    SELECT COUNT(*) as countas count
+                    SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
@@ -1152,7 +1152,7 @@ async def initialize_database():
         table_definitions = {
             'clients': """
                 CREATE TABLE clients (
-                    id INT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     name NVARCHAR(255) NOT NULL,
                     created_at DATETIME DEFAULT GETDATE(),
                     updated_at DATETIME DEFAULT GETDATE()
@@ -1160,7 +1160,7 @@ async def initialize_database():
             """,
             'warehouses': """
                 CREATE TABLE warehouses (
-                    id INT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     name NVARCHAR(255) NOT NULL,
                     created_at DATETIME DEFAULT GETDATE(),
                     updated_at DATETIME DEFAULT GETDATE()
@@ -1168,7 +1168,7 @@ async def initialize_database():
             """,
             'orders': """
                 CREATE TABLE orders (
-                    id INT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     order_number NVARCHAR(100),
                     customer_name NVARCHAR(255),
                     created_at DATETIME DEFAULT GETDATE(),
@@ -1186,7 +1186,7 @@ async def initialize_database():
             """,
             'returns': """
                 CREATE TABLE returns (
-                    id INT PRIMARY KEY,
+                    id BIGINT PRIMARY KEY,
                     api_id NVARCHAR(100),
                     paid_by NVARCHAR(50),
                     status NVARCHAR(50),
@@ -1204,9 +1204,9 @@ async def initialize_database():
                     label_pdf_url NVARCHAR(500),
                     rma_slip_url NVARCHAR(500),
                     label_voided BIT DEFAULT 0,
-                    client_id INT,
-                    warehouse_id INT,
-                    order_id INT,
+                    client_id BIGINT,
+                    warehouse_id BIGINT,
+                    order_id BIGINT,
                     return_integration_id NVARCHAR(100),
                     last_synced_at DATETIME
                 )
@@ -1214,7 +1214,7 @@ async def initialize_database():
             'return_items': """
                 CREATE TABLE return_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    return_id INT,
+                    return_id BIGINT,
                     product_id INT,
                     quantity INT DEFAULT 0,
                     return_reasons NVARCHAR(MAX),
@@ -1228,7 +1228,7 @@ async def initialize_database():
             'email_history': """
                 CREATE TABLE email_history (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    client_id INT,
+                    client_id BIGINT,
                     client_name NVARCHAR(255),
                     recipient_email NVARCHAR(255),
                     subject NVARCHAR(500),
@@ -1241,7 +1241,7 @@ async def initialize_database():
             'email_share_items': """
                 CREATE TABLE email_share_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    return_id INT,
+                    return_id BIGINT,
                     share_id INT,
                     created_at DATETIME DEFAULT GETDATE()
                 )
@@ -1269,7 +1269,7 @@ async def initialize_database():
             try:
                 # Check if table exists
                 cursor.execute("""
-                    SELECT COUNT(*) as countas count
+                    SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.TABLES 
                     WHERE TABLE_NAME = %s
                 """, (table_name,))
