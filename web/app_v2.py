@@ -2353,6 +2353,16 @@ async def test_email(config: dict):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
+@app.get("/api/deployment/version")
+async def get_deployment_version():
+    """Simple endpoint to verify deployment version"""
+    import datetime
+    return {
+        "version": "2025-09-10-enhanced-diagnostics-v2", 
+        "timestamp": datetime.datetime.now().isoformat(),
+        "status": "latest_deployment_active"
+    }
+
 @app.get("/api/database/diagnose")
 async def diagnose_azure_sql():
     """Comprehensive Azure SQL diagnostic endpoint"""
