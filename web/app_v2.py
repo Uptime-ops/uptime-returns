@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-LIMIT-SYNTAX-FIX-V14"
+DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-FINAL-PARAMETERIZATION-FIX-V15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1534,7 +1534,7 @@ async def run_sync():
                                         print(f"Non-duplicate client insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)
+                                    INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)
                                 """, (client_id, client_name))
                         except Exception as e:
                             print(f"Error handling client: {e}")
@@ -1560,7 +1560,7 @@ async def run_sync():
                                         print(f"Non-duplicate warehouse insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)
+                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)
                                 """, (warehouse_id, warehouse_name))
                         except Exception as e:
                             print(f"Error handling warehouse: {e}")
@@ -1618,7 +1618,7 @@ async def run_sync():
                                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                                         client_id, warehouse_id, order_id, return_integration_id,
                                         last_synced_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
