@@ -1452,11 +1452,14 @@ async def run_sync():
                     
                 returns_batch = data['data']['returns']
                 print(f"Fetched {len(returns_batch)} returns at offset {offset}")
+                sync_status["last_sync_message"] = f"Processing {len(returns_batch)} returns from offset {offset}..."
                 
                 if not returns_batch:
+                    print("No more returns to process - breaking loop")
                     break
                 
                 for ret in returns_batch:
+                    print(f"Processing return {ret.get('id', 'no-id')} from client {ret.get('client', {}).get('name', 'no-client')}")
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
@@ -1731,8 +1734,10 @@ async def run_sync():
                             item.get('quantity_received', 0),
                             item.get('quantity_rejected', 0)
                         ))
-                
+                    
+                    print(f"About to increment counter for return {return_id}")
                     sync_status["items_synced"] += 1
+                    print(f"Successfully processed return {return_id}, total synced: {sync_status['items_synced']}")
                 
                 total_fetched += len(returns_batch)
                 
@@ -2422,7 +2427,7 @@ async def get_deployment_version():
     """Simple endpoint to verify deployment version"""
     import datetime
     return {
-        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V8-SYNC-DEBUG", 
+        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V9-DETAILED-SYNC-TRACING", 
         "timestamp": datetime.datetime.now().isoformat(),
         "status": "latest_deployment_active"
     }
