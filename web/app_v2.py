@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-EMPTY-IN-FIX-V13"
+DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-LIMIT-SYNTAX-FIX-V14"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -65,6 +65,21 @@ def format_in_clause(count):
     """Format IN clause with correct placeholders"""
     placeholder = get_param_placeholder()
     return ','.join([placeholder] * count)
+
+def format_limit_clause(limit, offset=0):
+    """Format LIMIT clause with correct syntax for database type"""
+    if USE_AZURE_SQL:
+        # Azure SQL uses OFFSET/FETCH syntax
+        if offset > 0:
+            return f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        else:
+            return f"OFFSET 0 ROWS FETCH NEXT {limit} ROWS ONLY"
+    else:
+        # SQLite uses LIMIT/OFFSET syntax
+        if offset > 0:
+            return f"LIMIT {limit} OFFSET {offset}"
+        else:
+            return f"LIMIT {limit}"
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
@@ -520,7 +535,7 @@ async def search_returns(filter_params: dict):
         params.extend([search_param, search_param, search_param])
     
     # Get total count for pagination
-    count_query = f"SELECT COUNT(*) FROM ({query}) as filtered"
+    count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
     cursor.execute(count_query, params)
     row = cursor.fetchone()
     total = row[0] if row else 0
@@ -868,13 +883,13 @@ async def get_return_reasons():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT return_reasons, COUNT(*) as count
         FROM return_items
         WHERE return_reasons IS NOT NULL AND return_reasons != '[]'
         GROUP BY return_reasons
         ORDER BY count DESC
-        LIMIT 20
+        {format_limit_clause(20)}
     """)
     
     reasons_count = {}
@@ -898,13 +913,13 @@ async def get_top_returned_products():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT p.sku, p.name, SUM(ri.quantity) as total_quantity, COUNT(ri.id) as return_count
         FROM return_items ri
         JOIN products p ON ri.product_id = p.id
         GROUP BY p.id
         ORDER BY total_quantity DESC
-        LIMIT 10
+        {format_limit_clause(10)}
     """)
     
     products = []
@@ -1946,7 +1961,7 @@ async def send_returns_email(request_data: dict):
             {where_clause} AND ri.return_reasons IS NOT NULL
             GROUP BY ri.return_reasons
             ORDER BY count DESC
-            LIMIT 1
+            {format_limit_clause(1)}
         """, params)
         result = cursor.fetchone()
         top_reason = result[0] if result else "N/A"
