@@ -495,7 +495,7 @@ async def search_returns(filter_params: dict):
     params = []
     
     if client_id:
-        query += " AND r.client_id = ?"
+        query += " AND r.client_id = %s"
         params.append(client_id)
     
     if status:
@@ -505,7 +505,7 @@ async def search_returns(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE ? OR r.id LIKE ? OR c.name LIKE ?)"
+        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -517,10 +517,10 @@ async def search_returns(filter_params: dict):
     
     # Add pagination (different syntax for Azure SQL vs SQLite)
     if USE_AZURE_SQL:
-        query += " ORDER BY r.created_at DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY"
+        query += " ORDER BY r.created_at DESC OFFSET %s ROWS FETCH NEXT %s ROWS ONLY"
         params.extend([(page - 1) * limit, limit])
     else:
-        query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY r.created_at DESC LIMIT %s OFFSET %s"
         params.extend([limit, (page - 1) * limit])
     
     cursor.execute(query, params)
@@ -563,7 +563,7 @@ async def search_returns(filter_params: dict):
                 SELECT ri.*, p.sku, p.name as product_name
                 FROM return_items ri
                 LEFT JOIN products p ON ri.product_id = p.id
-                WHERE ri.return_id = ?
+                WHERE ri.return_id = %s
             """, (return_id,))
             
             item_rows = cursor.fetchall()
@@ -613,7 +613,7 @@ async def get_return_detail(return_id: int):
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
-        WHERE r.id = ?
+        WHERE r.id = %s
     """, (return_id,))
     
     return_row = cursor.fetchone()
@@ -630,7 +630,7 @@ async def get_return_detail(return_id: int):
         SELECT ri.*, p.sku, p.name as product_name
         FROM return_items ri
         LEFT JOIN products p ON ri.product_id = p.id
-        WHERE ri.return_id = ?
+        WHERE ri.return_id = %s
     """, (return_id,))
     
     return_items = cursor.fetchall()
@@ -708,7 +708,7 @@ async def get_return_detail(return_id: int):
             cursor.execute("""
                 SELECT o.order_number
                 FROM orders o
-                WHERE o.id = ?
+                WHERE o.id = %s
             """, (order_id,))
             
             order_row = cursor.fetchone()
@@ -748,7 +748,7 @@ async def export_returns_csv(filter_params: dict):
     search = search.strip() if search else ''
     
     if client_id:
-        query += " AND r.client_id = ?"
+        query += " AND r.client_id = %s"
         params.append(client_id)
     
     if status:
@@ -758,7 +758,7 @@ async def export_returns_csv(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE ? OR r.id LIKE ? OR c.name LIKE ?)"
+        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -795,7 +795,7 @@ async def export_returns_csv(filter_params: dict):
                    ri.return_reasons, ri.condition_on_arrival
             FROM return_items ri
             LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = ?
+            WHERE ri.return_id = %s
         """, (return_id,))
         items = cursor.fetchall()
         
@@ -1439,7 +1439,7 @@ async def run_sync():
                                                  (ret['client']['id'], ret['client'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)",
+                                cursor.execute("INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)",
                                              (ret['client']['id'], ret['client'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting client: {e}")
@@ -1453,7 +1453,7 @@ async def run_sync():
                                                  (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)",
+                                cursor.execute("INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)",
                                              (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting warehouse: {e}")
@@ -1505,7 +1505,7 @@ async def run_sync():
                                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                                         client_id, warehouse_id, order_id, return_integration_id,
                                         last_synced_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
                                 ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
@@ -1531,7 +1531,7 @@ async def run_sync():
                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                     ret['id'], ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
@@ -1554,7 +1554,7 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) FROM orders WHERE id = ?", (order['id'],))
+                            cursor.execute("SELECT COUNT(*) FROM orders WHERE id = %s", (order['id'],))
                             if cursor.fetchone()[0] == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
