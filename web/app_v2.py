@@ -2353,6 +2353,100 @@ async def test_email(config: dict):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
+@app.get("/api/database/diagnose")
+async def diagnose_azure_sql():
+    """Comprehensive Azure SQL diagnostic endpoint"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        diagnostics = {
+            "connection": "working",
+            "current_user": None,
+            "database_name": None,
+            "schema_info": {},
+            "permissions": {},
+            "tables": {},
+            "simple_create_test": None,
+            "detailed_errors": []
+        }
+        
+        try:
+            # Get current user
+            cursor.execute("SELECT USER_NAME()")
+            diagnostics["current_user"] = cursor.fetchone()[0]
+        except Exception as e:
+            diagnostics["detailed_errors"].append(f"USER_NAME() error: {str(e)}")
+        
+        try:
+            # Get database name
+            cursor.execute("SELECT DB_NAME()")
+            diagnostics["database_name"] = cursor.fetchone()[0]
+        except Exception as e:
+            diagnostics["detailed_errors"].append(f"DB_NAME() error: {str(e)}")
+        
+        try:
+            # Check schema permissions
+            cursor.execute("SELECT SCHEMA_NAME()")
+            diagnostics["schema_info"]["current_schema"] = cursor.fetchone()[0]
+        except Exception as e:
+            diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
+        
+        try:
+            # Check table creation permissions with a simple test
+            cursor.execute("CREATE TABLE test_permissions_check (id INT)")
+            diagnostics["simple_create_test"] = "SUCCESS - Can create tables"
+            
+            # Clean up test table
+            cursor.execute("DROP TABLE test_permissions_check")
+        except Exception as e:
+            diagnostics["simple_create_test"] = f"FAILED - Cannot create tables: {str(e)}"
+            diagnostics["detailed_errors"].append(f"CREATE TABLE test failed: {str(e)}")
+        
+        try:
+            # List existing tables
+            cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
+            tables = cursor.fetchall()
+            diagnostics["tables"]["existing_tables"] = [row[0] for row in tables] if tables else []
+        except Exception as e:
+            diagnostics["detailed_errors"].append(f"Table listing error: {str(e)}")
+        
+        try:
+            # Check specific permissions
+            cursor.execute("""
+                SELECT 
+                    p.permission_name,
+                    p.state_desc,
+                    pr.name as principal_name
+                FROM sys.database_permissions p
+                LEFT JOIN sys.database_principals pr ON p.grantee_principal_id = pr.principal_id
+                WHERE p.major_id = 0
+            """)
+            perms = cursor.fetchall()
+            diagnostics["permissions"]["database_permissions"] = [
+                {"permission": row[0], "state": row[1], "principal": row[2]} 
+                for row in perms
+            ] if perms else []
+        except Exception as e:
+            diagnostics["detailed_errors"].append(f"Permission query error: {str(e)}")
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "diagnostics": diagnostics
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": str(e),
+            "diagnostics": diagnostics if 'diagnostics' in locals() else {}
+        }
+
 if __name__ == "__main__":
     import uvicorn
     # Use Azure's PORT environment variable if available
