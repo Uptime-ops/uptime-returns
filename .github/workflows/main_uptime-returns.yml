@@ -62,6 +62,13 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F9FEC096D6E7419AA7A0EA1AE79A2EF4 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5C1AC994F77948C8992AC921F36A9EE0 }}
 
+      - name: 'Stop Azure Web App to prevent 409 conflicts'
+        uses: azure/cli@v1
+        with:
+          azcliversion: 2.30.0
+          inlineScript: |
+            az webapp stop --name uptime-returns --resource-group rg-uptime-returns || echo "App may already be stopped"
+
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
@@ -69,3 +76,10 @@ jobs:
           app-name: 'uptime-returns'
           slot-name: 'production'
           package: .
+
+      - name: 'Start Azure Web App after deployment'
+        uses: azure/cli@v1
+        with:
+          azcliversion: 2.30.0
+          inlineScript: |
+            az webapp start --name uptime-returns --resource-group rg-uptime-returns
