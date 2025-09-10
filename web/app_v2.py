@@ -1058,7 +1058,7 @@ async def migrate_database():
             try:
                 # Check if column exists
                 cursor.execute("""
-                    SELECT COUNT(*) 
+                    SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
@@ -1563,7 +1563,7 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) FROM orders WHERE id = %s", (order['id'],))
+                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (order['id'],))
                             if cursor.fetchone()[0] == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
@@ -1588,7 +1588,7 @@ async def run_sync():
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
                             # Try to find existing product by SKU
-                            cursor.execute("SELECT id FROM products WHERE sku = %s", (product_sku,))
+                            cursor.execute("SELECT id as product_id FROM products WHERE sku = %s", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
                                 product_id = existing[0]
@@ -1602,7 +1602,7 @@ async def run_sync():
                         elif product_id > 0:
                             # Ensure product exists
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) FROM products WHERE id = %s", (product_id,))
+                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (product_id,))
                                 if cursor.fetchone()[0] == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
@@ -1622,7 +1622,7 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if return item exists
                             if item.get('id'):
-                                cursor.execute("SELECT COUNT(*) FROM return_items WHERE id = %s", (item['id'],))
+                                cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
                                 if cursor.fetchone()[0] == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
                                     cursor.execute("""
@@ -1798,7 +1798,7 @@ async def send_returns_email(request_data: dict):
         # Get client name
         client_name = "All Clients"
         if client_id:
-            cursor.execute("SELECT name FROM clients WHERE id = %s", (client_id,))
+            cursor.execute("SELECT name as client_name FROM clients WHERE id = %s", (client_id,))
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
@@ -2160,7 +2160,7 @@ async def save_settings(settings: dict):
         
         if USE_AZURE_SQL:
             # Check if setting exists
-            cursor.execute("SELECT COUNT(*) FROM settings WHERE [key] = %s", (key,))
+            cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
             if cursor.fetchone()[0] > 0:
                 # Update existing
                 cursor.execute("""
@@ -2376,21 +2376,21 @@ async def diagnose_azure_sql():
         
         try:
             # Get current user
-            cursor.execute("SELECT USER_NAME()")
+            cursor.execute("SELECT USER_NAME() as user_name")
             diagnostics["current_user"] = cursor.fetchone()[0]
         except Exception as e:
             diagnostics["detailed_errors"].append(f"USER_NAME() error: {str(e)}")
         
         try:
             # Get database name
-            cursor.execute("SELECT DB_NAME()")
+            cursor.execute("SELECT DB_NAME() as database_name")
             diagnostics["database_name"] = cursor.fetchone()[0]
         except Exception as e:
             diagnostics["detailed_errors"].append(f"DB_NAME() error: {str(e)}")
         
         try:
             # Check schema permissions
-            cursor.execute("SELECT SCHEMA_NAME()")
+            cursor.execute("SELECT SCHEMA_NAME() as schema_name")
             diagnostics["schema_info"]["current_schema"] = cursor.fetchone()[0]
         except Exception as e:
             diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
