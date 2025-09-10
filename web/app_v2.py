@@ -928,7 +928,7 @@ async def test_database_connection():
         table_exists = False
         returns_count = 0
         try:
-            cursor.execute("SELECT COUNT(*) FROM returns")
+            cursor.execute("SELECT COUNT(*) as count FROM returns")
             result = cursor.fetchone()
             returns_count = result[0] if result else 0
             table_exists = True
