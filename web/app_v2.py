@@ -1482,7 +1482,7 @@ async def run_sync():
                                         print(f"Non-duplicate client insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)
+                                    INSERT OR IGNORE INTO clients (id, name) VALUES (?, ?)
                                 """, (client_id, client_name))
                         except Exception as e:
                             print(f"Error handling client: {e}")
@@ -1508,7 +1508,7 @@ async def run_sync():
                                         print(f"Non-duplicate warehouse insert error: {insert_err}")
                             else:
                                 cursor.execute("""
-                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)
+                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (?, ?)
                                 """, (warehouse_id, warehouse_name))
                         except Exception as e:
                             print(f"Error handling warehouse: {e}")
