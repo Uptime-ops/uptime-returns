@@ -1058,12 +1058,13 @@ async def migrate_database():
             try:
                 # Check if column exists
                 cursor.execute("""
-                    SELECT COUNT(*) as count
+                    SELECT COUNT(*) as countas count
                     FROM INFORMATION_SCHEMA.COLUMNS 
                     WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
                 
-                exists = cursor.fetchone()[0] > 0
+                result = cursor.fetchone()
+                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
                 
                 if not exists:
                     # Add the column
@@ -1268,12 +1269,13 @@ async def initialize_database():
             try:
                 # Check if table exists
                 cursor.execute("""
-                    SELECT COUNT(*) as count
+                    SELECT COUNT(*) as countas count
                     FROM INFORMATION_SCHEMA.TABLES 
                     WHERE TABLE_NAME = %s
                 """, (table_name,))
                 
-                exists = cursor.fetchone()[0] > 0
+                result = cursor.fetchone()
+                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
                 
                 if not exists:
                     cursor.execute(create_sql)
@@ -1439,7 +1441,8 @@ async def run_sync():
                         try:
                             if USE_AZURE_SQL:
                                 cursor.execute("SELECT COUNT(*) as count FROM clients WHERE id = %s", (ret['client']['id'],))
-                                if cursor.fetchone()[0] == 0:
+                                client_result = cursor.fetchone()
+                                if (client_result['count'] if USE_AZURE_SQL else client_result[0]) == 0:
                                     cursor.execute("INSERT INTO clients (id, name) VALUES (%s, %s)", 
                                                  (ret['client']['id'], ret['client'].get('name', '')))
                                     conn.commit()
@@ -1455,7 +1458,8 @@ async def run_sync():
                         try:
                             if USE_AZURE_SQL:
                                 cursor.execute("SELECT COUNT(*) as count FROM warehouses WHERE id = %s", (ret['warehouse']['id'],))
-                                if cursor.fetchone()[0] == 0:
+                                warehouse_result = cursor.fetchone()
+                                if (warehouse_result['count'] if USE_AZURE_SQL else warehouse_result[0]) == 0:
                                     cursor.execute("INSERT INTO warehouses (id, name) VALUES (%s, %s)",
                                                  (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                                     conn.commit()
@@ -1475,7 +1479,8 @@ async def run_sync():
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
                         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (ret['id'],))
-                        exists = cursor.fetchone()[0] > 0
+                        return_result = cursor.fetchone()
+                        exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
                         
                         if exists:
                             # Update existing return
@@ -1564,7 +1569,8 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if order exists first
                             cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (order['id'],))
-                            if cursor.fetchone()[0] == 0:
+                            order_result = cursor.fetchone()
+                            if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES (%s, %s, GETDATE(), GETDATE())
@@ -1603,7 +1609,8 @@ async def run_sync():
                             # Ensure product exists
                             if USE_AZURE_SQL:
                                 cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (product_id,))
-                                if cursor.fetchone()[0] == 0:
+                                product_result = cursor.fetchone()
+                                if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
                                     cursor.execute("""
@@ -1623,7 +1630,8 @@ async def run_sync():
                             # Check if return item exists
                             if item.get('id'):
                                 cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
-                                if cursor.fetchone()[0] == 0:
+                                item_result = cursor.fetchone()
+                                if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
                                     cursor.execute("""
                                         INSERT INTO return_items (
@@ -2064,11 +2072,12 @@ async def get_settings():
     if USE_AZURE_SQL:
         # Check if table exists first
         cursor.execute("""
-            SELECT COUNT(*) 
+            SELECT COUNT(*) as count
             FROM INFORMATION_SCHEMA.TABLES 
             WHERE TABLE_NAME = 'settings'
         """)
-        if cursor.fetchone()[0] == 0:
+        settings_result = cursor.fetchone()
+        if (settings_result['count'] if USE_AZURE_SQL else settings_result[0]) == 0:
             cursor.execute("""
                 CREATE TABLE settings (
                     [key] NVARCHAR(100) PRIMARY KEY,
@@ -2128,11 +2137,12 @@ async def save_settings(settings: dict):
     if USE_AZURE_SQL:
         # Check if table exists first
         cursor.execute("""
-            SELECT COUNT(*) 
+            SELECT COUNT(*) as count
             FROM INFORMATION_SCHEMA.TABLES 
             WHERE TABLE_NAME = 'settings'
         """)
-        if cursor.fetchone()[0] == 0:
+        settings_result = cursor.fetchone()
+        if (settings_result['count'] if USE_AZURE_SQL else settings_result[0]) == 0:
             cursor.execute("""
                 CREATE TABLE settings (
                     [key] NVARCHAR(100) PRIMARY KEY,
@@ -2161,7 +2171,8 @@ async def save_settings(settings: dict):
         if USE_AZURE_SQL:
             # Check if setting exists
             cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
-            if cursor.fetchone()[0] > 0:
+            setting_result = cursor.fetchone()
+            if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
                 # Update existing
                 cursor.execute("""
                     UPDATE settings 
@@ -2413,7 +2424,8 @@ async def diagnose_azure_sql():
         try:
             # Check schema permissions
             cursor.execute("SELECT SCHEMA_NAME() as schema_name")
-            diagnostics["schema_info"]["current_schema"] = cursor.fetchone()[0]
+            schema_result = cursor.fetchone()
+            diagnostics["schema_info"]["current_schema"] = (schema_result['schema_name'] if USE_AZURE_SQL else schema_result[0])
         except Exception as e:
             diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
         
