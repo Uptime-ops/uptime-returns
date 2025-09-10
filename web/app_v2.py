@@ -225,6 +225,7 @@ import io
 from datetime import datetime
 import asyncio
 import requests
+import sys
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -456,14 +457,15 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    # Extract filter parameters
-    page = filter_params.get('page', 1)
-    limit = filter_params.get('limit', 20)
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Extract filter parameters
+        page = filter_params.get('page', 1)
+        limit = filter_params.get('limit', 20)
     client_id = filter_params.get('client_id')
     status = filter_params.get('status')
     search = filter_params.get('search') or ''
@@ -897,6 +899,59 @@ async def get_top_returned_products():
     
     conn.close()
     return products
+
+@app.get("/api/test-database")
+async def test_database_connection():
+    """Test database connectivity and return detailed diagnostics"""
+    try:
+        # Test basic connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Test simple query
+        cursor.execute("SELECT 1 as test_value")
+        result = cursor.fetchone()
+        
+        # Get database info
+        database_type = "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        
+        # Test if returns table exists
+        table_exists = False
+        returns_count = 0
+        try:
+            cursor.execute("SELECT COUNT(*) FROM returns")
+            result = cursor.fetchone()
+            returns_count = result[0] if result else 0
+            table_exists = True
+        except Exception as table_error:
+            table_exists = f"Error: {str(table_error)}"
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "database_type": database_type,
+            "connection": "working",
+            "returns_table_exists": table_exists,
+            "returns_count": returns_count,
+            "drivers": {
+                "pyodbc_available": 'pyodbc' in sys.modules or bool(globals().get('pyodbc')),
+                "pymssql_available": 'pymssql' in sys.modules or bool(globals().get('pymssql'))
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite",
+            "connection": "failed",
+            "error_type": type(e).__name__,
+            "drivers": {
+                "pyodbc_available": 'pyodbc' in sys.modules or bool(globals().get('pyodbc')),
+                "pymssql_available": 'pymssql' in sys.modules or bool(globals().get('pymssql'))
+            }
+        }
 
 @app.get("/api/test-warehance")
 async def test_warehance_api():
