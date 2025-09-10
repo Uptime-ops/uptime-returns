@@ -2377,16 +2377,28 @@ async def diagnose_azure_sql():
         try:
             # Get current user
             cursor.execute("SELECT USER_NAME() as user_name")
-            diagnostics["current_user"] = cursor.fetchone()[0]
+            result = cursor.fetchone()
+            diagnostics["current_user"] = result[0] if result else "No result"
         except Exception as e:
-            diagnostics["detailed_errors"].append(f"USER_NAME() error: {str(e)}")
+            import traceback
+            error_details = f"USER_NAME() error: {type(e).__name__}: {str(e)}"
+            if hasattr(e, 'args') and e.args:
+                error_details += f" Args: {e.args}"
+            diagnostics["detailed_errors"].append(error_details)
+            diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
         
         try:
             # Get database name
             cursor.execute("SELECT DB_NAME() as database_name")
-            diagnostics["database_name"] = cursor.fetchone()[0]
+            result = cursor.fetchone()
+            diagnostics["database_name"] = result[0] if result else "No result"
         except Exception as e:
-            diagnostics["detailed_errors"].append(f"DB_NAME() error: {str(e)}")
+            import traceback
+            error_details = f"DB_NAME() error: {type(e).__name__}: {str(e)}"
+            if hasattr(e, 'args') and e.args:
+                error_details += f" Args: {e.args}"
+            diagnostics["detailed_errors"].append(error_details)
+            diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
         
         try:
             # Check schema permissions
