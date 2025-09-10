@@ -457,15 +457,14 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
-    try:
-        conn = get_db_connection()
-        if not USE_AZURE_SQL:
-            conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Extract filter parameters
-        page = filter_params.get('page', 1)
-        limit = filter_params.get('limit', 20)
+    conn = get_db_connection()
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Extract filter parameters
+    page = filter_params.get('page', 1)
+    limit = filter_params.get('limit', 20)
     client_id = filter_params.get('client_id')
     status = filter_params.get('status')
     search = filter_params.get('search') or ''
