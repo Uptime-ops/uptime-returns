@@ -4,10 +4,13 @@ Fetch real products from Warehance API and populate the database
 import requests
 import sqlite3
 import json
+import os
 from datetime import datetime
 
 # API Configuration
-API_KEY = "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1"
+API_KEY = os.getenv('WAREHANCE_API_KEY')
+if not API_KEY:
+    raise ValueError("WAREHANCE_API_KEY environment variable must be set")
 API_URL = "https://api.warehance.com/v1"
 
 def fetch_products():

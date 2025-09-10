@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-SQL-SYNTAX-FIX-V9-DIAGNOSTIC"
+DEPLOYMENT_VERSION = "2025-09-10-SECURITY-HARDENED-V10"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -38,9 +38,9 @@ IS_AZURE = os.getenv('WEBSITE_INSTANCE_ID') is not None
 AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY', 'WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1')
+WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY')
 if not WAREHANCE_API_KEY:
-    WAREHANCE_API_KEY = 'WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1'  # Fallback with correct API key
+    raise ValueError("WAREHANCE_API_KEY environment variable must be set. Please configure it in Azure App Service Application Settings.")
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL', '')
@@ -966,7 +966,7 @@ async def test_database_connection():
 async def test_warehance_api():
     """Test the Warehance API connection"""
     try:
-        api_key = WAREHANCE_API_KEY or "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1"
+        api_key = WAREHANCE_API_KEY
         
         headers = {
             "X-API-KEY": api_key,

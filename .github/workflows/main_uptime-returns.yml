@@ -28,9 +28,13 @@ jobs:
         run: |
           python -m venv venv
           source venv/bin/activate
+          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
       
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
         
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
@@ -62,6 +66,15 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F9FEC096D6E7419AA7A0EA1AE79A2EF4 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5C1AC994F77948C8992AC921F36A9EE0 }}
 
+      - name: 'Debug deployment package'
+        run: |
+          echo "Contents of deployment package:"
+          ls -la
+          echo "Python files:"
+          find . -name "*.py" | head -10
+          echo "App.py exists:" 
+          ls -la app.py || echo "app.py not found"
+          
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
@@ -69,3 +82,12 @@ jobs:
           app-name: 'uptime-returns'
           slot-name: 'production'
           package: .
+        env:
+          WAREHANCE_API_KEY: ${{ secrets.WAREHANCE_API_KEY }}
+          
+      - name: 'Verify deployment'
+        run: |
+          echo "Deployment completed. App URL: https://uptime-returns-adc7ath0dccye4bh.eastus2-01.azurewebsites.net"
+          echo "Waiting 30 seconds for app to start..."
+          sleep 30
+          curl -f https://uptime-returns-adc7ath0dccye4bh.eastus2-01.azurewebsites.net/test-deployment.html || echo "Test file not accessible yet"

@@ -13,7 +13,7 @@ IS_AZURE = os.getenv('WEBSITE_INSTANCE_ID') is not None
 AZURE_TENANT_ID = os.getenv('AZURE_TENANT_ID', '')
 AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
-WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY', 'WH_0e088e8c-dc84-421e-85c7-6db74a3b8afa')
+WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY')
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL', '')
