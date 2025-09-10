@@ -1270,7 +1270,7 @@ async def initialize_database():
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM INFORMATION_SCHEMA.TABLES 
-                    WHERE TABLE_NAME = ?
+                    WHERE TABLE_NAME = %s
                 """, (table_name,))
                 
                 exists = cursor.fetchone()[0] > 0
