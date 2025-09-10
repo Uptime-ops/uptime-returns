@@ -2427,7 +2427,7 @@ async def get_deployment_version():
     """Simple endpoint to verify deployment version"""
     import datetime
     return {
-        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V9-DETAILED-SYNC-TRACING", 
+        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V10-DIRECT-SYNC-TEST", 
         "timestamp": datetime.datetime.now().isoformat(),
         "status": "latest_deployment_active"
     }
@@ -2600,6 +2600,90 @@ async def trigger_sync_get():
     # Provide default request data for GET trigger
     request_data = {"sync_type": "full"}
     return await trigger_sync(request_data)
+
+@app.get("/api/sync/test-direct")
+async def test_direct_sync():
+    """Direct synchronous sync for debugging - bypasses background task"""
+    global sync_status
+    
+    print("=== DIRECT SYNC TEST STARTING ===")
+    
+    try:
+        # Test 1: Database connection
+        print("Testing database connection...")
+        conn = get_db_connection()
+        if not conn:
+            return {"error": "Failed to get database connection"}
+        
+        cursor = conn.cursor()
+        
+        # Test basic query
+        try:
+            if USE_AZURE_SQL:
+                cursor.execute("SELECT 1 as test")
+            else:
+                cursor.execute("SELECT 1")
+            test_result = cursor.fetchone()
+            print(f"Database test successful: {test_result}")
+        except Exception as db_err:
+            return {"error": f"Database test failed: {db_err}"}
+            
+        # Test 2: API connection
+        print("Testing API connection...")
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        url = "https://api.warehance.com/v1/returns?limit=1&offset=0"
+        print(f"Testing API call to: {url}")
+        
+        import requests
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API test failed: {response.status_code} - {response.text[:200]}"}
+            
+        data = response.json()
+        print(f"API test successful: {len(data.get('data', {}).get('returns', []))} returns found")
+        
+        # Test 3: Try to process one return
+        if data.get('data', {}).get('returns'):
+            first_return = data['data']['returns'][0]
+            return_id = first_return.get('id')
+            print(f"Attempting to process return {return_id}")
+            
+            try:
+                # Check if return exists
+                cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (str(return_id),))
+                result = cursor.fetchone()
+                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                print(f"Return {return_id} exists in DB: {exists}")
+                
+                conn.close()
+                
+                return {
+                    "success": True,
+                    "database_connection": "OK",
+                    "api_connection": "OK", 
+                    "first_return_id": return_id,
+                    "return_exists_in_db": exists,
+                    "total_returns_available": data.get('data', {}).get('total_count', 0),
+                    "message": "Direct sync test completed successfully"
+                }
+                
+            except Exception as process_err:
+                return {"error": f"Failed to process return: {process_err}"}
+        else:
+            return {"error": "No returns found in API response"}
+            
+    except Exception as e:
+        import traceback
+        return {
+            "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
 
 if __name__ == "__main__":
     import uvicorn
