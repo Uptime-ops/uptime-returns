@@ -1433,7 +1433,7 @@ async def run_sync():
                     if ret.get('client'):
                         try:
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) FROM clients WHERE id = %s", (ret['client']['id'],))
+                                cursor.execute("SELECT COUNT(*) as count FROM clients WHERE id = %s", (ret['client']['id'],))
                                 if cursor.fetchone()[0] == 0:
                                     cursor.execute("INSERT INTO clients (id, name) VALUES (%s, %s)", 
                                                  (ret['client']['id'], ret['client'].get('name', '')))
@@ -1447,7 +1447,7 @@ async def run_sync():
                     if ret.get('warehouse'):
                         try:
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) FROM warehouses WHERE id = %s", (ret['warehouse']['id'],))
+                                cursor.execute("SELECT COUNT(*) as count FROM warehouses WHERE id = %s", (ret['warehouse']['id'],))
                                 if cursor.fetchone()[0] == 0:
                                     cursor.execute("INSERT INTO warehouses (id, name) VALUES (%s, %s)",
                                                  (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
