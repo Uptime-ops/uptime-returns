@@ -2481,6 +2481,56 @@ async def diagnose_azure_sql():
             "diagnostics": diagnostics if 'diagnostics' in locals() else {}
         }
 
+@app.post("/api/database/migrate-bigint")
+async def migrate_to_bigint():
+    """Migrate existing INT columns to BIGINT for large API IDs"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        migrations = []
+        
+        # Migration commands to change INT to BIGINT
+        migration_commands = [
+            "ALTER TABLE clients ALTER COLUMN id BIGINT",
+            "ALTER TABLE warehouses ALTER COLUMN id BIGINT", 
+            "ALTER TABLE orders ALTER COLUMN id BIGINT",
+            "ALTER TABLE returns ALTER COLUMN id BIGINT",
+            "ALTER TABLE returns ALTER COLUMN client_id BIGINT",
+            "ALTER TABLE returns ALTER COLUMN warehouse_id BIGINT",
+            "ALTER TABLE returns ALTER COLUMN order_id BIGINT",
+            "ALTER TABLE return_items ALTER COLUMN return_id BIGINT",
+            "ALTER TABLE email_history ALTER COLUMN client_id BIGINT",
+            "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT"
+        ]
+        
+        for cmd in migration_commands:
+            try:
+                cursor.execute(cmd)
+                conn.commit()
+                migrations.append({"command": cmd, "status": "success"})
+            except Exception as e:
+                migrations.append({"command": cmd, "status": "error", "error": str(e)})
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "migrations": migrations,
+            "message": f"Completed {len([m for m in migrations if m['status'] == 'success'])} migrations"
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/database/migrate-bigint")
+async def migrate_to_bigint_get():
+    """GET version of BIGINT migration for browser testing"""
+    return await migrate_to_bigint()
+
 if __name__ == "__main__":
     import uvicorn
     # Use Azure's PORT environment variable if available
