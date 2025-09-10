@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V5-RESET"
+DEPLOYMENT_VERSION = "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V6-SYNC"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2558,6 +2558,11 @@ async def migrate_to_bigint_get():
 async def reset_database_get():
     """GET version of database reset for browser testing"""
     return await reset_database()
+
+@app.get("/api/sync/trigger-get")
+async def trigger_sync_get():
+    """GET version of sync trigger for browser testing"""
+    return await trigger_sync()
 
 if __name__ == "__main__":
     import uvicorn
