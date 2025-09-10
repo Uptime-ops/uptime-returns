@@ -1373,6 +1373,8 @@ async def run_sync():
         if USE_AZURE_SQL:
             init_result = await initialize_database()
             print(f"Database initialization result: {init_result}")
+            if init_result.get("status") == "error":
+                raise Exception(f"Database initialization failed: {init_result.get('message')}")
         
         # Use the configured API key
         api_key = WAREHANCE_API_KEY
@@ -1385,8 +1387,27 @@ async def run_sync():
         print(f"Starting sync with API key: {api_key[:15]}...")
         sync_status["last_sync_message"] = f"Starting sync with API key: {api_key[:15]}..."
         
+        # Test database connection early
+        print("Testing database connection...")
+        sync_status["last_sync_message"] = "Testing database connection..."
+        
         conn = get_db_connection()
+        if not conn:
+            raise Exception("Failed to establish database connection")
+            
         cursor = conn.cursor()
+        
+        # Test basic database operation
+        try:
+            if USE_AZURE_SQL:
+                cursor.execute("SELECT 1 as test")
+            else:
+                cursor.execute("SELECT 1")
+            test_result = cursor.fetchone()
+            print(f"Database test query successful: {test_result}")
+            sync_status["last_sync_message"] = "Database connection confirmed"
+        except Exception as db_test_error:
+            raise Exception(f"Database test query failed: {db_test_error}")
         
         # STEP 1: Fetch ALL returns from API with pagination
         sync_status["last_sync_message"] = "Fetching returns from Warehance API..."
@@ -1800,11 +1821,20 @@ async def run_sync():
         sync_status["last_sync"] = datetime.now().isoformat()
             
     except Exception as e:
-        print(f"Sync error: {str(e)}")
+        import traceback
+        error_details = f"Sync error: {type(e).__name__}: {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(f"SYNC FAILED: {error_details}")
+        print(f"Traceback: {traceback_str}")
+        
         sync_status["last_sync_status"] = "error"
-        sync_status["last_sync_message"] = f"Sync failed: {str(e)[:200]}"
+        sync_status["last_sync_message"] = f"{error_details[:100]}... (check logs for full details)"
+        
         if 'conn' in locals():
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
     
     finally:
         sync_status["is_running"] = False
@@ -2392,7 +2422,7 @@ async def get_deployment_version():
     """Simple endpoint to verify deployment version"""
     import datetime
     return {
-        "version": "2025-09-10-enhanced-diagnostics-v2", 
+        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V8-SYNC-DEBUG", 
         "timestamp": datetime.datetime.now().isoformat(),
         "status": "latest_deployment_active"
     }
