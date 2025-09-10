@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-SQL-SYNTAX-FIX-V8-FINAL"
+DEPLOYMENT_VERSION = "2025-09-10-SQL-SYNTAX-FIX-V9-DIAGNOSTIC"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1348,7 +1348,9 @@ async def get_sync_status():
             },
             "last_sync": sync_status["last_sync"],
             "last_sync_status": sync_status["last_sync_status"],
-            "last_sync_message": sync_status["last_sync_message"]
+            "last_sync_message": sync_status["last_sync_message"],
+            "deployment_version": DEPLOYMENT_VERSION,
+            "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
     except Exception as e:
         print(f"Error in sync status: {str(e)}")
@@ -1358,7 +1360,9 @@ async def get_sync_status():
             "current_sync": {"status": "error", "items_synced": 0},
             "last_sync": None,
             "last_sync_status": "error",
-            "last_sync_message": str(e)
+            "last_sync_message": str(e),
+            "deployment_version": DEPLOYMENT_VERSION,
+            "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
 
 async def run_sync():
