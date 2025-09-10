@@ -1367,6 +1367,11 @@ async def run_sync():
     sync_status["items_synced"] = 0
     
     try:
+        # Initialize database tables if using Azure SQL
+        if USE_AZURE_SQL:
+            init_result = await initialize_database()
+            print(f"Database initialization result: {init_result}")
+        
         # Use the configured API key
         api_key = WAREHANCE_API_KEY
         
