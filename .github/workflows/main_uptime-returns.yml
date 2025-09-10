@@ -67,4 +67,5 @@ jobs:
         id: deploy-to-webapp
         with:
           app-name: 'uptime-returns'
-          
+          slot-name: 'production'
+          package: .
