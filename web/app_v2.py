@@ -1533,7 +1533,7 @@ async def run_sync():
                 else:
                     # Use INSERT OR REPLACE for SQLite
                     cursor.execute("""
-                        INSERT OR REPLACE INTO returns (
+                        INSERT INTO returns (
                         id, api_id, paid_by, status, created_at, updated_at,
                         processed, processed_at, warehouse_note, customer_note,
                         tracking_number, tracking_url, carrier, service,
@@ -1571,7 +1571,7 @@ async def run_sync():
                                 """, (order['id'], order.get('order_number', '')))
                         else:
                             cursor.execute("""
-                                INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
+                                INSERT INTO orders (id, order_number, created_at, updated_at)
                                 VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, (order['id'], order.get('order_number', '')))
                     except Exception as e:
@@ -1613,7 +1613,7 @@ async def run_sync():
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
                                 cursor.execute("""
-                                    INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                                    INSERT INTO products (id, sku, name, created_at, updated_at)
                                     VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_id, product_sku, product_name))
                         
@@ -2176,7 +2176,7 @@ async def save_settings(settings: dict):
                 """, (key, value_str, datetime.now().isoformat()))
         else:
             cursor.execute("""
-                INSERT OR REPLACE INTO settings (key, value, updated_at)
+                INSERT INTO settings (key, value, updated_at)
                 VALUES (%s, %s, %s)
             """, (key, value_str, datetime.now().isoformat()))
     
