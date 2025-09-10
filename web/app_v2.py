@@ -1268,7 +1268,7 @@ async def initialize_database():
             try:
                 # Check if table exists
                 cursor.execute("""
-                    SELECT COUNT(*) 
+                    SELECT COUNT(*) as count
                     FROM INFORMATION_SCHEMA.TABLES 
                     WHERE TABLE_NAME = %s
                 """, (table_name,))
@@ -1444,8 +1444,10 @@ async def run_sync():
                                                  (ret['client']['id'], ret['client'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("IF NOT EXISTS (SELECT 1 FROM clients WHERE id = %s) INSERT INTO clients (id, name) VALUES (%s, %s)",
-                                             (ret['client']['id'], ret['client']['id'], ret['client'].get('name', '')))
+                                cursor.execute("""
+                                    IF NOT EXISTS (SELECT 1 FROM clients WHERE id = %s)
+                                        INSERT INTO clients (id, name) VALUES (%s, %s)
+                                """, (ret['client']['id'], ret['client']['id'], ret['client'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting client: {e}")
                 
@@ -1458,8 +1460,10 @@ async def run_sync():
                                                  (ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                                     conn.commit()
                             else:
-                                cursor.execute("IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = %s) INSERT INTO warehouses (id, name) VALUES (%s, %s)",
-                                             (ret['warehouse']['id'], ret['warehouse']['id'], ret['warehouse'].get('name', '')))
+                                cursor.execute("""
+                                    IF NOT EXISTS (SELECT 1 FROM warehouses WHERE id = %s)
+                                        INSERT INTO warehouses (id, name) VALUES (%s, %s)
+                                """, (ret['warehouse']['id'], ret['warehouse']['id'], ret['warehouse'].get('name', '')))
                         except Exception as e:
                             print(f"Error inserting warehouse: {e}")
                 
