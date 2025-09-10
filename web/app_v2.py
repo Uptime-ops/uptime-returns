@@ -2388,7 +2388,7 @@ async def diagnose_azure_sql():
             # Get current user
             cursor.execute("SELECT USER_NAME() as user_name")
             result = cursor.fetchone()
-            diagnostics["current_user"] = result[0] if result else "No result"
+            diagnostics["current_user"] = result['user_name'] if result else "No result"
         except Exception as e:
             import traceback
             error_details = f"USER_NAME() error: {type(e).__name__}: {str(e)}"
@@ -2401,7 +2401,7 @@ async def diagnose_azure_sql():
             # Get database name
             cursor.execute("SELECT DB_NAME() as database_name")
             result = cursor.fetchone()
-            diagnostics["database_name"] = result[0] if result else "No result"
+            diagnostics["database_name"] = result['database_name'] if result else "No result"
         except Exception as e:
             import traceback
             error_details = f"DB_NAME() error: {type(e).__name__}: {str(e)}"
