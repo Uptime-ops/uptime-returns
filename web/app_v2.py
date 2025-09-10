@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-SECURITY-HARDENED-V10"
+DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-DATE-FIX-V11"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1365,6 +1365,29 @@ async def get_sync_status():
             "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
 
+def convert_date_for_sql(date_string):
+    """Convert API date string to SQL Server compatible format"""
+    if not date_string:
+        return None
+    
+    try:
+        # Parse the date string and convert to ISO format that SQL Server accepts
+        from datetime import datetime
+        # Handle multiple possible formats from API
+        for fmt in ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%d %H:%M:%S']:
+            try:
+                dt = datetime.strptime(date_string, fmt)
+                # Return in SQL Server compatible format
+                return dt.strftime('%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                continue
+        
+        # If no format matches, return as-is (might work)
+        return date_string
+    except Exception:
+        # If all else fails, return None to avoid SQL errors
+        return None
+
 async def run_sync():
     """Run the actual sync process"""
     global sync_status
@@ -1570,11 +1593,11 @@ async def run_sync():
                                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                                         client_id, warehouse_id, order_id, return_integration_id,
                                         last_synced_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """, (
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                                ret.get('processed', False), ret.get('processed_at'),
+                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
                                 ret.get('warehouse_note', ''), ret.get('customer_note', ''),
                                 ret.get('tracking_number'), ret.get('tracking_url'),
                                 ret.get('carrier', ''), ret.get('service', ''),
@@ -1584,7 +1607,7 @@ async def run_sync():
                                 str(ret['warehouse']['id']) if ret.get('warehouse') else None,
                                 str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
-                                datetime.now().isoformat()
+                                convert_date_for_sql(datetime.now().isoformat())
                             ))
                 else:
                     # Use INSERT OR REPLACE for SQLite
