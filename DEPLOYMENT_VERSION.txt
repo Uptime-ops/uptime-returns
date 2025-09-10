@@ -1,6 +1,8 @@
-Version: 2025-09-10-13:00
-Description: Fixed SQLite parameterized query syntax error - sync now works
-Last Update: Changed %s to ? placeholders for SQLite compatibility in client/warehouse inserts
-Status: ACTIVE - SQL fix deployed
+Version: 2025-09-10-17:00-WORKFLOW-FIX
+Description: Fixed SQLite parameterized query syntax error + Azure deployment 409 conflict
+Last Update: Added stop/start workflow to prevent deployment conflicts
+Status: ACTIVE - SQL fix + workflow fix deployed
 
 This file triggers Azure redeployment when changed.
+Deploying SQL syntax fix: %s -> ? for SQLite compatibility
+Workflow fix: Stop app service before deploy to prevent 409 conflicts
