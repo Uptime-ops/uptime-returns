@@ -1399,7 +1399,18 @@ def convert_date_for_sql(date_string):
         # Parse the date string and convert to ISO format that SQL Server accepts
         from datetime import datetime
         # Handle multiple possible formats from API
-        for fmt in ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%d %H:%M:%S']:
+        formats = [
+            '%Y-%m-%dT%H:%M:%S.%fZ',     # ISO with microseconds
+            '%Y-%m-%dT%H:%M:%SZ',        # ISO without microseconds
+            '%Y-%m-%d %H:%M:%S',         # SQL format
+            '%Y-%m-%dT%H:%M:%S.%f',      # ISO without Z
+            '%Y-%m-%d',                  # Date only
+            '%Y-%m-%dT%H:%M:%S',         # ISO without Z or microseconds
+            '%d/%m/%Y %H:%M:%S',         # DD/MM/YYYY format
+            '%m/%d/%Y %H:%M:%S',         # MM/DD/YYYY format
+            '%Y-%m-%d %H:%M:%S.%f',      # SQL with microseconds
+        ]
+        for fmt in formats:
             try:
                 dt = datetime.strptime(date_string, fmt)
                 # Return in SQL Server compatible format
@@ -1407,8 +1418,8 @@ def convert_date_for_sql(date_string):
             except ValueError:
                 continue
         
-        # If no format matches, return as-is (might work)
-        return date_string
+        # If no format matches, return None to avoid SQL errors
+        return None
     except Exception:
         # If all else fails, return None to avoid SQL errors
         return None
