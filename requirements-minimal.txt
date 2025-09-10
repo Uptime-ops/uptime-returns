@@ -1,0 +1,26 @@
+# Minimal requirements for Azure deployment
+# Core Web Framework - REQUIRED
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Database - REQUIRED
+sqlalchemy==2.0.23
+
+# For Azure SQL (optional - will fallback to SQLite if unavailable)
+pyodbc>=5.0.1
+pymssql>=2.2.11
+
+# HTTP requests for API calls - REQUIRED
+requests==2.32.5
+
+# Utilities
+python-dotenv==1.0.0
+aiofiles==23.2.1
+
+# Email (optional - will work without these)
+msal>=1.33.0
+
+# Security (optional)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
