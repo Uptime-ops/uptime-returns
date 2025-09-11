@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-LOG-ACCESS-ENDPOINT-V29"
+DEPLOYMENT_VERSION = "2025-09-11-SYNC-LOGGING-DEBUG-V30"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -325,6 +325,26 @@ sync_status = {
     "last_sync_message": None,
     "items_synced": 0
 }
+
+# Log buffer to capture sync activity for debugging
+sync_log_buffer = []
+MAX_LOG_ENTRIES = 200
+
+def log_sync_activity(message):
+    """Log sync activity to buffer and print to console"""
+    import datetime
+    timestamp = datetime.datetime.now().isoformat()
+    log_entry = f"{timestamp} - {message}"
+    print(log_entry)  # Still print to console
+    
+    # Add to buffer
+    sync_log_buffer.append(log_entry)
+    
+    # Keep only recent entries
+    if len(sync_log_buffer) > MAX_LOG_ENTRIES:
+        sync_log_buffer.pop(0)
+    
+    return log_entry
 
 # Helper functions for database row conversion
 def row_to_dict(cursor, row):
@@ -1568,7 +1588,7 @@ async def run_sync():
         while True:
             try:
                 url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
-                print(f"Fetching from: {url}")
+                log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
                 response = requests.get(url, headers=headers)
                 
                 if response.status_code != 200:
@@ -1608,7 +1628,8 @@ async def run_sync():
                 
                 for ret in returns_batch:
                     return_id = ret['id']
-                    print(f"Processing return {return_id} from client {ret.get('client', {}).get('name', 'no-client')}")
+                    client_name = ret.get('client', {}).get('name', 'no-client')
+                    log_sync_activity(f"Processing return {return_id} from client {client_name}")
                     
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
@@ -1914,22 +1935,24 @@ async def run_sync():
                     
             except Exception as e:
                 error_str = str(e)
-                print(f"Error in sync loop: {e}")
+                log_sync_activity(f"ERROR in sync loop: {error_str}")
                 
                 # Check if this is a duplicate key error that we can gracefully handle
                 if "duplicate key" in error_str.lower() or "primary key constraint" in error_str.lower():
-                    print(f"Detected duplicate key error in sync loop - continuing sync...")
+                    log_sync_activity(f"Duplicate key detected - continuing sync, advancing to offset {offset + limit}")
                     sync_status["last_sync_message"] = f"Handling duplicate records... ({sync_status['items_synced']} processed)"
                     # Still increment offset even on duplicate key errors to avoid infinite loop
                     offset += limit
                     continue  # Continue processing instead of breaking
                 else:
                     # For other errors, break the sync
+                    log_sync_activity(f"CRITICAL ERROR - breaking sync: {error_str[:200]}")
                     sync_status["last_sync_message"] = f"Error: {error_str[:100]}"
                     break
             
             # Normal pagination increment (moved outside try block)
             offset += limit
+            log_sync_activity(f"Page completed successfully - advancing to offset {offset}")
             
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
@@ -2614,6 +2637,16 @@ async def test_email(config: dict):
         print(f"Test email error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.get("/api/logs/sync")
+async def get_sync_logs():
+    """Get recent sync activity logs"""
+    return {
+        "status": "success",
+        "log_count": len(sync_log_buffer),
+        "logs": sync_log_buffer[-100:],  # Get last 100 entries
+        "sync_status": sync_status
+    }
 
 @app.get("/api/logs/recent")
 async def get_recent_logs(lines: int = 100):
