@@ -1746,7 +1746,7 @@ async def run_sync():
                                             client_id, warehouse_id, order_id, return_integration_id,
                                             last_synced_at)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """, (
+                            """, ensure_tuple_params((
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
                                 ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
@@ -1760,7 +1760,7 @@ async def run_sync():
                                 str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat())
-                            ))
+                            )))
                             except Exception as insert_error:
                                 if "duplicate key" in str(insert_error).lower() or "primary key constraint" in str(insert_error).lower():
                                     print(f"Duplicate return {return_id} already exists, skipping insert")
@@ -1778,7 +1778,7 @@ async def run_sync():
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
+                    """, ensure_tuple_params((
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
                     ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
@@ -1792,7 +1792,7 @@ async def run_sync():
                     str(ret['order']['id']) if ret.get('order') else None,
                     ret.get('return_integration_id'),
                     convert_date_for_sql(datetime.now().isoformat())
-                ))
+                )))
                 
                 # Also store basic order info from return data
                 if ret.get('order'):
