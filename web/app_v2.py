@@ -1618,7 +1618,7 @@ async def run_sync():
                     sync_status["last_sync_message"] = "No returns data in API response"
                     break
                     
-                returns_batch = data['data']['returns']
+                returns_batch = data['data']['returns'] or []  # Handle None case
                 print(f"Fetched {len(returns_batch)} returns at offset {offset}")
                 sync_status["last_sync_message"] = f"Processing {len(returns_batch)} returns from offset {offset}..."
                 
