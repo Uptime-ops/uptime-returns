@@ -2981,6 +2981,44 @@ async def test_direct_sync():
             "traceback": traceback.format_exc()
         }
 
+@app.post("/api/clear-placeholder-data")
+async def clear_placeholder_data():
+    """Clear existing placeholder data from database to allow fresh sync with real data"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Count records before clearing
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        row = cursor.fetchone()
+        if USE_AZURE_SQL:
+            initial_count = row['count'] if row else 0
+        else:
+            initial_count = row[0] if row else 0
+        
+        # Delete all returns data (this will cascade to related tables)
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM returns")
+        cursor.execute("DELETE FROM orders") 
+        cursor.execute("DELETE FROM products WHERE id > 1")  # Keep any system products
+        cursor.execute("DELETE FROM email_history")
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": f"Cleared {initial_count} placeholder records from database",
+            "ready_for_sync": True,
+            "note": "Database is now ready for fresh sync with real data using V37 fixes"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to clear placeholder data: {str(e)}"
+        }
+
 if __name__ == "__main__":
     import uvicorn
     # Use Azure's PORT environment variable if available
