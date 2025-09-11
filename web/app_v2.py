@@ -407,7 +407,7 @@ async def get_dashboard_stats():
             cursor.execute("SELECT COUNT(*) as count FROM returns")
             row = cursor.fetchone()
             print(f"=== DASHBOARD STATS DEBUG: Row returned: {row}, type: {type(row)} ===")
-            stats['total_returns'] = row[0] if row else 0
+            stats['total_returns'] = row['count'] if row else 0
             print(f"=== DASHBOARD STATS DEBUG: total_returns = {stats['total_returns']} ===")
         except Exception as count_error:
             print(f"=== DASHBOARD STATS DEBUG: COUNT query failed: {count_error} ===")
@@ -418,7 +418,7 @@ async def get_dashboard_stats():
             print("=== DASHBOARD STATS DEBUG: Testing processed = 0 query ===")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
             row = cursor.fetchone()
-            stats['pending_returns'] = row[0] if row else 0
+            stats['pending_returns'] = row['count'] if row else 0
             print(f"=== DASHBOARD STATS DEBUG: pending_returns = {stats['pending_returns']} ===")
         except Exception as pending_error:
             print(f"=== DASHBOARD STATS DEBUG: processed = 0 query failed: {pending_error} ===")
@@ -429,7 +429,7 @@ async def get_dashboard_stats():
             print("=== DASHBOARD STATS DEBUG: Testing processed = 1 query ===")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
             row = cursor.fetchone()
-            stats['processed_returns'] = row[0] if row else 0
+            stats['processed_returns'] = row['count'] if row else 0
             print(f"=== DASHBOARD STATS DEBUG: processed_returns = {stats['processed_returns']} ===")
         except Exception as processed_error:
             print(f"=== DASHBOARD STATS DEBUG: processed = 1 query failed: {processed_error} ===")
@@ -440,7 +440,7 @@ async def get_dashboard_stats():
             print("=== DASHBOARD STATS DEBUG: Testing client_id query ===")
             cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
             row = cursor.fetchone()
-            stats['total_clients'] = row[0] if row else 0
+            stats['total_clients'] = row['count'] if row else 0
             print(f"=== DASHBOARD STATS DEBUG: total_clients = {stats['total_clients']} ===")
         except Exception as client_error:
             print(f"=== DASHBOARD STATS DEBUG: client_id query failed: {client_error} ===")
@@ -451,7 +451,7 @@ async def get_dashboard_stats():
             print("=== DASHBOARD STATS DEBUG: Testing warehouse_id query ===")
             cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
             row = cursor.fetchone()
-            stats['total_warehouses'] = row[0] if row else 0
+            stats['total_warehouses'] = row['count'] if row else 0
             print(f"=== DASHBOARD STATS DEBUG: total_warehouses = {stats['total_warehouses']} ===")
         except Exception as warehouse_error:
             print(f"=== DASHBOARD STATS DEBUG: warehouse_id query failed: {warehouse_error} ===")
@@ -476,21 +476,21 @@ async def get_dashboard_stats():
             # SQLite syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
             row = cursor.fetchone()
-            stats['returns_today'] = row[0] if row else 0
+            stats['returns_today'] = row['count'] if row else 0
             
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
             row = cursor.fetchone()
-            stats['returns_this_week'] = row[0] if row else 0
+            stats['returns_this_week'] = row['count'] if row else 0
             
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
             row = cursor.fetchone()
-            stats['returns_this_month'] = row[0] if row else 0
+            stats['returns_this_month'] = row['count'] if row else 0
     
         # Count of unshared returns
         try:
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
             row = cursor.fetchone()
-            stats['unshared_returns'] = row[0] if row else 0
+            stats['unshared_returns'] = row['count'] if row else 0
         except:
             # Table might not exist yet
             stats['unshared_returns'] = stats['total_returns']
@@ -1056,7 +1056,7 @@ async def test_database_connection():
         try:
             cursor.execute("SELECT COUNT(*) as count FROM returns")
             result = cursor.fetchone()
-            returns_count = result[0] if result else 0
+            returns_count = result['count'] if result else 0
             table_exists = True
         except Exception as table_error:
             table_exists = f"Error: {str(table_error)}"
@@ -1190,7 +1190,7 @@ async def migrate_database():
                 """, (table_name, column_name))
                 
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = result['count'] > 0
                 
                 if not exists:
                     # Add the column
@@ -1401,7 +1401,7 @@ async def initialize_database():
                 """, (table_name,))
                 
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = result['count'] > 0
                 
                 if not exists:
                     cursor.execute(create_sql)
@@ -1709,7 +1709,7 @@ async def run_sync():
                         placeholder = get_param_placeholder()
                         cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
-                        exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
+                        exists = return_result['count'] > 0
                         
                         if exists:
                             # Update existing return
@@ -1807,16 +1807,16 @@ async def run_sync():
                             placeholder = get_param_placeholder()
                             cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order['id']),))
                             order_result = cursor.fetchone()
-                            if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
+                            if order_result['count'] == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES (%s, %s, GETDATE(), GETDATE())
-                                """, (str(order['id']), order.get('order_number', '')))
+                                """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                         else:
                             cursor.execute("""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
                                 VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (str(order['id']), order.get('order_number', '')))
+                            """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                     except Exception as e:
                         print(f"Error inserting order {str(order['id'])}: {e}")
                 
@@ -1841,7 +1841,7 @@ async def run_sync():
                                 cursor.execute("""
                                     INSERT INTO products (sku, name, created_at, updated_at)
                                     VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, (product_sku, product_name or 'Unknown Product'))
+                                """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
                             # Ensure product exists
@@ -1849,19 +1849,19 @@ async def run_sync():
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"SELECT COUNT(*) as count FROM products WHERE id = {placeholder}", (product_id,))
                                 product_result = cursor.fetchone()
-                                if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
+                                if product_result['count'] == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
                                     cursor.execute("""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
                                         VALUES (%s, %s, %s, GETDATE(), GETDATE())
-                                    """, (product_id, product_sku, product_name))
+                                    """, ensure_tuple_params((product_id, product_sku, product_name)))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
                                 cursor.execute("""
                                     INSERT INTO products (id, sku, name, created_at, updated_at)
                                     VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, (product_id, product_sku, product_name))
+                                """, ensure_tuple_params((product_id, product_sku, product_name)))
                         
                         # Store return item
                         import json
@@ -1871,7 +1871,7 @@ async def run_sync():
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE id = {placeholder}", (item['id'],))
                                 item_result = cursor.fetchone()
-                                if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
+                                if item_result['count'] == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
                                     cursor.execute("""
                                         INSERT INTO return_items (
@@ -1880,7 +1880,7 @@ async def run_sync():
                                             quantity_received, quantity_rejected,
                                             created_at, updated_at
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
-                                    """, (
+                                    """, ensure_tuple_params((
                                         item.get('id'),
                                         return_id,
                                         product_id if product_id > 0 else None,
@@ -1889,7 +1889,7 @@ async def run_sync():
                                         json.dumps(item.get('condition_on_arrival', [])),
                                         item.get('quantity_received', 0),
                                         item.get('quantity_rejected', 0)
-                                    ))
+                                    )))
                                     cursor.execute("SET IDENTITY_INSERT return_items OFF")
                             else:
                                 # No ID provided, let SQL generate one
@@ -1900,7 +1900,7 @@ async def run_sync():
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
-                                """, (
+                                """, ensure_tuple_params((
                                     return_id,
                                     product_id if product_id > 0 else None,
                                     item.get('quantity', 0),
@@ -1908,7 +1908,7 @@ async def run_sync():
                                     json.dumps(item.get('condition_on_arrival', [])),
                                     item.get('quantity_received', 0),
                                     item.get('quantity_rejected', 0)
-                                ))
+                                )))
                         else:
                             cursor.execute("""
                                 INSERT OR REPLACE INTO return_items (
@@ -1917,7 +1917,7 @@ async def run_sync():
                                 quantity_received, quantity_rejected,
                                 created_at, updated_at
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """, (
+                        """, ensure_tuple_params((
                             item.get('id'),
                             return_id,
                             product_id if product_id > 0 else None,
@@ -1926,7 +1926,7 @@ async def run_sync():
                             json.dumps(item.get('condition_on_arrival', [])),
                             item.get('quantity_received', 0),
                             item.get('quantity_rejected', 0)
-                        ))
+                        )))
                     
                     print(f"Successfully processed return {return_id}")
                 
@@ -2097,12 +2097,12 @@ async def send_returns_email(request_data: dict):
         # Total returns
         cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", params)
         row = cursor.fetchone()
-        total_returns = row[0] if row else 0
+        total_returns = row['count'] if row else 0
         
         # Processed returns
         cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", params)
         row = cursor.fetchone()
-        processed_returns = row[0] if row else 0
+        processed_returns = row['count'] if row else 0
         
         # Pending returns
         pending_returns = total_returns - processed_returns
@@ -2220,7 +2220,7 @@ async def send_returns_email(request_data: dict):
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
+            """, ensure_tuple_params((
                 client_id,
                 client_name,
                 recipient_email,
@@ -2228,7 +2228,7 @@ async def send_returns_email(request_data: dict):
                 template_vars["attachment_name"],
                 'System',
                 'sent'
-            ))
+            )))
             conn.commit()
             
             status = "sent"
@@ -2238,7 +2238,7 @@ async def send_returns_email(request_data: dict):
             cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
+            """, ensure_tuple_params((
                 client_id,
                 client_name,
                 recipient_email,
@@ -2246,7 +2246,7 @@ async def send_returns_email(request_data: dict):
                 template_vars["attachment_name"],
                 'System',
                 'draft'
-            ))
+            )))
             conn.commit()
             
             status = "draft"
@@ -2462,12 +2462,12 @@ async def save_settings(settings: dict):
                 cursor.execute("""
                     INSERT INTO settings ([key], value, updated_at)
                     VALUES (%s, %s, %s)
-                """, (key, value_str, datetime.now().isoformat()))
+                """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
         else:
             cursor.execute("""
                 INSERT INTO settings (key, value, updated_at)
                 VALUES (%s, %s, %s)
-            """, (key, value_str, datetime.now().isoformat()))
+            """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
     
     conn.commit()
     
@@ -2954,7 +2954,7 @@ async def test_direct_sync():
                 placeholder = get_param_placeholder()
                 cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (str(return_id),))
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = result['count'] > 0
                 print(f"Return {return_id} exists in DB: {exists}")
                 
                 conn.close()
@@ -2994,7 +2994,7 @@ async def clear_placeholder_data():
         if USE_AZURE_SQL:
             initial_count = row['count'] if row else 0
         else:
-            initial_count = row[0] if row else 0
+            initial_count = row['count'] if row else 0
         
         # Delete all returns data (this will cascade to related tables)
         cursor.execute("DELETE FROM return_items")
