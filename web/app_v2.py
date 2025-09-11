@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-PARAMETERIZATION-COMPLETE-V17"
+DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-DEBUG-ENHANCED-V18"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1452,34 +1452,42 @@ async def run_sync():
             "accept": "application/json"
         }
         
-        print(f"Starting sync with API key: {api_key[:15]}...")
-        sync_status["last_sync_message"] = f"Starting sync with API key: {api_key[:15]}..."
+        print(f"=== SYNC DEBUG: Starting sync with API key: {api_key[:15]}...")
+        sync_status["last_sync_message"] = f"STEP 1: Starting sync with API key: {api_key[:15]}..."
         
-        # Test database connection early
-        print("Testing database connection...")
-        sync_status["last_sync_message"] = "Testing database connection..."
+        # Test database connection early with detailed logging
+        print("=== SYNC DEBUG: Testing database connection...")
+        sync_status["last_sync_message"] = "STEP 2: Testing database connection..."
+        
+        print(f"=== SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
+        print(f"=== SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
         
         conn = get_db_connection()
         if not conn:
-            raise Exception("Failed to establish database connection")
+            raise Exception("STEP 2 FAILED: Failed to establish database connection")
             
+        print("=== SYNC DEBUG: Database connection established, creating cursor...")
         cursor = conn.cursor()
+        sync_status["last_sync_message"] = "STEP 3: Database cursor created..."
         
         # Test basic database operation
         try:
+            print("=== SYNC DEBUG: Testing basic database query...")
             if USE_AZURE_SQL:
                 cursor.execute("SELECT 1 as test")
             else:
                 cursor.execute("SELECT 1")
             test_result = cursor.fetchone()
-            print(f"Database test query successful: {test_result}")
-            sync_status["last_sync_message"] = "Database connection confirmed"
+            print(f"=== SYNC DEBUG: Database test query successful: {test_result}")
+            sync_status["last_sync_message"] = "STEP 4: Database connection confirmed"
         except Exception as db_test_error:
-            raise Exception(f"Database test query failed: {db_test_error}")
+            print(f"=== SYNC DEBUG: Database test query failed: {db_test_error}")
+            raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
         
-        # STEP 1: Fetch ALL returns from API with pagination
-        sync_status["last_sync_message"] = "Fetching returns from Warehance API..."
-        print("Starting to fetch returns from Warehance API...")
+        # STEP 5: Fetch ALL returns from API with pagination
+        print("=== SYNC DEBUG: Starting API fetch phase...")
+        sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
+        print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
         offset = 0
         limit = 100
@@ -1909,8 +1917,18 @@ async def run_sync():
         print(f"SYNC FAILED: {error_details}")
         print(f"Traceback: {traceback_str}")
         
+        # Enhanced error logging for debugging
+        print(f"ERROR DEBUG INFO:")
+        print(f"  Exception type: {type(e)}")
+        print(f"  Exception args: {e.args}")
+        print(f"  Exception str: '{str(e)}'")
+        print(f"  Exception repr: {repr(e)}")
+        print(f"  Items synced before error: {sync_status.get('items_synced', 'unknown')}")
+        
         sync_status["last_sync_status"] = "error"
-        sync_status["last_sync_message"] = f"{error_details[:100]}... (check logs for full details)"
+        # Ensure we don't just get the truncated version
+        full_error_msg = f"{error_details} | Args: {e.args} | Type: {type(e).__name__}"
+        sync_status["last_sync_message"] = full_error_msg[:200]  # Increase limit to capture more detail
         
         if 'conn' in locals():
             try:
