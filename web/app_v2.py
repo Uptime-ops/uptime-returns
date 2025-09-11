@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-DASHBOARD-STATS-DEBUG-V20"
+DEPLOYMENT_VERSION = "2025-09-11-DASHBOARD-STATS-TUPLE-FIX-V21"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -377,21 +377,49 @@ async def get_dashboard_stats():
             stats['total_returns'] = 0
             stats['count_error'] = str(count_error)
         
-        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
-        row = cursor.fetchone()
-        stats['pending_returns'] = row[0] if row else 0
+        try:
+            print("=== DASHBOARD STATS DEBUG: Testing processed = 0 query ===")
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
+            row = cursor.fetchone()
+            stats['pending_returns'] = row[0] if row else 0
+            print(f"=== DASHBOARD STATS DEBUG: pending_returns = {stats['pending_returns']} ===")
+        except Exception as pending_error:
+            print(f"=== DASHBOARD STATS DEBUG: processed = 0 query failed: {pending_error} ===")
+            stats['pending_returns'] = 0
+            stats['pending_error'] = str(pending_error)
         
-        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
-        row = cursor.fetchone()
-        stats['processed_returns'] = row[0] if row else 0
+        try:
+            print("=== DASHBOARD STATS DEBUG: Testing processed = 1 query ===")
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
+            row = cursor.fetchone()
+            stats['processed_returns'] = row[0] if row else 0
+            print(f"=== DASHBOARD STATS DEBUG: processed_returns = {stats['processed_returns']} ===")
+        except Exception as processed_error:
+            print(f"=== DASHBOARD STATS DEBUG: processed = 1 query failed: {processed_error} ===")
+            stats['processed_returns'] = 0
+            stats['processed_error'] = str(processed_error)
     
-        cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
-        row = cursor.fetchone()
-        stats['total_clients'] = row[0] if row else 0
+        try:
+            print("=== DASHBOARD STATS DEBUG: Testing client_id query ===")
+            cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
+            row = cursor.fetchone()
+            stats['total_clients'] = row[0] if row else 0
+            print(f"=== DASHBOARD STATS DEBUG: total_clients = {stats['total_clients']} ===")
+        except Exception as client_error:
+            print(f"=== DASHBOARD STATS DEBUG: client_id query failed: {client_error} ===")
+            stats['total_clients'] = 0
+            stats['client_error'] = str(client_error)
         
-        cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
-        row = cursor.fetchone()
-        stats['total_warehouses'] = row[0] if row else 0
+        try:
+            print("=== DASHBOARD STATS DEBUG: Testing warehouse_id query ===")
+            cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
+            row = cursor.fetchone()
+            stats['total_warehouses'] = row[0] if row else 0
+            print(f"=== DASHBOARD STATS DEBUG: total_warehouses = {stats['total_warehouses']} ===")
+        except Exception as warehouse_error:
+            print(f"=== DASHBOARD STATS DEBUG: warehouse_id query failed: {warehouse_error} ===")
+            stats['total_warehouses'] = 0
+            stats['warehouse_error'] = str(warehouse_error)
     
         # Get return counts by time period
         if USE_AZURE_SQL:
