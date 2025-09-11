@@ -600,12 +600,18 @@ async def search_returns(filter_params: dict):
     
     # Build query with filters
     query = """
-    SELECT r.id, r.status, r.created_at, r.tracking_number, 
-           r.processed, r.api_id, c.name as client_name, 
-           w.name as warehouse_name, r.client_id
+    SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at,
+           r.processed, r.processed_at, r.warehouse_note, r.customer_note,
+           r.tracking_number, r.tracking_url, r.carrier, r.service,
+           r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided,
+           r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
+           r.first_synced_at, r.last_synced_at,
+           c.name as client_name, w.name as warehouse_name,
+           o.order_number
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
     WHERE 1=1
     """
     
@@ -658,25 +664,63 @@ async def search_returns(filter_params: dict):
         if USE_AZURE_SQL:
             return_dict = {
                 "id": row['id'],
+                "api_id": row['api_id'],
+                "paid_by": row['paid_by'],
                 "status": row['status'] or '',
                 "created_at": row['created_at'],
-                "tracking_number": row['tracking_number'],
+                "updated_at": row['updated_at'],
                 "processed": bool(row['processed']),
-                "api_id": row['api_id'],
+                "processed_at": row['processed_at'],
+                "warehouse_note": row['warehouse_note'],
+                "customer_note": row['customer_note'],
+                "tracking_number": row['tracking_number'],
+                "tracking_url": row['tracking_url'],
+                "carrier": row['carrier'],
+                "service": row['service'],
+                "label_cost": float(row['label_cost']) if row['label_cost'] else None,
+                "label_pdf_url": row['label_pdf_url'],
+                "rma_slip_url": row['rma_slip_url'],
+                "label_voided": bool(row['label_voided']),
+                "client_id": row['client_id'],
+                "warehouse_id": row['warehouse_id'],
+                "order_id": row['order_id'],
+                "return_integration_id": row['return_integration_id'],
+                "first_synced_at": row['first_synced_at'],
+                "last_synced_at": row['last_synced_at'],
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
+                "order_number": row['order_number'],
                 "is_shared": False
             }
         else:
             return_dict = {
                 "id": row['id'],
+                "api_id": row['api_id'],
+                "paid_by": row['paid_by'],
                 "status": row['status'] or '',
                 "created_at": row['created_at'],
-                "tracking_number": row['tracking_number'],
+                "updated_at": row['updated_at'],
                 "processed": bool(row['processed']),
-                "api_id": row['api_id'],
+                "processed_at": row['processed_at'],
+                "warehouse_note": row['warehouse_note'],
+                "customer_note": row['customer_note'],
+                "tracking_number": row['tracking_number'],
+                "tracking_url": row['tracking_url'],
+                "carrier": row['carrier'],
+                "service": row['service'],
+                "label_cost": float(row['label_cost']) if row['label_cost'] else None,
+                "label_pdf_url": row['label_pdf_url'],
+                "rma_slip_url": row['rma_slip_url'],
+                "label_voided": bool(row['label_voided']),
+                "client_id": row['client_id'],
+                "warehouse_id": row['warehouse_id'],
+                "order_id": row['order_id'],
+                "return_integration_id": row['return_integration_id'],
+                "first_synced_at": row['first_synced_at'],
+                "last_synced_at": row['last_synced_at'],
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
+                "order_number": row['order_number'],
                 "is_shared": False
             }
         
@@ -684,7 +728,11 @@ async def search_returns(filter_params: dict):
         if include_items:
             return_id = row['id'] if USE_AZURE_SQL else row['id']
             cursor.execute("""
-                SELECT ri.*, p.sku, p.name as product_name
+                SELECT ri.id, ri.return_id, ri.product_id, ri.quantity,
+                       ri.return_reasons, ri.condition_on_arrival,
+                       ri.quantity_received, ri.quantity_rejected,
+                       ri.created_at, ri.updated_at,
+                       p.sku, p.name as product_name
                 FROM return_items ri
                 LEFT JOIN products p ON ri.product_id = p.id
                 WHERE ri.return_id = %s
@@ -698,14 +746,20 @@ async def search_returns(filter_params: dict):
             for item_row in item_rows:
                 items.append({
                     "id": item_row['id'],
+                    "return_id": item_row['return_id'],
                     "product_id": item_row['product_id'],
-                    "sku": item_row['sku'],
-                    "product_name": item_row['product_name'],
                     "quantity": item_row['quantity'],
                     "return_reasons": json.loads(item_row['return_reasons']) if item_row['return_reasons'] else [],
                     "condition_on_arrival": json.loads(item_row['condition_on_arrival']) if item_row['condition_on_arrival'] else [],
                     "quantity_received": item_row['quantity_received'],
-                    "quantity_rejected": item_row['quantity_rejected']
+                    "quantity_rejected": item_row['quantity_rejected'],
+                    "created_at": item_row['created_at'],
+                    "updated_at": item_row['updated_at'],
+                    "product": {
+                        "id": item_row['product_id'],
+                        "sku": item_row['sku'],
+                        "name": item_row['product_name']
+                    } if item_row['product_id'] else None
                 })
             return_dict['items'] = items
         
@@ -731,12 +785,13 @@ async def get_return_detail(return_id: int):
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
-    # Get return details
+    # Get return details with all fields
     cursor.execute("""
-        SELECT r.*, c.name as client_name, w.name as warehouse_name, r.order_id
+        SELECT r.*, c.name as client_name, w.name as warehouse_name, o.order_number
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        LEFT JOIN orders o ON r.order_id = o.id
         WHERE r.id = %s
     """, (return_id,))
     
@@ -751,7 +806,11 @@ async def get_return_detail(return_id: int):
     
     # First check if there are actual return items (there shouldn't be any from API)
     cursor.execute("""
-        SELECT ri.*, p.sku, p.name as product_name
+        SELECT ri.id, ri.return_id, ri.product_id, ri.quantity,
+               ri.return_reasons, ri.condition_on_arrival,
+               ri.quantity_received, ri.quantity_rejected,
+               ri.created_at, ri.updated_at,
+               p.sku, p.name as product_name
         FROM return_items ri
         LEFT JOIN products p ON ri.product_id = p.id
         WHERE ri.return_id = %s
@@ -764,14 +823,20 @@ async def get_return_detail(return_id: int):
         for item_row in return_items:
             items.append({
                 "id": item_row['id'],
+                "return_id": item_row['return_id'],
                 "product_id": item_row['product_id'],
-                "sku": item_row['sku'],
-                "product_name": item_row['product_name'],
                 "quantity": item_row['quantity'],
                 "return_reasons": json.loads(item_row['return_reasons']) if item_row['return_reasons'] else [],
                 "condition_on_arrival": json.loads(item_row['condition_on_arrival']) if item_row['condition_on_arrival'] else [],
                 "quantity_received": item_row['quantity_received'],
-                "quantity_rejected": item_row['quantity_rejected']
+                "quantity_rejected": item_row['quantity_rejected'],
+                "created_at": item_row['created_at'],
+                "updated_at": item_row['updated_at'],
+                "product": {
+                    "id": item_row['product_id'],
+                    "sku": item_row['sku'],
+                    "name": item_row['product_name']
+                } if item_row['product_id'] else None
             })
     elif order_id:
         # If no return items but we have an order, fetch order details from API
