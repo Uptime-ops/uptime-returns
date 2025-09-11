@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-10-AZURE-SQL-FINAL-PARAMETERIZATION-FIX-V15"
+DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-PARAMETERIZATION-FIXED-V16"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -520,7 +520,8 @@ async def search_returns(filter_params: dict):
     params = []
     
     if client_id:
-        query += " AND r.client_id = %s"
+        placeholder = get_param_placeholder()
+        query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
     
     if status:
@@ -530,7 +531,8 @@ async def search_returns(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
+        placeholder = get_param_placeholder()
+        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -545,7 +547,8 @@ async def search_returns(filter_params: dict):
         query += " ORDER BY r.created_at DESC OFFSET %s ROWS FETCH NEXT %s ROWS ONLY"
         params.extend([(page - 1) * limit, limit])
     else:
-        query += " ORDER BY r.created_at DESC LIMIT %s OFFSET %s"
+        placeholder = get_param_placeholder()
+        query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
         params.extend([limit, (page - 1) * limit])
     
     cursor.execute(query, params)
@@ -773,7 +776,8 @@ async def export_returns_csv(filter_params: dict):
     search = search.strip() if search else ''
     
     if client_id:
-        query += " AND r.client_id = %s"
+        placeholder = get_param_placeholder()
+        query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
     
     if status:
@@ -783,7 +787,8 @@ async def export_returns_csv(filter_params: dict):
             query += " AND r.processed = 1"
     
     if search:
-        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
+        placeholder = get_param_placeholder()
+        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -1536,7 +1541,8 @@ async def run_sync():
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
-                                    cursor.execute("INSERT INTO clients (id, name) VALUES (%s, %s)", 
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", 
                                                  (client_id, client_name))
                                     conn.commit()
                                 except Exception as insert_err:
@@ -1544,8 +1550,9 @@ async def run_sync():
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
                                         print(f"Non-duplicate client insert error: {insert_err}")
                             else:
-                                cursor.execute("""
-                                    INSERT OR IGNORE INTO clients (id, name) VALUES (%s, %s)
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
+                                    INSERT OR IGNORE INTO clients (id, name) VALUES ({placeholder}, {placeholder})
                                 """, (client_id, client_name))
                         except Exception as e:
                             print(f"Error handling client: {e}")
@@ -1562,7 +1569,8 @@ async def run_sync():
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
-                                    cursor.execute("INSERT INTO warehouses (id, name) VALUES (%s, %s)",
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"INSERT INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})",
                                                  (warehouse_id, warehouse_name))
                                     conn.commit()
                                 except Exception as insert_err:
@@ -1570,8 +1578,9 @@ async def run_sync():
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
                                         print(f"Non-duplicate warehouse insert error: {insert_err}")
                             else:
-                                cursor.execute("""
-                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES (%s, %s)
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
+                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})
                                 """, (warehouse_id, warehouse_name))
                         except Exception as e:
                             print(f"Error handling warehouse: {e}")
@@ -1588,7 +1597,8 @@ async def run_sync():
                     
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (return_id,))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
                         
@@ -1606,8 +1616,8 @@ async def run_sync():
                                 WHERE id = %s
                             """, (
                                 ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                                ret.get('processed', False), ret.get('processed_at'),
+                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
                                 ret.get('warehouse_note', ''), ret.get('customer_note', ''),
                                 ret.get('tracking_number'), ret.get('tracking_url'),
                                 ret.get('carrier', ''), ret.get('service', ''),
@@ -1617,7 +1627,7 @@ async def run_sync():
                                 str(ret['warehouse']['id']) if ret.get('warehouse') else None,
                                 str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
-                                datetime.now().isoformat(),
+                                convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
                             ))
                         else:
@@ -1658,8 +1668,8 @@ async def run_sync():
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                    ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                    ret.get('processed', False), ret.get('processed_at'),
+                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
                     ret.get('warehouse_note', ''), ret.get('customer_note', ''),
                     ret.get('tracking_number'), ret.get('tracking_url'),
                     ret.get('carrier', ''), ret.get('service', ''),
@@ -1669,7 +1679,7 @@ async def run_sync():
                     str(ret['warehouse']['id']) if ret.get('warehouse') else None,
                     str(ret['order']['id']) if ret.get('order') else None,
                     ret.get('return_integration_id'),
-                    datetime.now().isoformat()
+                    convert_date_for_sql(datetime.now().isoformat())
                 ))
                 
                 # Also store basic order info from return data
@@ -1818,8 +1828,6 @@ async def run_sync():
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
         
-        conn.commit()
-        
         # STEP 2: Fetch full order details for all collected order IDs (with customer names)
         sync_status["last_sync_message"] = f"Fetching {len(all_order_ids)} orders with customer info..."
         
@@ -1829,7 +1837,7 @@ async def run_sync():
                 SELECT id FROM orders 
                 WHERE id IN ({}) 
                 AND (customer_name IS NULL OR customer_name = '')
-            """.format(','.join('%s' * len(all_order_ids))), list(all_order_ids))
+            """.format(format_in_clause(len(all_order_ids))), list(all_order_ids))
             orders_needing_update = [row[0] for row in cursor.fetchall()]
         else:
             orders_needing_update = []
