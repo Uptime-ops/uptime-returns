@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-FINAL-PARAMETERIZATION-V25"
+DEPLOYMENT_VERSION = "2025-09-11-PROGRESS-BAR-FIX-V26"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1607,7 +1607,12 @@ async def run_sync():
                     break
                 
                 for ret in returns_batch:
-                    print(f"Processing return {ret.get('id', 'no-id')} from client {ret.get('client', {}).get('name', 'no-client')}")
+                    return_id = ret['id']
+                    print(f"Processing return {return_id} from client {ret.get('client', {}).get('name', 'no-client')}")
+                    
+                    # Increment progress counter at start of each return processing
+                    sync_status["items_synced"] += 1
+                    sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']})..."
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
@@ -1670,7 +1675,6 @@ async def run_sync():
                         all_order_ids.add(ret['order']['id'])
                     
                     # Update or insert return - with overflow protection
-                    return_id = ret['id']
                     # Convert large IDs to string to prevent arithmetic overflow
                     if isinstance(return_id, int) and return_id > 2147483647:
                         return_id = str(return_id)
@@ -1899,9 +1903,7 @@ async def run_sync():
                             item.get('quantity_rejected', 0)
                         ))
                     
-                    print(f"About to increment counter for return {return_id}")
-                    sync_status["items_synced"] += 1
-                    print(f"Successfully processed return {return_id}, total synced: {sync_status['items_synced']}")
+                    print(f"Successfully processed return {return_id}")
                 
                 total_fetched += len(returns_batch)
                 
