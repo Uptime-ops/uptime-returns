@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-PAGINATION-INFINITE-LOOP-FIX-V28"
+DEPLOYMENT_VERSION = "2025-09-11-LOG-ACCESS-ENDPOINT-V29"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2614,6 +2614,71 @@ async def test_email(config: dict):
         print(f"Test email error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@app.get("/api/logs/recent")
+async def get_recent_logs(lines: int = 100):
+    """Get recent application logs from Azure App Service"""
+    try:
+        import subprocess
+        import os
+        
+        log_lines = []
+        
+        # Try to read from Azure's log directory
+        log_paths = [
+            "/home/LogFiles/Application/",
+            "/var/log/",
+            "/tmp/",
+            "/home/site/wwwroot/logs/",
+        ]
+        
+        for log_path in log_paths:
+            if os.path.exists(log_path):
+                try:
+                    # Get all log files in the directory
+                    for root, dirs, files in os.walk(log_path):
+                        for file in files:
+                            if file.endswith('.log') or file.endswith('.txt'):
+                                full_path = os.path.join(root, file)
+                                try:
+                                    with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                        content = f.read()
+                                        log_lines.extend([
+                                            f"=== {full_path} ===",
+                                            content[-5000:] if len(content) > 5000 else content  # Last 5KB
+                                        ])
+                                except Exception as e:
+                                    log_lines.append(f"Error reading {full_path}: {e}")
+                except Exception as e:
+                    log_lines.append(f"Error accessing {log_path}: {e}")
+        
+        # Also try to capture recent stdout/stderr if possible
+        try:
+            # Try to read from Docker logs or systemd logs
+            result = subprocess.run(['tail', '-n', str(lines), '/var/log/syslog'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.stdout:
+                log_lines.extend(["=== System Logs ===", result.stdout])
+        except Exception as e:
+            log_lines.append(f"System log access failed: {e}")
+        
+        return {
+            "status": "success",
+            "logs": log_lines,
+            "log_paths_checked": log_paths,
+            "environment": {
+                "platform": os.name,
+                "cwd": os.getcwd(),
+                "env_vars": {k: v for k, v in os.environ.items() if 'WEBSITE' in k or 'AZURE' in k}
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Could not access logs"
+        }
 
 @app.get("/api/deployment/version")
 async def get_deployment_version():
