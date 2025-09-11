@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-PROGRESS-BAR-FIX-V26"
+DEPLOYMENT_VERSION = "2025-09-11-DASHBOARD-SYNC-FIXES-V27"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -443,15 +443,15 @@ async def get_dashboard_stats():
             # Azure SQL syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE CAST(created_at AS DATE) = CAST(GETDATE() AS DATE)")
             row = cursor.fetchone()
-            stats['returns_today'] = row[0] if row else 0
+            stats['returns_today'] = row['count'] if row else 0
             
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -7, GETDATE())")
             row = cursor.fetchone()
-            stats['returns_this_week'] = row[0] if row else 0
+            stats['returns_this_week'] = row['count'] if row else 0
             
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -30, GETDATE())")
             row = cursor.fetchone()
-            stats['returns_this_month'] = row[0] if row else 0
+            stats['returns_this_month'] = row['count'] if row else 0
         else:
             # SQLite syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
@@ -1914,9 +1914,18 @@ async def run_sync():
                     
                 offset += limit
             except Exception as e:
+                error_str = str(e)
                 print(f"Error in sync loop: {e}")
-                sync_status["last_sync_message"] = f"Error: {str(e)[:100]}"
-                break
+                
+                # Check if this is a duplicate key error that we can gracefully handle
+                if "duplicate key" in error_str.lower() or "primary key constraint" in error_str.lower():
+                    print(f"Detected duplicate key error in sync loop - continuing sync...")
+                    sync_status["last_sync_message"] = f"Handling duplicate records... ({sync_status['items_synced']} processed)"
+                    continue  # Continue processing instead of breaking
+                else:
+                    # For other errors, break the sync
+                    sync_status["last_sync_message"] = f"Error: {error_str[:100]}"
+                    break
             
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
