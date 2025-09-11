@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-DEBUG-ENHANCED-V18"
+DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-PYMSSQL-TUPLE-FIX-V19"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -80,6 +80,12 @@ def format_limit_clause(limit, offset=0):
             return f"LIMIT {limit} OFFSET {offset}"
         else:
             return f"LIMIT {limit}"
+
+def ensure_tuple_params(params):
+    """Ensure parameters are tuples for Azure SQL pymssql compatibility"""
+    if USE_AZURE_SQL and isinstance(params, list):
+        return tuple(params)
+    return params
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
@@ -538,7 +544,7 @@ async def search_returns(filter_params: dict):
     
     # Get total count for pagination
     count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
-    cursor.execute(count_query, params)
+    cursor.execute(count_query, ensure_tuple_params(params))
     row = cursor.fetchone()
     total = row[0] if row else 0
     
@@ -551,7 +557,7 @@ async def search_returns(filter_params: dict):
         query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
         params.extend([limit, (page - 1) * limit])
     
-    cursor.execute(query, params)
+    cursor.execute(query, ensure_tuple_params(params))
     rows = cursor.fetchall()
     
     returns = []
@@ -794,7 +800,7 @@ async def export_returns_csv(filter_params: dict):
     
     query += " ORDER BY r.created_at DESC"
     
-    cursor.execute(query, params)
+    cursor.execute(query, ensure_tuple_params(params))
     returns = cursor.fetchall()
     
     # Convert rows to dict for Azure SQL
@@ -1551,7 +1557,7 @@ async def run_sync():
                                 try:
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", 
-                                                 (client_id, client_name))
+                                                 ensure_tuple_params((client_id, client_name)))
                                     conn.commit()
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
@@ -1606,7 +1612,7 @@ async def run_sync():
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
                         placeholder = get_param_placeholder()
-                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (return_id,))
+                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
                         
@@ -2159,7 +2165,7 @@ async def get_email_history(client_id: Optional[int] = None):
     
     query += " ORDER BY sent_date DESC"
     
-    cursor.execute(query, params)
+    cursor.execute(query, ensure_tuple_params(params))
     rows = cursor.fetchall()
     
     if USE_AZURE_SQL:
