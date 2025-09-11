@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-SYNC-DUPLICATE-FIX-V24"
+DEPLOYMENT_VERSION = "2025-09-11-FINAL-PARAMETERIZATION-V25"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2048,7 +2048,8 @@ async def send_returns_email(request_data: dict):
         where_clause = "WHERE 1=1"
         params = []
         if client_id:
-            where_clause += " AND r.client_id = %s"
+            placeholder = get_param_placeholder()
+            where_clause += f" AND r.client_id = {placeholder}"
             params.append(client_id)
         
         # Total returns
@@ -2233,7 +2234,8 @@ async def get_email_history(client_id: Optional[int] = None):
     params = []
     
     if client_id:
-        query += " AND client_id = %s"
+        placeholder = get_param_placeholder()
+        query += f" AND client_id = {placeholder}"
         params.append(client_id)
     
     query += " ORDER BY sent_date DESC"
