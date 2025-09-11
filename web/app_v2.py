@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-PARAMETERIZATION-FIX-V22"
+DEPLOYMENT_VERSION = "2025-09-11-PARAMETERIZATION-HOTFIX-V23"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -86,6 +86,23 @@ def ensure_tuple_params(params):
     if USE_AZURE_SQL and isinstance(params, list):
         return tuple(params)
     return params
+
+def build_placeholders(count):
+    """Build a string of parameter placeholders for SQL queries"""
+    placeholder = get_param_placeholder()
+    return ", ".join([placeholder] * count)
+
+def execute_sql(cursor, sql, params=None):
+    """Execute SQL with automatic parameter placeholder conversion"""
+    if params is None:
+        params = ()
+    
+    # If using SQLite and SQL contains %s, convert to ?
+    if not USE_AZURE_SQL and '%s' in sql:
+        sql = sql.replace('%s', '?')
+    
+    cursor.execute(sql, params)
+    return cursor
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
@@ -1667,18 +1684,16 @@ async def run_sync():
                         
                         if exists:
                             # Update existing return
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
+                            cursor.execute("""
                                 UPDATE returns SET
-                                    api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
-                                    updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
-                                    warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
-                                    tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
-                                    label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
-                                    client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
-                                    return_integration_id = {placeholder}, last_synced_at = {placeholder}
-                                WHERE id = {placeholder}
-                            """
+                                    api_id = %s, paid_by = %s, status = %s, created_at = %s,
+                                    updated_at = %s, processed = %s, processed_at = %s,
+                                    warehouse_note = %s, customer_note = %s, tracking_number = %s,
+                                    tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
+                                    label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
+                                    client_id = %s, warehouse_id = %s, order_id = %s,
+                                    return_integration_id = %s, last_synced_at = %s
+                                WHERE id = %s
                             """, (
                                 ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1697,16 +1712,14 @@ async def run_sync():
                             ))
                         else:
                             # Insert new return
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
+                            cursor.execute("""
                                 INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                         processed, processed_at, warehouse_note, customer_note,
                                         tracking_number, tracking_url, carrier, service,
                                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                                         client_id, warehouse_id, order_id, return_integration_id,
                                         last_synced_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                            """
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1724,8 +1737,7 @@ async def run_sync():
                             ))
                 else:
                     # Use INSERT OR REPLACE for SQLite
-                    placeholder = get_param_placeholder()
-                    cursor.execute(f"""
+                    cursor.execute("""
                         INSERT INTO returns (
                         id, api_id, paid_by, status, created_at, updated_at,
                         processed, processed_at, warehouse_note, customer_note,
@@ -1733,8 +1745,7 @@ async def run_sync():
                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
-                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                    """
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1761,16 +1772,14 @@ async def run_sync():
                             cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
+                                cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    VALUES (%s, %s, GETDATE(), GETDATE())
                                 """, (str(order['id']), order.get('order_number', '')))
                         else:
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
+                            cursor.execute("""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, (str(order['id']), order.get('order_number', '')))
                     except Exception as e:
                         print(f"Error inserting order {str(order['id'])}: {e}")
@@ -1793,10 +1802,9 @@ async def run_sync():
                                 product_id = existing[0]
                             else:
                                 # Create a placeholder product
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
+                                cursor.execute("""
                                     INSERT INTO products (sku, name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_sku, product_name or 'Unknown Product'))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
@@ -1808,17 +1816,15 @@ async def run_sync():
                                 if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"""
+                                    cursor.execute("""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        VALUES (%s, %s, %s, GETDATE(), GETDATE())
                                     """, (product_id, product_sku, product_name))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
+                                cursor.execute("""
                                     INSERT INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, (product_id, product_sku, product_name))
                         
                         # Store return item
@@ -1831,15 +1837,13 @@ async def run_sync():
                                 item_result = cursor.fetchone()
                                 if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"""
+                                    cursor.execute("""
                                         INSERT INTO return_items (
                                             id, return_id, product_id, quantity,
                                             return_reasons, condition_on_arrival,
                                             quantity_received, quantity_rejected,
                                             created_at, updated_at
-                                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                     """, (
                                         item.get('id'),
                                         return_id,
@@ -1853,15 +1857,13 @@ async def run_sync():
                                     cursor.execute("SET IDENTITY_INSERT return_items OFF")
                             else:
                                 # No ID provided, let SQL generate one
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
+                                cursor.execute("""
                                     INSERT INTO return_items (
                                         return_id, product_id, quantity,
                                         return_reasons, condition_on_arrival,
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
-                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                """
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                 """, (
                                     return_id,
                                     product_id if product_id > 0 else None,
@@ -1872,15 +1874,13 @@ async def run_sync():
                                     item.get('quantity_rejected', 0)
                                 ))
                         else:
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
+                            cursor.execute("""
                                 INSERT OR REPLACE INTO return_items (
                                 id, return_id, product_id, quantity,
                                 return_reasons, condition_on_arrival,
                                 quantity_received, quantity_rejected,
                                 created_at, updated_at
-                            ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """, (
                             item.get('id'),
                             return_id,
@@ -1951,11 +1951,10 @@ async def run_sync():
                             customer_name = f"{first} {last}".strip()
                         
                         # Update order with full details including customer name
-                        placeholder = get_param_placeholder()
-                        cursor.execute(f"""
+                        cursor.execute("""
                             UPDATE orders 
-                            SET customer_name = {placeholder}, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = {placeholder}
+                            SET customer_name = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s
                         """, (customer_name, order_id))
                         
                         if customer_name:
@@ -2168,10 +2167,9 @@ async def send_returns_email(request_data: dict):
             server.quit()
             
             # Log to email history
-            placeholder = get_param_placeholder()
-            cursor.execute(f"""
+            cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -2187,10 +2185,9 @@ async def send_returns_email(request_data: dict):
             message = "Email sent successfully!"
         else:
             # Save to email history as draft since SMTP not configured
-            placeholder = get_param_placeholder()
-            cursor.execute(f"""
+            cursor.execute("""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (
                 client_id,
                 client_name,
@@ -2404,24 +2401,21 @@ async def save_settings(settings: dict):
             setting_result = cursor.fetchone()
             if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
                 # Update existing
-                placeholder = get_param_placeholder()
-                cursor.execute(f"""
+                cursor.execute("""
                     UPDATE settings 
-                    SET value = {placeholder}, updated_at = {placeholder}
-                    WHERE [key] = {placeholder}
+                    SET value = %s, updated_at = %s
+                    WHERE [key] = %s
                 """, (value_str, datetime.now().isoformat(), key))
             else:
                 # Insert new
-                placeholder = get_param_placeholder()
-                cursor.execute(f"""
+                cursor.execute("""
                     INSERT INTO settings ([key], value, updated_at)
-                    VALUES ({placeholder}, {placeholder}, {placeholder})
+                    VALUES (%s, %s, %s)
                 """, (key, value_str, datetime.now().isoformat()))
         else:
-            placeholder = get_param_placeholder()
-            cursor.execute(f"""
+            cursor.execute("""
                 INSERT INTO settings (key, value, updated_at)
-                VALUES ({placeholder}, {placeholder}, {placeholder})
+                VALUES (%s, %s, %s)
             """, (key, value_str, datetime.now().isoformat()))
     
     conn.commit()
