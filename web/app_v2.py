@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-PARAMETERIZATION-FIXED-V16"
+DEPLOYMENT_VERSION = "2025-09-11-AZURE-SQL-PARAMETERIZATION-COMPLETE-V17"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1688,7 +1688,8 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (str(order['id']),))
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
                                 cursor.execute("""
@@ -1714,7 +1715,8 @@ async def run_sync():
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
                             # Try to find existing product by SKU
-                            cursor.execute("SELECT id as product_id FROM products WHERE sku = %s", (product_sku,))
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
                                 product_id = existing[0]
@@ -1728,7 +1730,8 @@ async def run_sync():
                         elif product_id > 0:
                             # Ensure product exists
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (product_id,))
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"SELECT COUNT(*) as count FROM products WHERE id = {placeholder}", (product_id,))
                                 product_result = cursor.fetchone()
                                 if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
                                     # Need separate statements for IDENTITY_INSERT
@@ -1749,7 +1752,8 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if return item exists
                             if item.get('id'):
-                                cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE id = {placeholder}", (item['id'],))
                                 item_result = cursor.fetchone()
                                 if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
@@ -1937,7 +1941,8 @@ async def send_returns_email(request_data: dict):
         # Get client name
         client_name = "All Clients"
         if client_id:
-            cursor.execute("SELECT name as client_name FROM clients WHERE id = %s", (client_id,))
+            placeholder = get_param_placeholder()
+            cursor.execute(f"SELECT name as client_name FROM clients WHERE id = {placeholder}", (client_id,))
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
@@ -2301,7 +2306,8 @@ async def save_settings(settings: dict):
         
         if USE_AZURE_SQL:
             # Check if setting exists
-            cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
+            placeholder = get_param_placeholder()
+            cursor.execute(f"SELECT COUNT(*) as count FROM settings WHERE [key] = {placeholder}", (key,))
             setting_result = cursor.fetchone()
             if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
                 # Update existing
@@ -2729,7 +2735,8 @@ async def test_direct_sync():
             
             try:
                 # Check if return exists
-                cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (str(return_id),))
+                placeholder = get_param_placeholder()
+                cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (str(return_id),))
                 result = cursor.fetchone()
                 exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
                 print(f"Return {return_id} exists in DB: {exists}")
