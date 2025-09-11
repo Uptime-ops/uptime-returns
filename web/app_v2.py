@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-DASHBOARD-SYNC-FIXES-V27"
+DEPLOYMENT_VERSION = "2025-09-11-PAGINATION-INFINITE-LOOP-FIX-V28"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1912,7 +1912,6 @@ async def run_sync():
                 if total_fetched >= total_count or len(returns_batch) < limit:
                     break
                     
-                offset += limit
             except Exception as e:
                 error_str = str(e)
                 print(f"Error in sync loop: {e}")
@@ -1921,11 +1920,16 @@ async def run_sync():
                 if "duplicate key" in error_str.lower() or "primary key constraint" in error_str.lower():
                     print(f"Detected duplicate key error in sync loop - continuing sync...")
                     sync_status["last_sync_message"] = f"Handling duplicate records... ({sync_status['items_synced']} processed)"
+                    # Still increment offset even on duplicate key errors to avoid infinite loop
+                    offset += limit
                     continue  # Continue processing instead of breaking
                 else:
                     # For other errors, break the sync
                     sync_status["last_sync_message"] = f"Error: {error_str[:100]}"
                     break
+            
+            # Normal pagination increment (moved outside try block)
+            offset += limit
             
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
