@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-PARAMETERIZATION-HOTFIX-V23"
+DEPLOYMENT_VERSION = "2025-09-11-SYNC-DUPLICATE-FIX-V24"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1711,15 +1711,16 @@ async def run_sync():
                                 return_id  # WHERE clause
                             ))
                         else:
-                            # Insert new return
-                            cursor.execute("""
-                                INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
-                                        processed, processed_at, warehouse_note, customer_note,
-                                        tracking_number, tracking_url, carrier, service,
-                                        label_cost, label_pdf_url, rma_slip_url, label_voided,
-                                        client_id, warehouse_id, order_id, return_integration_id,
-                                        last_synced_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            # Insert new return with duplicate handling
+                            try:
+                                cursor.execute("""
+                                    INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
+                                            processed, processed_at, warehouse_note, customer_note,
+                                            tracking_number, tracking_url, carrier, service,
+                                            label_cost, label_pdf_url, rma_slip_url, label_voided,
+                                            client_id, warehouse_id, order_id, return_integration_id,
+                                            last_synced_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """, (
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1735,6 +1736,12 @@ async def run_sync():
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat())
                             ))
+                            except Exception as insert_error:
+                                if "duplicate key" in str(insert_error).lower() or "primary key constraint" in str(insert_error).lower():
+                                    print(f"Duplicate return {return_id} already exists, skipping insert")
+                                else:
+                                    print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
+                                    raise
                 else:
                     # Use INSERT OR REPLACE for SQLite
                     cursor.execute("""
@@ -1921,7 +1928,7 @@ async def run_sync():
                 SELECT id FROM orders 
                 WHERE id IN ({}) 
                 AND (customer_name IS NULL OR customer_name = '')
-            """.format(format_in_clause(len(all_order_ids))), list(all_order_ids))
+            """.format(format_in_clause(len(all_order_ids))), tuple(all_order_ids))
             orders_needing_update = [row[0] for row in cursor.fetchall()]
         else:
             orders_needing_update = []
