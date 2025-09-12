@@ -2484,6 +2484,19 @@ async def run_sync():
                 if ret.get('order'):
                     order = ret['order']
                     try:
+                        # Extract customer name from ship_to_address
+                        customer_name = ''
+                        if order.get('ship_to_address'):
+                            import json
+                            try:
+                                ship_to = order['ship_to_address']
+                                if isinstance(ship_to, str):
+                                    ship_to = json.loads(ship_to)
+                                if isinstance(ship_to, dict):
+                                    customer_name = ship_to.get('name', '')
+                            except (json.JSONDecodeError, TypeError):
+                                customer_name = str(order.get('ship_to_address', ''))[:100]
+                        
                         if USE_AZURE_SQL:
                             # Check if order exists first
                             placeholder = get_param_placeholder()
@@ -2492,16 +2505,17 @@ async def run_sync():
                             if order_result['count'] == 0:
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
+                                    INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                """, ensure_tuple_params((str(order['id']), order.get('order_number', ''), customer_name)))
                                 sync_status["orders_synced"] += 1
+                                print(f"Inserted order {order['id']} with customer: {customer_name}")
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
-                                INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
+                                INSERT OR IGNORE INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            """, ensure_tuple_params((str(order['id']), order.get('order_number', ''), customer_name)))
                     except Exception as e:
                         print(f"Error inserting order {str(order['id'])}: {e}")
                 
@@ -2606,25 +2620,6 @@ async def run_sync():
                         except Exception as item_err:
                             print(f"Return item INSERT error for return {return_id}, product {product_id}: {item_err}")
                             # Continue processing other items
-                        else:
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
-                                INSERT OR REPLACE INTO return_items (
-                                id, return_id, product_id, quantity,
-                                return_reasons, condition_on_arrival,
-                                quantity_received, quantity_rejected,
-                                created_at, updated_at
-                            ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """, ensure_tuple_params((
-                            item.get('id'),
-                            return_id,
-                            product_id if product_id > 0 else None,
-                            item.get('quantity', 0),
-                            json.dumps(item.get('return_reasons', [])),
-                            json.dumps(item.get('condition_on_arrival', [])),
-                            item.get('quantity_received', 0),
-                            item.get('quantity_rejected', 0)
-                        )))
                     
                     log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
                 else:
