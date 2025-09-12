@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V85-CRITICAL-FIX-INCONSISTENT-ORDER-EXTRACTION-2025-09-12"
+DEPLOYMENT_VERSION = "V86-DATABASE-DRIVEN-APPROACH-LIKE-INDIVIDUAL-RETURNS-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2878,22 +2878,24 @@ async def run_sync():
             # Add a small delay to avoid overwhelming the API
             await asyncio.sleep(0.5)
         
-        # STEP 2: Fetch full order details for all collected order IDs (with customer names)
-        sync_status["last_sync_message"] = f"Fetching {len(all_order_ids)} orders with customer info..."
+        # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
+        print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
+        sync_status["last_sync_message"] = "STEP 2: Querying database for returns with order IDs..."
         
-        # Check which orders need customer name updates
-        if all_order_ids:
-            cursor.execute("""
-                SELECT id FROM orders 
-                WHERE id IN ({}) 
-                AND (customer_name IS NULL OR customer_name = '')
-            """.format(format_in_clause(len(all_order_ids))), tuple(all_order_ids))
-            order_rows = cursor.fetchall()
-            if USE_AZURE_SQL:
-                order_rows = rows_to_dict(cursor, order_rows) if order_rows else []
-            orders_needing_update = [row['id'] if USE_AZURE_SQL else row[0] for row in order_rows]
-        else:
-            orders_needing_update = []
+        # Get all returns that have order_ids but missing customer names (like individual endpoint approach)
+        cursor.execute("""
+            SELECT DISTINCT r.order_id 
+            FROM returns r 
+            LEFT JOIN orders o ON r.order_id = o.id 
+            WHERE r.order_id IS NOT NULL 
+            AND (o.customer_name IS NULL OR o.customer_name = '' OR o.id IS NULL)
+        """)
+        order_id_rows = cursor.fetchall()
+        if USE_AZURE_SQL:
+            order_id_rows = rows_to_dict(cursor, order_id_rows) if order_id_rows else []
+        
+        orders_needing_update = [row['order_id'] if USE_AZURE_SQL else row[0] for row in order_id_rows]
+        print(f"📋 Found {len(orders_needing_update)} returns with order IDs needing customer data")
         customers_updated = 0
         
         # Fetch order details in batches (limit to avoid timeout)
@@ -2919,20 +2921,35 @@ async def run_sync():
                             last = ship_addr.get('last_name', '')
                             customer_name = f"{first} {last}".strip()
                         
-                        # Update order with full details including customer name
+                        # Insert or update order with full details including customer name
                         placeholder = get_param_placeholder()
                         if USE_AZURE_SQL:
-                            cursor.execute(f"""
-                                UPDATE orders 
-                                SET customer_name = {placeholder}, updated_at = GETDATE()
-                                WHERE id = {placeholder}
-                            """, (customer_name, order_id))
+                            # Check if order exists first
+                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (order_id,))
+                            result = cursor.fetchone()
+                            if result['count'] == 0:
+                                # Insert new order
+                                cursor.execute(f"""
+                                    INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                """, (order_id, order_data.get('order_number', ''), customer_name))
+                                sync_status["orders_synced"] += 1
+                                print(f"✅ Inserted order {order_id} with customer '{customer_name}'")
+                            else:
+                                # Update existing order
+                                cursor.execute(f"""
+                                    UPDATE orders 
+                                    SET customer_name = {placeholder}, order_number = {placeholder}, updated_at = GETDATE()
+                                    WHERE id = {placeholder}
+                                """, (customer_name, order_data.get('order_number', ''), order_id))
+                                print(f"✅ Updated order {order_id} with customer '{customer_name}'")
                         else:
                             cursor.execute(f"""
-                                UPDATE orders 
-                                SET customer_name = {placeholder}, updated_at = CURRENT_TIMESTAMP
-                                WHERE id = {placeholder}
-                            """, (customer_name, order_id))
+                                INSERT OR REPLACE INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            """, (order_id, order_data.get('order_number', ''), customer_name))
+                            sync_status["orders_synced"] += 1
+                            print(f"✅ Inserted/updated order {order_id} with customer '{customer_name}'")
                         
                         if customer_name:
                             customers_updated += 1
