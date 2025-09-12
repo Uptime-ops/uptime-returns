@@ -600,8 +600,8 @@ async def get_warehouses():
             conn.close()
         return []
 
-@app.post("/api/returns/search")  
-async def search_returns():
+@app.get("/api/returns/search-test")  
+async def search_returns_test():
     # For now, just return basic data without filters to test if the endpoint works
     filter_params = {
         'page': 1,
