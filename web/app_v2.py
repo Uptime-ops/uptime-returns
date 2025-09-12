@@ -1918,8 +1918,9 @@ async def run_sync():
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
         print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
-        offset = 0
-        limit = 100
+        # Start from offset 50 to get returns with product data (older returns have empty product data)
+        offset = 50
+        limit = 50  # Smaller batches for testing
         total_fetched = 0
         
         while True:
