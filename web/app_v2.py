@@ -609,7 +609,7 @@ async def search_returns(filter_params: dict):
            r.tracking_number, r.tracking_url, r.carrier, r.service,
            r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided,
            r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
-           r.first_synced_at, r.last_synced_at,
+           r.last_synced_at,
            c.name as client_name, w.name as warehouse_name,
            o.order_number, o.customer_name
     FROM returns r
@@ -719,7 +719,6 @@ async def search_returns(filter_params: dict):
                 "warehouse_id": row['warehouse_id'],
                 "order_id": row['order_id'],
                 "return_integration_id": row['return_integration_id'],
-                "first_synced_at": row['first_synced_at'],
                 "last_synced_at": row['last_synced_at'],
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
@@ -751,7 +750,6 @@ async def search_returns(filter_params: dict):
                 "warehouse_id": row['warehouse_id'],
                 "order_id": row['order_id'],
                 "return_integration_id": row['return_integration_id'],
-                "first_synced_at": row['first_synced_at'],
                 "last_synced_at": row['last_synced_at'],
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
