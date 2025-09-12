@@ -1639,6 +1639,9 @@ async def run_sync():
     
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
+    sync_status["products_synced"] = 0
+    sync_status["return_items_synced"] = 0
+    sync_status["orders_synced"] = 0
     
     try:
         # Initialize database tables if using Azure SQL
@@ -1922,6 +1925,7 @@ async def run_sync():
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                 """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
+                                sync_status["orders_synced"] += 1
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
@@ -1933,11 +1937,14 @@ async def run_sync():
                 
                 # Store return items if present
                 if ret.get('items'):
-                    for item in ret['items']:
+                    items_count = len(ret['items'])
+                    log_sync_activity(f"Processing {items_count} return items for return {return_id}")
+                    for item_idx, item in enumerate(ret['items'], 1):
                         # Get or create product
                         product_id = item.get('product', {}).get('id', 0)
                         product_sku = item.get('product', {}).get('sku', '')
                         product_name = item.get('product', {}).get('name', '')
+                        log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
                         
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
@@ -1956,66 +1963,46 @@ async def run_sync():
                                 """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
-                            # Ensure product exists
-                            if USE_AZURE_SQL:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"SELECT COUNT(*) as count FROM products WHERE id = {placeholder}", (product_id,))
-                                product_result = cursor.fetchone()
-                                if product_result['count'] == 0:
-                                    # Need separate statements for IDENTITY_INSERT
-                                    cursor.execute("SET IDENTITY_INSERT products ON")
+                            # Ensure product exists - use INSERT OR IGNORE/MERGE approach
+                            try:
+                                if USE_AZURE_SQL:
+                                    # Use MERGE to handle duplicates properly in Azure SQL
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        MERGE products AS target
+                                        USING (SELECT {placeholder} as id, {placeholder} as sku, {placeholder} as name) AS source
+                                        ON target.id = source.id OR target.sku = source.sku
+                                        WHEN NOT MATCHED THEN
+                                            INSERT (sku, name, created_at, updated_at)
+                                            VALUES (source.sku, source.name, GETDATE(), GETDATE());
                                     """, ensure_tuple_params((product_id, product_sku, product_name)))
-                                    cursor.execute("SET IDENTITY_INSERT products OFF")
-                            else:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    INSERT INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, ensure_tuple_params((product_id, product_sku, product_name)))
-                        
-                        # Store return item
-                        import json
-                        if USE_AZURE_SQL:
-                            # Check if return item exists
-                            if item.get('id'):
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE id = {placeholder}", (item['id'],))
-                                item_result = cursor.fetchone()
-                                if item_result['count'] == 0:
-                                    cursor.execute("SET IDENTITY_INSERT return_items ON")
+                                    sync_status["products_synced"] += 1
+                                    print(f"Product MERGE attempted for ID {product_id}, SKU: {product_sku}")
+                                else:
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
-                                        INSERT INTO return_items (
-                                            id, return_id, product_id, quantity,
-                                            return_reasons, condition_on_arrival,
-                                            quantity_received, quantity_rejected,
-                                            created_at, updated_at
-                                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((
-                                        item.get('id'),
-                                        return_id,
-                                        product_id if product_id > 0 else None,
-                                        item.get('quantity', 0),
-                                        json.dumps(item.get('return_reasons', [])),
-                                        json.dumps(item.get('condition_on_arrival', [])),
-                                        item.get('quantity_received', 0),
-                                        item.get('quantity_rejected', 0)
-                                    )))
-                                    cursor.execute("SET IDENTITY_INSERT return_items OFF")
-                            else:
-                                # No ID provided, let SQL generate one
+                                        INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    """, ensure_tuple_params((product_id, product_sku, product_name)))
+                            except Exception as prod_err:
+                                print(f"Product INSERT error for ID {product_id}: {prod_err}")
+                                # Continue processing even if product insert fails
+                        
+                        # Store return item with proper error handling
+                        import json
+                        try:
+                            if USE_AZURE_SQL:
+                                # Use MERGE for return items in Azure SQL
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    INSERT INTO return_items (
-                                        return_id, product_id, quantity,
-                                        return_reasons, condition_on_arrival,
-                                        quantity_received, quantity_rejected,
-                                        created_at, updated_at
-                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    MERGE return_items AS target
+                                    USING (SELECT {placeholder} as return_id, {placeholder} as product_id, {placeholder} as quantity) AS source
+                                    ON target.return_id = source.return_id AND target.product_id = source.product_id
+                                    WHEN NOT MATCHED THEN
+                                        INSERT (return_id, product_id, quantity, return_reasons, condition_on_arrival,
+                                                quantity_received, quantity_rejected, created_at, updated_at)
+                                        VALUES (source.return_id, source.product_id, source.quantity, {placeholder}, {placeholder},
+                                                {placeholder}, {placeholder}, GETDATE(), GETDATE());
                                 """, ensure_tuple_params((
                                     return_id,
                                     product_id if product_id > 0 else None,
@@ -2025,6 +2012,30 @@ async def run_sync():
                                     item.get('quantity_received', 0),
                                     item.get('quantity_rejected', 0)
                                 )))
+                                sync_status["return_items_synced"] += 1
+                                print(f"Return item MERGE for return {return_id}, product {product_id}, qty {item.get('quantity', 0)}")
+                            else:
+                                # SQLite - use INSERT OR REPLACE
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
+                                    INSERT OR REPLACE INTO return_items (
+                                        return_id, product_id, quantity,
+                                        return_reasons, condition_on_arrival,
+                                        quantity_received, quantity_rejected,
+                                        created_at, updated_at
+                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                """, ensure_tuple_params((
+                                    return_id,
+                                    product_id if product_id > 0 else None,
+                                    item.get('quantity', 0),
+                                    json.dumps(item.get('return_reasons', [])),
+                                    json.dumps(item.get('condition_on_arrival', [])),
+                                    item.get('quantity_received', 0),
+                                    item.get('quantity_rejected', 0)
+                                )))
+                        except Exception as item_err:
+                            print(f"Return item INSERT error for return {return_id}, product {product_id}: {item_err}")
+                            # Continue processing other items
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
@@ -2045,7 +2056,10 @@ async def run_sync():
                             item.get('quantity_rejected', 0)
                         )))
                     
-                    print(f"Successfully processed return {return_id}")
+                    log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
+                else:
+                    log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
+                    print(f"Successfully processed return {return_id} (no items)")
                 
                 total_fetched += len(returns_batch)
                 
@@ -2227,7 +2241,7 @@ async def run_sync():
         # Only mark as success if we actually synced something
         if sync_status['items_synced'] > 0:
             sync_status["last_sync_status"] = "success"
-            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names, processed order items"
+            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, {sync_status['products_synced']} products, {sync_status['return_items_synced']} return items, {sync_status['orders_synced']} orders, updated {customers_updated} customer names"
         else:
             sync_status["last_sync_status"] = "warning"
             sync_status["last_sync_message"] = "No returns found to sync. Check API connection and logs."
