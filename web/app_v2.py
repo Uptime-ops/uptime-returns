@@ -621,19 +621,36 @@ async def get_warehouses():
         return []
 
 @app.post("/api/returns/search")
-async def search_returns():
-    # EMERGENCY FIX: Ignore POST body completely and use hardcoded params like GET endpoint
-    filter_params = {
-        'page': 1,
-        'limit': 20,
-        'client_id': None,
-        'warehouse_id': None,
-        'status': None,
-        'search': '',
-        'date_from': None,
-        'date_to': None,
-        'include_items': False
-    }
+async def search_returns(request: Request):
+    # Parse request body for filters, with fallback to defaults
+    try:
+        body = await request.json()
+        filter_params = {
+            'page': body.get('page', 1),
+            'limit': body.get('limit', 20),
+            'client_id': body.get('client_id'),
+            'warehouse_id': body.get('warehouse_id'),
+            'status': body.get('status'),
+            'search': body.get('search', ''),
+            'date_from': body.get('date_from'),
+            'date_to': body.get('date_to'),
+            'include_items': body.get('include_items', False)
+        }
+        print(f"DEBUG: Parsed filters: {filter_params}")
+    except Exception as e:
+        print(f"Error parsing request body: {e}")
+        # Fallback to defaults if request parsing fails
+        filter_params = {
+            'page': 1,
+            'limit': 20,
+            'client_id': None,
+            'warehouse_id': None,
+            'status': None,
+            'search': '',
+            'date_from': None,
+            'date_to': None,
+            'include_items': False
+        }
     
     try:
         conn = get_db_connection()
@@ -687,6 +704,20 @@ async def search_returns():
         query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
+    
+    # Add date filtering
+    date_from = filter_params.get('date_from')
+    date_to = filter_params.get('date_to')
+    
+    if date_from:
+        placeholder = get_param_placeholder()
+        query += f" AND r.created_at >= {placeholder}"
+        params.append(date_from)
+    
+    if date_to:
+        placeholder = get_param_placeholder()  
+        query += f" AND r.created_at <= {placeholder}"
+        params.append(date_to + ' 23:59:59')  # Include full day
     
     # Add pagination
     if USE_AZURE_SQL:
@@ -815,6 +846,16 @@ async def search_returns():
         count_query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
         search_param = f"%{search}%"
         count_params.extend([search_param, search_param, search_param])
+    
+    if date_from:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.created_at >= {placeholder}"
+        count_params.append(date_from)
+    
+    if date_to:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.created_at <= {placeholder}"
+        count_params.append(date_to + ' 23:59:59')
     
     cursor.execute(count_query, ensure_tuple_params(count_params))
     count_result = cursor.fetchone()
