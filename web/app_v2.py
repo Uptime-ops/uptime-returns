@@ -584,10 +584,14 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns(filter_params: dict):
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"Database connection error in search_returns: {e}")
+        return {"error": "Database connection failed", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
     
     # Extract filter parameters
     page = filter_params.get('page', 1)
@@ -634,9 +638,34 @@ async def search_returns(filter_params: dict):
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
-    # Get total count for pagination
-    count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
-    cursor.execute(count_query, ensure_tuple_params(params))
+    # Get total count for pagination (use separate params for count query)
+    count_params = []
+    count_query = """
+    SELECT COUNT(*) as total_count FROM returns r
+    LEFT JOIN clients c ON r.client_id = c.id
+    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
+    WHERE 1=1
+    """
+    
+    if client_id:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.client_id = {placeholder}"
+        count_params.append(client_id)
+    
+    if status:
+        if status == 'pending':
+            count_query += " AND r.processed = 0"
+        elif status == 'processed':
+            count_query += " AND r.processed = 1"
+    
+    if search:
+        placeholder = get_param_placeholder()
+        count_query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        search_param = f"%{search}%"
+        count_params.extend([search_param, search_param, search_param])
+    
+    cursor.execute(count_query, ensure_tuple_params(count_params))
     row = cursor.fetchone()
     if USE_AZURE_SQL:
         total = row['total_count'] if row else 0
@@ -653,12 +682,17 @@ async def search_returns(filter_params: dict):
         query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
         params.extend([limit, (page - 1) * limit])
     
-    cursor.execute(query, ensure_tuple_params(params))
-    rows = cursor.fetchall()
-    
-    returns = []
-    if USE_AZURE_SQL:
-        rows = rows_to_dict(cursor, rows) if rows else []
+    try:
+        cursor.execute(query, ensure_tuple_params(params))
+        rows = cursor.fetchall()
+        
+        returns = []
+        if USE_AZURE_SQL:
+            rows = rows_to_dict(cursor, rows) if rows else []
+    except Exception as e:
+        print(f"Query execution error in search_returns: {e}")
+        conn.close()
+        return {"error": "Query execution failed", "returns": [], "total_count": 0, "page": page, "limit": limit, "total_pages": 1}
     
     for row in rows:
         if USE_AZURE_SQL:
@@ -726,17 +760,23 @@ async def search_returns(filter_params: dict):
         
         # Include items if requested
         if include_items:
-            return_id = row['id'] if USE_AZURE_SQL else row['id']
-            cursor.execute("""
-                SELECT ri.id, ri.return_id, ri.product_id, ri.quantity,
-                       ri.return_reasons, ri.condition_on_arrival,
-                       ri.quantity_received, ri.quantity_rejected,
-                       ri.created_at, ri.updated_at,
-                       p.sku, p.name as product_name
-                FROM return_items ri
-                LEFT JOIN products p ON ri.product_id = p.id
-                WHERE ri.return_id = %s
-            """, (return_id,))
+            try:
+                return_id = row['id'] if USE_AZURE_SQL else row['id']
+                placeholder = get_param_placeholder()
+                cursor.execute(f"""
+                    SELECT ri.id, ri.return_id, ri.product_id, ri.quantity,
+                           ri.return_reasons, ri.condition_on_arrival,
+                           ri.quantity_received, ri.quantity_rejected,
+                           ri.created_at, ri.updated_at,
+                           p.sku, p.name as product_name
+                    FROM return_items ri
+                    LEFT JOIN products p ON ri.product_id = p.id
+                    WHERE ri.return_id = {placeholder}
+                """, (return_id,))
+            except Exception as e:
+                print(f"Error fetching return items for return_id {return_id}: {e}")
+                return_dict['items'] = []
+                continue
             
             item_rows = cursor.fetchall()
             if USE_AZURE_SQL:
@@ -765,7 +805,8 @@ async def search_returns(filter_params: dict):
         
         returns.append(return_dict)
     
-    conn.close()
+    if 'conn' in locals():
+        conn.close()
     
     total_pages = (total + limit - 1) // limit if total > 0 else 1
     
@@ -786,13 +827,14 @@ async def get_return_detail(return_id: int):
     cursor = conn.cursor()
     
     # Get return details with all fields
-    cursor.execute("""
+    placeholder = get_param_placeholder()
+    cursor.execute(f"""
         SELECT r.*, c.name as client_name, w.name as warehouse_name, o.order_number
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
         LEFT JOIN orders o ON r.order_id = o.id
-        WHERE r.id = %s
+        WHERE r.id = {placeholder}
     """, (return_id,))
     
     return_row = cursor.fetchone()
@@ -805,7 +847,8 @@ async def get_return_detail(return_id: int):
     items = []
     
     # First check if there are actual return items (there shouldn't be any from API)
-    cursor.execute("""
+    placeholder = get_param_placeholder()
+    cursor.execute(f"""
         SELECT ri.id, ri.return_id, ri.product_id, ri.quantity,
                ri.return_reasons, ri.condition_on_arrival,
                ri.quantity_received, ri.quantity_rejected,
@@ -813,7 +856,7 @@ async def get_return_detail(return_id: int):
                p.sku, p.name as product_name
         FROM return_items ri
         LEFT JOIN products p ON ri.product_id = p.id
-        WHERE ri.return_id = %s
+        WHERE ri.return_id = {placeholder}
     """, (return_id,))
     
     return_items = cursor.fetchall()
