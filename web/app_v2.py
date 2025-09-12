@@ -1237,6 +1237,68 @@ async def test_warehance_api():
             "api_key_used": (api_key[:15] + "...") if api_key else "No API key"
         }
 
+@app.get("/api/debug/test")
+async def debug_test():
+    """Test basic functionality and API connectivity"""
+    results = {}
+    
+    # Test 1: Basic database connection
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if USE_AZURE_SQL:
+            cursor.execute("SELECT 1 as test")
+        else:
+            cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+        conn.close()
+        results["database"] = {"status": "success", "result": str(result)}
+    except Exception as e:
+        results["database"] = {"status": "error", "error": str(e)}
+    
+    # Test 2: Environment variables
+    warehance_key = os.getenv('WAREHANCE_API_KEY')
+    results["env_vars"] = {
+        "warehance_api_key": "present" if warehance_key else "missing",
+        "use_azure_sql": USE_AZURE_SQL
+    }
+    
+    # Test 3: Basic API connectivity
+    try:
+        headers = {"Authorization": f"Bearer {warehance_key}"} if warehance_key else {}
+        response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers, timeout=10)
+        results["api_connectivity"] = {
+            "status": "success" if response.status_code == 200 else "error",
+            "status_code": response.status_code,
+            "response_size": len(response.text)
+        }
+    except Exception as e:
+        results["api_connectivity"] = {"status": "error", "error": str(e)}
+    
+    # Test 4: Count existing data
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_count = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_count = cursor.fetchone()
+        conn.close()
+        
+        results["data_counts"] = {
+            "returns": returns_count[0] if not USE_AZURE_SQL else returns_count['count'],
+            "products": products_count[0] if not USE_AZURE_SQL else products_count['count']
+        }
+    except Exception as e:
+        results["data_counts"] = {"error": str(e)}
+    
+    results["deployment_info"] = {
+        "version": DEPLOYMENT_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return results
+
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
     """Trigger a sync with Warehance API"""

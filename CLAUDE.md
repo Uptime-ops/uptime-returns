@@ -8,10 +8,10 @@ Warehance Returns - A comprehensive returns management system integrated with th
 
 ## Project Status
 
-**Current Version:** V15 - Fully functional returns management system with Azure SQL compatibility
-**Server Port:** 8015 (http://localhost:8015)
+**Current Version:** V46 - CRITICAL Azure SQL compatibility fixes with sync issues
+**Server Port:** 8015 (http://localhost:8015)  
 **Main Application:** web/app_v2.py (current primary with Azure SQL support)
-**Backup Applications:** web/enhanced_app.py, web/simple_app.py
+**Status:** ⚠️ Returns management working, sync process failing completely
 
 ### Technology Stack
 - **Backend**: FastAPI (Python)
@@ -273,11 +273,40 @@ def convert_date_for_sql(date_string):
 - **Deployment**: GitHub Actions workflow (`.github/workflows/main_uptime-returns.yml`)
 
 ### Version History
-- **V11**: Date conversion for Azure SQL
-- **V12**: Incorrect parameterization attempt (reverted)  
-- **V13**: Empty IN clause fixes
-- **V14**: LIMIT syntax and column naming
-- **V15**: Final parameterization fixes - **CURRENT PRODUCTION VERSION**
+- **V11-V15**: Initial Azure SQL compatibility (LEGACY)
+- **V42-V46**: Current Azure SQL fixes (2025-01-15)
+  - **V42**: Comprehensive Azure SQL compatibility fixes for related data
+  - **V43**: Fix all remaining hardcoded %s placeholders  
+  - **V44**: Fix 500 Internal Server Errors in returns endpoints
+  - **V45**: CRITICAL - Fix IDENTITY_INSERT failures causing missing products/return_items
+  - **V46**: Update deployment version and add sync counters
+
+## CRITICAL CURRENT ISSUES (2025-01-15)
+
+### 🚨 **Sync Process Completely Failing**
+- **Symptom**: Sync returns 0 items synced with error message "0"
+- **Impact**: No new returns/products/orders can be synced from Warehance API
+- **Data State**: 1066 existing returns (from previous syncs), 0 products, 0 return_items
+- **Root Cause**: Unknown - failing before processing any API data
+
+### ✅ **Successfully Fixed Issues**
+1. **500 Internal Server Errors** - Returns management page loads properly
+2. **JSON parsing errors** - Proper error handling implemented  
+3. **All hardcoded %s placeholders** - Replaced with get_param_placeholder()
+4. **IDENTITY_INSERT failures** - Replaced with Azure SQL compatible MERGE statements
+5. **Product/Return Item INSERT logic** - Enhanced with comprehensive error handling
+6. **Sync counters and logging** - Added detailed tracking for debugging
+
+### ⚠️ **Cannot Test These Fixes Until Basic Sync Works**
+- MERGE statement improvements for products/return_items
+- Enhanced error handling and logging
+- Sync counter functionality 
+
+### 🎯 **Immediate Actions Needed**
+1. **Verify deployments are updating** - Version shows V42 despite V46 success
+2. **Add granular error logging** to identify exact failure point in sync
+3. **Test basic API connectivity** separately from full sync
+4. **Check database connection issues** in Azure environment
 
 ## Notes
 
