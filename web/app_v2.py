@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V74-DEBUG-ENDPOINT-2025-09-12"
+DEPLOYMENT_VERSION = "V75-CURSOR-HANDLING-FIX-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1817,7 +1817,10 @@ async def minimal_sync_test():
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) as count FROM returns")
         result = cursor.fetchone()
-        returns_count = result[0] if result else 0
+        if USE_AZURE_SQL:
+            returns_count = result['count'] if result else 0
+        else:
+            returns_count = result[0] if result else 0
         
         # Test 2: API key and basic API call
         api_key = WAREHANCE_API_KEY
@@ -2177,7 +2180,7 @@ async def get_sync_status():
         last_sync_value = None
         if result:
             if USE_AZURE_SQL:
-                last_sync_value = result[0] if result else None
+                last_sync_value = result.get('last_sync') if hasattr(result, 'get') else None
             else:
                 last_sync_value = result[0] if result else None
         
