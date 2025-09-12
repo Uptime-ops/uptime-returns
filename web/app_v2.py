@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V73-CUSTOMER-NAME-FIX-2025-09-12"
+DEPLOYMENT_VERSION = "V74-DEBUG-ENDPOINT-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1807,6 +1807,70 @@ async def trigger_sync_test():
     asyncio.create_task(run_sync())
     
     return {"message": "Sync started via GET test", "status": "started"}
+
+@app.get("/api/debug/minimal-sync-test")
+async def minimal_sync_test():
+    """Minimal sync test to debug what's failing"""
+    try:
+        # Test 1: Database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        result = cursor.fetchone()
+        returns_count = result[0] if result else 0
+        
+        # Test 2: API key and basic API call
+        api_key = WAREHANCE_API_KEY
+        headers = {"X-API-KEY": api_key, "accept": "application/json"}
+        
+        # Test with a small batch first
+        response = requests.get(
+            "https://api.warehance.com/v1/returns?limit=1&offset=0", 
+            headers=headers,
+            timeout=10
+        )
+        
+        api_status = response.status_code
+        api_response = response.json() if response.status_code == 200 else response.text[:200]
+        
+        # Test 3: Try to get one order
+        order_test = "No order tested"
+        if response.status_code == 200 and response.json().get('data', {}).get('returns'):
+            returns_data = response.json()['data']['returns']
+            if returns_data and returns_data[0].get('order', {}).get('id'):
+                order_id = returns_data[0]['order']['id']
+                order_response = requests.get(
+                    f"https://api.warehance.com/v1/orders/{order_id}",
+                    headers=headers,
+                    timeout=10
+                )
+                order_test = f"Order API: {order_response.status_code}"
+                if order_response.status_code == 200:
+                    order_data = order_response.json().get('data', {})
+                    ship_addr = order_data.get('ship_to_address', {})
+                    first_name = ship_addr.get('first_name', '')
+                    last_name = ship_addr.get('last_name', '')
+                    customer_name = f"{first_name} {last_name}".strip()
+                    order_test += f" | Customer: '{customer_name}'"
+        
+        conn.close()
+        
+        return {
+            "database_test": f"SUCCESS - {returns_count} returns found",
+            "api_key_test": f"API key: {api_key[:15]}...",
+            "returns_api_test": f"Status: {api_status}",
+            "returns_response": str(api_response)[:300],
+            "orders_api_test": order_test,
+            "status": "debug_complete"
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": f"Debug test failed: {e}",
+            "traceback": traceback.format_exc()[:500],
+            "status": "debug_failed"
+        }
 
 @app.post("/api/database/migrate")
 async def migrate_database():
