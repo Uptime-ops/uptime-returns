@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V77-CRITICAL-COLUMN-FIX-2025-09-12"
+DEPLOYMENT_VERSION = "V78-CORRECTED-COLUMN-NAMES-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -679,7 +679,7 @@ async def search_returns(request: Request):
            r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
            r.last_synced_at,
            c.name as client_name, w.name as warehouse_name,
-           o.order_num, o.customer_name
+           o.order_number, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -923,7 +923,7 @@ async def search_returns_test():
            r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
            r.last_synced_at,
            c.name as client_name, w.name as warehouse_name,
-           o.order_num, o.customer_name
+           o.order_number, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -1156,7 +1156,7 @@ async def get_return_detail(return_id: int):
     # Get return details with all fields
     placeholder = get_param_placeholder()
     cursor.execute(f"""
-        SELECT r.*, c.name as client_name, w.name as warehouse_name, o.order_num
+        SELECT r.*, c.name as client_name, w.name as warehouse_name, o.order_number
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -1265,7 +1265,7 @@ async def get_return_detail(return_id: int):
         except Exception as e:
             # If API call fails, just show order info from database
             cursor.execute("""
-                SELECT o.order_num
+                SELECT o.order_number
                 FROM orders o
                 WHERE o.id = %s
             """, (order_id,))
@@ -1299,7 +1299,7 @@ async def export_returns_csv(request: Request):
     query = """
     SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number, 
            r.processed, c.name as client_name, w.name as warehouse_name,
-           r.order_id, o.order_num, o.created_at as order_date, o.customer_name
+           r.order_id, o.order_number, o.created_at as order_date, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -2594,7 +2594,7 @@ async def run_sync():
                             if order_result['count'] == 0:
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    INSERT INTO orders (id, order_num, created_at, updated_at)
+                                    INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                 """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                                 sync_status["orders_synced"] += 1
@@ -2602,7 +2602,7 @@ async def run_sync():
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
-                                INSERT OR IGNORE INTO orders (id, order_num, created_at, updated_at)
+                                INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
                                 VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                             sync_status["orders_synced"] += 1
