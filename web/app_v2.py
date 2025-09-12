@@ -371,7 +371,13 @@ def rows_to_dict(cursor, rows):
     if not rows:
         return []
     columns = [column[0] for column in cursor.description]
-    return [dict(zip(columns, row)) for row in rows]
+    print(f"DEBUG rows_to_dict - Columns: {columns}")
+    if rows:
+        print(f"DEBUG rows_to_dict - First row: {rows[0]}")
+        result = [dict(zip(columns, row)) for row in rows]
+        print(f"DEBUG rows_to_dict - First result: {result[0] if result else 'No result'}")
+        return result
+    return []
 
 @app.get("/")
 async def root():
