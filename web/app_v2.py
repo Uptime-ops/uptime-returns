@@ -1785,8 +1785,6 @@ async def debug_simple_sync():
 @app.post("/api/sync/trigger")
 async def trigger_sync():
     """Trigger a sync with Warehance API"""
-    # Don't parse request body - sync trigger doesn't need parameters
-    
     global sync_status
     
     if sync_status["is_running"]:
@@ -1796,6 +1794,19 @@ async def trigger_sync():
     asyncio.create_task(run_sync())
     
     return {"message": "Sync started", "status": "started"}
+
+@app.get("/api/sync/trigger-test")
+async def trigger_sync_test():
+    """Test trigger for sync - GET version for debugging"""
+    global sync_status
+    
+    if sync_status["is_running"]:
+        return {"message": "Sync already in progress", "status": "running"}
+    
+    # Start sync in background
+    asyncio.create_task(run_sync())
+    
+    return {"message": "Sync started via GET test", "status": "started"}
 
 @app.post("/api/database/migrate")
 async def migrate_database():
