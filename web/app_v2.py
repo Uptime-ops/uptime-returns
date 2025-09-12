@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V81-FIX-API-CALL-LOGIC-2025-09-12"
+DEPLOYMENT_VERSION = "V82-FIX-DATABASE-SCHEMA-CUSTOMER-NAME-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2048,6 +2048,25 @@ async def initialize_database():
         
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # First, check if orders table exists and add missing columns if needed
+        try:
+            cursor.execute("""
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'customer_name'
+            """)
+            customer_name_exists = cursor.fetchone()
+            
+            if not customer_name_exists:
+                print("Adding missing customer_name column to orders table...")
+                cursor.execute("ALTER TABLE orders ADD customer_name NVARCHAR(255)")
+                conn.commit()
+                print("✅ Added customer_name column to orders table")
+            else:
+                print("✅ customer_name column already exists in orders table")
+        except Exception as alter_err:
+            print(f"Error checking/adding customer_name column: {alter_err}")
         
         # Check if tables exist and create them if not
         tables_created = []
