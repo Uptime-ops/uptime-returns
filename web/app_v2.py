@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V58-FASTAPI-VALIDATION-FIX-2025-09-12"
+DEPLOYMENT_VERSION = "V63-ROWS-TO-DICT-FIX-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -739,11 +739,22 @@ async def search_returns_test():
         
         returns = []
         if USE_AZURE_SQL:
-            rows = rows_to_dict(cursor, rows) if rows else []
-            # Debug: print first row to see what we're getting
+            print(f"DEBUG: Raw rows type: {type(rows)}")
+            print(f"DEBUG: Raw first row: {rows[0] if rows else 'No rows'}")
+            print(f"DEBUG: Raw first row type: {type(rows[0]) if rows else 'No rows'}")
+            
+            # Try to see if rows are already dictionaries
+            if rows and hasattr(rows[0], 'keys'):
+                print(f"DEBUG: First row has keys: {list(rows[0].keys())}")
+                rows = rows  # Already dictionaries, don't convert
+            else:
+                print(f"DEBUG: Converting rows with rows_to_dict")
+                rows = rows_to_dict(cursor, rows) if rows else []
+                
+            # Debug: print first row to see what we're getting  
             if rows:
-                print(f"DEBUG: First row keys: {list(rows[0].keys()) if rows[0] else 'No keys'}")
-                print(f"DEBUG: label_cost value: {rows[0].get('label_cost', 'KEY_NOT_FOUND')} (type: {type(rows[0].get('label_cost'))})")
+                print(f"DEBUG: Final first row: {rows[0]}")
+                print(f"DEBUG: Final first row type: {type(rows[0])}")
     except Exception as e:
         print(f"Query execution error in search_returns: {e}")
         conn.close()
