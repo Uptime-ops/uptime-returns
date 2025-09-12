@@ -600,10 +600,20 @@ async def get_warehouses():
             conn.close()
         return []
 
-@app.post("/api/returns/search")
-async def search_returns(filters: SearchFilters):
-    # Convert Pydantic model to dict for compatibility with existing code
-    filter_params = filters.dict()
+@app.post("/api/returns/search")  
+async def search_returns():
+    # For now, just return basic data without filters to test if the endpoint works
+    filter_params = {
+        'page': 1,
+        'limit': 20,
+        'client_id': None,
+        'warehouse_id': None,
+        'status': None,
+        'search': '',
+        'date_from': None,
+        'date_to': None,
+        'include_items': False
+    }
     
     try:
         conn = get_db_connection()
