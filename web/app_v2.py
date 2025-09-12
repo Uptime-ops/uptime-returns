@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V79-FOCUS-RECENT-RETURNS-2025-09-12"
+DEPLOYMENT_VERSION = "V80-SEPARATE-ORDER-ITEMS-API-CALLS-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2591,38 +2591,106 @@ async def run_sync():
                     convert_date_for_sql(datetime.now().isoformat())
                 )))
                 
-                # Store basic order info from return data (without customer name initially)
+                # Store order info - try embedded first, then separate API call
+                order_data = None
+                # Extract order ID - could be in different formats
+                order_id = None
+                if ret.get('order') and ret['order'].get('id'):
+                    order_id = str(ret['order']['id'])
+                elif ret.get('order_id'):  # Direct order_id field
+                    order_id = str(ret['order_id'])
+                    
                 if ret.get('order'):
-                    order = ret['order']
+                    # Use embedded order data if available
+                    order_data = ret['order']
+                    print(f"Return {return_id}: Using embedded order data")
+                elif order_id:
+                    # Make separate API call to fetch order details
                     try:
+                        print(f"Return {return_id}: Fetching order {order_id} via separate API call")
+                        order_response = requests.get(
+                            f"https://api.warehance.com/v1/orders/{order_id}",
+                            headers=headers,
+                            timeout=10
+                        )
+                        
+                        if order_response.status_code == 200:
+                            order_api_data = order_response.json()
+                            if order_api_data.get("status") == "success":
+                                order_data = order_api_data.get("data", {})
+                                print(f"Return {return_id}: Successfully fetched order {order_id}")
+                            else:
+                                print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
+                        else:
+                            print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
+                    except Exception as order_err:
+                        print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
+                
+                # Insert order data if we have it
+                if order_data:
+                    try:
+                        # Extract customer name from ship_to_address
+                        ship_addr = order_data.get('ship_to_address', {})
+                        first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
+                        last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
+                        customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
+                        
                         if USE_AZURE_SQL:
                             # Check if order exists first
                             placeholder = get_param_placeholder()
-                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order['id']),))
+                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order_data['id']),))
                             order_result = cursor.fetchone()
                             if order_result['count'] == 0:
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
+                                    INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                """, ensure_tuple_params((str(order_data['id']), order_data.get('order_number', ''), customer_name)))
                                 sync_status["orders_synced"] += 1
-                                print(f"Inserted basic order {order['id']}")
+                                print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
-                                INSERT OR IGNORE INTO orders (id, order_number, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
+                                INSERT OR IGNORE INTO orders (id, order_number, customer_name, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            """, ensure_tuple_params((str(order_data['id']), order_data.get('order_number', ''), customer_name)))
                             sync_status["orders_synced"] += 1
                     except Exception as e:
-                        print(f"Error inserting basic order {str(order['id'])}: {e}")
+                        print(f"Error inserting order {str(order_data['id'])}: {e}")
                 
-                # Store return items if present
+                # Store return items - try embedded first, then separate API call
+                items_data = []
                 if ret.get('items'):
-                    items_count = len(ret['items'])
+                    # Use embedded items data if available
+                    items_data = ret['items']
+                    print(f"Return {return_id}: Using embedded items data ({len(items_data)} items)")
+                else:
+                    # Make separate API call to fetch return items
+                    try:
+                        print(f"Return {return_id}: Fetching return items via separate API call")
+                        items_response = requests.get(
+                            f"https://api.warehance.com/v1/returns/{return_id}/items",
+                            headers=headers,
+                            timeout=10
+                        )
+                        
+                        if items_response.status_code == 200:
+                            items_api_data = items_response.json()
+                            if items_api_data.get("status") == "success":
+                                items_data = items_api_data.get("data", [])
+                                print(f"Return {return_id}: Successfully fetched {len(items_data)} return items")
+                            else:
+                                print(f"Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                        else:
+                            print(f"Return {return_id}: Items API call failed with status {items_response.status_code}")
+                    except Exception as items_err:
+                        print(f"Return {return_id}: Error fetching return items: {items_err}")
+                
+                # Process return items if we have them
+                if items_data:
+                    items_count = len(items_data)
                     log_sync_activity(f"Processing {items_count} return items for return {return_id}")
-                    for item_idx, item in enumerate(ret['items'], 1):
+                    for item_idx, item in enumerate(items_data, 1):
                         # Get or create product
                         product_id = item.get('product', {}).get('id', 0)
                         product_sku = item.get('product', {}).get('sku', '')
