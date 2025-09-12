@@ -1776,16 +1776,17 @@ async def run_sync():
                         
                         if exists:
                             # Update existing return
-                            cursor.execute("""
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"""
                                 UPDATE returns SET
-                                    api_id = %s, paid_by = %s, status = %s, created_at = %s,
-                                    updated_at = %s, processed = %s, processed_at = %s,
-                                    warehouse_note = %s, customer_note = %s, tracking_number = %s,
-                                    tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
-                                    label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
-                                    client_id = %s, warehouse_id = %s, order_id = %s,
-                                    return_integration_id = %s, last_synced_at = %s
-                                WHERE id = %s
+                                    api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
+                                    updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
+                                    warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
+                                    tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
+                                    label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
+                                    client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
+                                    return_integration_id = {placeholder}, last_synced_at = {placeholder}
+                                WHERE id = {placeholder}
                             """, (
                                 ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1805,14 +1806,15 @@ async def run_sync():
                         else:
                             # Insert new return with duplicate handling
                             try:
-                                cursor.execute("""
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                     INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                             processed, processed_at, warehouse_note, customer_note,
                                             tracking_number, tracking_url, carrier, service,
                                             label_cost, label_pdf_url, rma_slip_url, label_voided,
                                             client_id, warehouse_id, order_id, return_integration_id,
                                             last_synced_at)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
                                 return_id, ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1836,7 +1838,8 @@ async def run_sync():
                                     raise
                 else:
                     # Use INSERT OR REPLACE for SQLite
-                    cursor.execute("""
+                    placeholder = get_param_placeholder()
+                    cursor.execute(f"""
                         INSERT INTO returns (
                         id, api_id, paid_by, status, created_at, updated_at,
                         processed, processed_at, warehouse_note, customer_note,
@@ -1844,7 +1847,7 @@ async def run_sync():
                         label_cost, label_pdf_url, rma_slip_url, label_voided,
                         client_id, warehouse_id, order_id, return_integration_id,
                         last_synced_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                     """, ensure_tuple_params((
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
                     ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -1871,14 +1874,16 @@ async def run_sync():
                             cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order['id']),))
                             order_result = cursor.fetchone()
                             if order_result['count'] == 0:
-                                cursor.execute("""
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES (%s, %s, GETDATE(), GETDATE())
+                                    VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                 """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                         else:
-                            cursor.execute("""
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                             """, ensure_tuple_params((str(order['id']), order.get('order_number', ''))))
                     except Exception as e:
                         print(f"Error inserting order {str(order['id'])}: {e}")
@@ -1901,9 +1906,10 @@ async def run_sync():
                                 product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
                             else:
                                 # Create a placeholder product
-                                cursor.execute("""
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                     INSERT INTO products (sku, name, created_at, updated_at)
-                                    VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
                                 product_id = cursor.lastrowid
                         elif product_id > 0:
@@ -1915,15 +1921,17 @@ async def run_sync():
                                 if product_result['count'] == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
-                                    cursor.execute("""
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (%s, %s, %s, GETDATE(), GETDATE())
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                     """, ensure_tuple_params((product_id, product_sku, product_name)))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
-                                cursor.execute("""
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                     INSERT INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 """, ensure_tuple_params((product_id, product_sku, product_name)))
                         
                         # Store return item
@@ -1936,13 +1944,14 @@ async def run_sync():
                                 item_result = cursor.fetchone()
                                 if item_result['count'] == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
-                                    cursor.execute("""
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"""
                                         INSERT INTO return_items (
                                             id, return_id, product_id, quantity,
                                             return_reasons, condition_on_arrival,
                                             quantity_received, quantity_rejected,
                                             created_at, updated_at
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
+                                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                     """, ensure_tuple_params((
                                         item.get('id'),
                                         return_id,
@@ -1956,13 +1965,14 @@ async def run_sync():
                                     cursor.execute("SET IDENTITY_INSERT return_items OFF")
                             else:
                                 # No ID provided, let SQL generate one
-                                cursor.execute("""
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                     INSERT INTO return_items (
                                         return_id, product_id, quantity,
                                         return_reasons, condition_on_arrival,
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
+                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                 """, ensure_tuple_params((
                                     return_id,
                                     product_id if product_id > 0 else None,
@@ -1973,13 +1983,14 @@ async def run_sync():
                                     item.get('quantity_rejected', 0)
                                 )))
                         else:
-                            cursor.execute("""
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"""
                                 INSERT OR REPLACE INTO return_items (
                                 id, return_id, product_id, quantity,
                                 return_reasons, condition_on_arrival,
                                 quantity_received, quantity_rejected,
                                 created_at, updated_at
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """, ensure_tuple_params((
                             item.get('id'),
                             return_id,
@@ -2066,10 +2077,11 @@ async def run_sync():
                             customer_name = f"{first} {last}".strip()
                         
                         # Update order with full details including customer name
-                        cursor.execute("""
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"""
                             UPDATE orders 
-                            SET customer_name = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s
+                            SET customer_name = {placeholder}, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = {placeholder}
                         """, (customer_name, order_id))
                         
                         if customer_name:
@@ -2094,9 +2106,10 @@ async def run_sync():
                                 if product_name and display_qty > 0:
                                     # Ensure product exists
                                     if USE_AZURE_SQL:
-                                        cursor.execute("""
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"""
                                             INSERT INTO products (id, sku, name) 
-                                            VALUES (%s, %s, %s)
+                                            VALUES ({placeholder}, {placeholder}, {placeholder})
                                         """, ensure_tuple_params((product_id, sku, product_name)))
                                     else:
                                         cursor.execute("""
@@ -2105,8 +2118,9 @@ async def run_sync():
                                         """, (product_id, sku, product_name))
                                     
                                     # Find the return that references this order
-                                    cursor.execute("""
-                                        SELECT id FROM returns WHERE order_id = %s
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"""
+                                        SELECT id FROM returns WHERE order_id = {placeholder}
                                     """, (order_id,))
                                     return_rows = cursor.fetchall()
                                     
@@ -2124,11 +2138,12 @@ async def run_sync():
                                         if not exists:
                                             # Create return item from order item
                                             if USE_AZURE_SQL:
-                                                cursor.execute("""
+                                                placeholder = get_param_placeholder()
+                                                cursor.execute(f"""
                                                     INSERT INTO return_items 
                                                     (return_id, product_id, quantity, return_reasons, 
                                                      condition_on_arrival, quantity_received, quantity_rejected)
-                                                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                                 """, ensure_tuple_params((
                                                     return_id, product_id, display_qty,
                                                     '["Original order item"]',  # Default return reason
@@ -2362,9 +2377,10 @@ async def send_returns_email(request_data: dict):
             server.quit()
             
             # Log to email history
-            cursor.execute("""
+            placeholder = get_param_placeholder()
+            cursor.execute(f"""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
             """, ensure_tuple_params((
                 client_id,
                 client_name,
@@ -2380,9 +2396,10 @@ async def send_returns_email(request_data: dict):
             message = "Email sent successfully!"
         else:
             # Save to email history as draft since SMTP not configured
-            cursor.execute("""
+            placeholder = get_param_placeholder()
+            cursor.execute(f"""
                 INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
             """, ensure_tuple_params((
                 client_id,
                 client_name,
@@ -2604,14 +2621,16 @@ async def save_settings(settings: dict):
                 """, (value_str, datetime.now().isoformat(), key))
             else:
                 # Insert new
-                cursor.execute("""
+                placeholder = get_param_placeholder()
+                cursor.execute(f"""
                     INSERT INTO settings ([key], value, updated_at)
-                    VALUES (%s, %s, %s)
+                    VALUES ({placeholder}, {placeholder}, {placeholder})
                 """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
         else:
-            cursor.execute("""
+            placeholder = get_param_placeholder()
+            cursor.execute(f"""
                 INSERT INTO settings (key, value, updated_at)
-                VALUES (%s, %s, %s)
+                VALUES ({placeholder}, {placeholder}, {placeholder})
             """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
     
     conn.commit()
