@@ -1306,6 +1306,48 @@ async def debug_test():
     
     return results
 
+@app.get("/api/debug/simple-sync")
+async def debug_simple_sync():
+    """Test a simple sync operation with detailed logging"""
+    try:
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Try to fetch just 2 returns
+        url = f"https://api.warehance.com/v1/returns?limit=2&offset=0"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API error {response.status_code}", "response": response.text[:500]}
+        
+        data = response.json()
+        
+        if 'data' not in data:
+            return {"error": "No data key in response", "response": data}
+        
+        if 'returns' not in data['data']:
+            return {"error": "No returns key in data", "response": data['data']}
+        
+        returns = data['data']['returns']
+        return {
+            "success": True,
+            "returns_count": len(returns),
+            "first_return_id": returns[0]['id'] if returns else None,
+            "first_return_has_items": bool(returns[0].get('items')) if returns else None,
+            "first_return_items_count": len(returns[0].get('items', [])) if returns else None
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "traceback": traceback.format_exc()[:1000]
+        }
+
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
     """Trigger a sync with Warehance API"""
