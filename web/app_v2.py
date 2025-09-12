@@ -370,14 +370,34 @@ def rows_to_dict(cursor, rows):
     """Convert multiple database rows to list of dictionaries"""
     if not rows:
         return []
-    columns = [column[0] for column in cursor.description]
-    print(f"DEBUG rows_to_dict - Columns: {columns}")
-    if rows:
+    
+    # Try a completely different approach - manual dictionary building
+    try:
+        columns = [column[0] for column in cursor.description]
+        print(f"DEBUG rows_to_dict - Columns: {columns}")
+        print(f"DEBUG rows_to_dict - First row type: {type(rows[0])}")
         print(f"DEBUG rows_to_dict - First row: {rows[0]}")
-        result = [dict(zip(columns, row)) for row in rows]
+        
+        result = []
+        for row in rows:
+            row_dict = {}
+            for i, col_name in enumerate(columns):
+                if i < len(row):
+                    row_dict[col_name] = row[i]
+                else:
+                    row_dict[col_name] = None
+            result.append(row_dict)
+        
         print(f"DEBUG rows_to_dict - First result: {result[0] if result else 'No result'}")
         return result
-    return []
+        
+    except Exception as e:
+        print(f"DEBUG rows_to_dict - ERROR: {e}")
+        # Fallback - return rows as-is if they're already dictionaries
+        if rows and isinstance(rows[0], dict):
+            print("DEBUG rows_to_dict - Rows already dictionaries, returning as-is")
+            return rows
+        return []
 
 @app.get("/")
 async def root():
