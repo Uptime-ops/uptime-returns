@@ -689,6 +689,10 @@ async def search_returns(filter_params: dict):
         returns = []
         if USE_AZURE_SQL:
             rows = rows_to_dict(cursor, rows) if rows else []
+            # Debug: print first row to see what we're getting
+            if rows:
+                print(f"DEBUG: First row keys: {list(rows[0].keys()) if rows[0] else 'No keys'}")
+                print(f"DEBUG: label_cost value: {rows[0].get('label_cost', 'KEY_NOT_FOUND')} (type: {type(rows[0].get('label_cost'))})")
     except Exception as e:
         print(f"Query execution error in search_returns: {e}")
         conn.close()
@@ -711,7 +715,7 @@ async def search_returns(filter_params: dict):
                 "tracking_url": row['tracking_url'],
                 "carrier": row['carrier'],
                 "service": row['service'],
-                "label_cost": float(row['label_cost']) if row['label_cost'] else None,
+                "label_cost": float(row['label_cost']) if row['label_cost'] and str(row['label_cost']) != 'label_cost' else None,
                 "label_pdf_url": row['label_pdf_url'],
                 "rma_slip_url": row['rma_slip_url'],
                 "label_voided": bool(row['label_voided']),
@@ -742,7 +746,7 @@ async def search_returns(filter_params: dict):
                 "tracking_url": row['tracking_url'],
                 "carrier": row['carrier'],
                 "service": row['service'],
-                "label_cost": float(row['label_cost']) if row['label_cost'] else None,
+                "label_cost": float(row['label_cost']) if row['label_cost'] and str(row['label_cost']) != 'label_cost' else None,
                 "label_pdf_url": row['label_pdf_url'],
                 "rma_slip_url": row['rma_slip_url'],
                 "label_voided": bool(row['label_voided']),
