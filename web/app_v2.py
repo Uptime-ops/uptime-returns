@@ -622,7 +622,7 @@ async def get_warehouses():
 
 @app.post("/api/returns/search")
 async def search_returns():
-    # Use same working logic as our test endpoint - ignore POST body for now
+    # EMERGENCY FIX: Ignore POST body completely and use hardcoded params like GET endpoint
     filter_params = {
         'page': 1,
         'limit': 20,
