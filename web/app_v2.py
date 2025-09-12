@@ -1306,6 +1306,106 @@ async def debug_test():
     
     return results
 
+@app.get("/api/debug/one-return-sync")
+async def debug_one_return_sync():
+    """Test syncing just one return with products and items"""
+    try:
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Fetch just 1 return
+        url = "https://api.warehance.com/v1/returns?limit=1&offset=0"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API error {response.status_code}", "response": response.text[:300]}
+        
+        data = response.json()
+        returns = data.get('data', {}).get('returns', [])
+        
+        if not returns:
+            return {"error": "No returns found"}
+        
+        ret = returns[0]  # Get first return
+        return_id = ret['id']
+        
+        result = {
+            "return_id": return_id,
+            "has_items": bool(ret.get('items')),
+            "items_count": len(ret.get('items', [])),
+            "has_client": bool(ret.get('client')),
+            "has_warehouse": bool(ret.get('warehouse')),
+            "has_order": bool(ret.get('order'))
+        }
+        
+        # Try to process this one return
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if return exists
+        placeholder = get_param_placeholder()
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (return_id,))
+        exists = cursor.fetchone()['count'] > 0 if USE_AZURE_SQL else cursor.fetchone()[0] > 0
+        result["return_exists_in_db"] = exists
+        
+        # If return has items, try to process first item
+        if ret.get('items'):
+            item = ret['items'][0]
+            product = item.get('product', {})
+            result["first_item"] = {
+                "item_id": item.get('id'),
+                "product_id": product.get('id'),
+                "product_sku": product.get('sku'),
+                "product_name": product.get('name', '')[:50],
+                "quantity": item.get('quantity')
+            }
+            
+            # Try MERGE statement for this product
+            product_id = product.get('id')
+            product_sku = product.get('sku', '')
+            product_name = product.get('name', '')
+            
+            if product_id and product_sku:
+                try:
+                    if USE_AZURE_SQL:
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"""
+                            MERGE products AS target
+                            USING (SELECT {placeholder} as id, {placeholder} as sku, {placeholder} as name) AS source
+                            ON target.id = source.id OR target.sku = source.sku
+                            WHEN NOT MATCHED THEN
+                                INSERT (sku, name, created_at, updated_at)
+                                VALUES (source.sku, source.name, GETDATE(), GETDATE());
+                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                        result["product_merge"] = "success"
+                    else:
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"""
+                            INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                            VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                        result["product_insert"] = "success"
+                        
+                    conn.commit()
+                    
+                except Exception as e:
+                    result["product_error"] = str(e)
+                    result["product_error_type"] = str(type(e))
+        
+        conn.close()
+        return result
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "traceback": traceback.format_exc()[:1000]
+        }
+
 @app.get("/api/debug/simple-sync")
 async def debug_simple_sync():
     """Test a simple sync operation with detailed logging"""
