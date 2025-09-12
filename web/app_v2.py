@@ -1265,7 +1265,10 @@ async def debug_test():
     
     # Test 3: Basic API connectivity with detailed error info
     try:
-        headers = {"Authorization": f"Bearer {warehance_key}"} if warehance_key else {}
+        headers = {
+            "X-API-KEY": warehance_key,
+            "accept": "application/json"
+        } if warehance_key else {}
         response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers, timeout=10)
         
         results["api_connectivity"] = {
