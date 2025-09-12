@@ -273,10 +273,10 @@ else:
         conn.row_factory = sqlite3.Row
         return conn
 
-from fastapi import FastAPI, Response, HTTPException
+from fastapi import FastAPI, Response, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
+from typing import Optional, Any, Dict
 import json
 import csv
 import io
@@ -583,7 +583,14 @@ async def get_warehouses():
         return []
 
 @app.post("/api/returns/search")
-async def search_returns(filter_params: dict):
+async def search_returns(request: Request):
+    try:
+        # Parse the request body as JSON
+        filter_params = await request.json()
+    except Exception as e:
+        print(f"JSON parsing error in search_returns: {e}")
+        return {"error": "Invalid JSON in request body", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
+    
     try:
         conn = get_db_connection()
         if not USE_AZURE_SQL:
@@ -958,8 +965,15 @@ async def get_return_detail(return_id: int):
     return return_data
 
 @app.post("/api/returns/export/csv")
-async def export_returns_csv(filter_params: dict):
+async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
+    try:
+        # Parse the request body as JSON
+        filter_params = await request.json()
+    except Exception as e:
+        print(f"JSON parsing error in export_returns_csv: {e}")
+        filter_params = {}
+    
     conn = get_db_connection()
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
@@ -1453,8 +1467,14 @@ async def debug_simple_sync():
         }
 
 @app.post("/api/sync/trigger")
-async def trigger_sync(request_data: dict):
+async def trigger_sync(request: Request):
     """Trigger a sync with Warehance API"""
+    try:
+        # Parse the request body as JSON (optional for this endpoint)
+        request_data = await request.json()
+    except Exception:
+        request_data = {}
+    
     global sync_status
     
     if sync_status["is_running"]:
