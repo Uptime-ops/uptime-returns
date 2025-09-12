@@ -1263,14 +1263,18 @@ async def debug_test():
         "use_azure_sql": USE_AZURE_SQL
     }
     
-    # Test 3: Basic API connectivity
+    # Test 3: Basic API connectivity with detailed error info
     try:
         headers = {"Authorization": f"Bearer {warehance_key}"} if warehance_key else {}
         response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers, timeout=10)
+        
         results["api_connectivity"] = {
             "status": "success" if response.status_code == 200 else "error",
             "status_code": response.status_code,
-            "response_size": len(response.text)
+            "response_size": len(response.text),
+            "response_text": response.text[:500] if response.status_code != 200 else "OK",
+            "headers_sent": dict(headers),
+            "url_tested": "https://api.warehance.com/v1/returns?limit=1"
         }
     except Exception as e:
         results["api_connectivity"] = {"status": "error", "error": str(e)}
