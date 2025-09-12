@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V56-AZURE-SQL-COMPATIBILITY-2025-09-12"
+DEPLOYMENT_VERSION = "V58-FASTAPI-VALIDATION-FIX-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -277,6 +277,7 @@ from fastapi import FastAPI, Response, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, Any, Dict
+from pydantic import BaseModel
 import json
 import csv
 import io
@@ -305,6 +306,17 @@ try:
 except ImportError:
     OAUTH_ENABLED = False
     GRAPH_CONFIG = None
+
+class SearchFilters(BaseModel):
+    client_id: Optional[int] = None
+    warehouse_id: Optional[int] = None
+    status: Optional[str] = None
+    search: Optional[str] = ""
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    page: Optional[int] = 1
+    limit: Optional[int] = 20
+    include_items: Optional[bool] = False
 
 app = FastAPI()
 
@@ -583,13 +595,9 @@ async def get_warehouses():
         return []
 
 @app.post("/api/returns/search")
-async def search_returns(request: Request):
-    try:
-        # Parse the request body as JSON
-        filter_params = await request.json()
-    except Exception as e:
-        print(f"JSON parsing error in search_returns: {e}")
-        return {"error": "Invalid JSON in request body", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
+async def search_returns(filters: SearchFilters):
+    # Convert Pydantic model to dict for compatibility with existing code
+    filter_params = filters.dict()
     
     try:
         conn = get_db_connection()
