@@ -3465,6 +3465,7 @@ async def test_returns():
         rows = cursor.fetchall()
         
         if USE_AZURE_SQL:
+            rows = rows_to_dict(cursor, rows) if rows else []
             results = [{
                 "id": row['id'],
                 "api_id": row['api_id'],
