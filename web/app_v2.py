@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-01-15-ORDER-ITEMS-ENHANCEMENT-V42"
+DEPLOYMENT_VERSION = "V45-IDENTITY_INSERT-FIXES-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1578,25 +1578,36 @@ async def get_sync_status():
         return {
             "current_sync": {
                 "status": "running" if sync_status["is_running"] else "completed",
-                "items_synced": sync_status["items_synced"]
+                "items_synced": sync_status["items_synced"],
+                "products_synced": sync_status.get("products_synced", 0),
+                "return_items_synced": sync_status.get("return_items_synced", 0),
+                "orders_synced": sync_status.get("orders_synced", 0)
             },
             "last_sync": sync_status["last_sync"],
             "last_sync_status": sync_status["last_sync_status"],
             "last_sync_message": sync_status["last_sync_message"],
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not %s"
+            "sql_fix_applied": "YES - MERGE statements + parameterized queries",
+            "identity_insert_fixed": "YES - Removed IDENTITY_INSERT, using MERGE"
         }
     except Exception as e:
         print(f"Error in sync status: {str(e)}")
         if 'conn' in locals():
             conn.close()
         return {
-            "current_sync": {"status": "error", "items_synced": 0},
+            "current_sync": {
+                "status": "error", 
+                "items_synced": 0,
+                "products_synced": 0,
+                "return_items_synced": 0,
+                "orders_synced": 0
+            },
             "last_sync": None,
             "last_sync_status": "error",
             "last_sync_message": str(e),
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not %s"
+            "sql_fix_applied": "YES - MERGE statements + parameterized queries",
+            "identity_insert_fixed": "YES - Removed IDENTITY_INSERT, using MERGE"
         }
 
 def convert_date_for_sql(date_string):
