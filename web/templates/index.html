@@ -646,10 +646,13 @@
                 const response = await fetch('/api/dashboard/stats');
                 const data = await response.json();
                 
-                $('#totalReturns').text(data.total_returns);
-                $('#pendingReturns').text(data.pending_returns);
-                $('#processedReturns').text(data.processed_returns);
-                $('#unsharedReturns').text(data.unshared_returns);
+                // Fix: API returns {"stats": {"total_returns": ...}} not {"total_returns": ...}
+                const stats = data.stats || data; // Fallback for compatibility
+                
+                $('#totalReturns').text(stats.total_returns || 0);
+                $('#pendingReturns').text(stats.pending_returns || 0);
+                $('#processedReturns').text(stats.processed_returns || 0);
+                $('#unsharedReturns').text(stats.unshared_returns || 0);
                 
                 // Load charts
                 loadMonthlyChart();
