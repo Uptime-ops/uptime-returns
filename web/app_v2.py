@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V80-SEPARATE-ORDER-ITEMS-API-CALLS-2025-09-12"
+DEPLOYMENT_VERSION = "V81-FIX-API-CALL-LOGIC-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2591,20 +2591,17 @@ async def run_sync():
                     convert_date_for_sql(datetime.now().isoformat())
                 )))
                 
-                # Store order info - try embedded first, then separate API call
+                # Store order info - always make separate API call for complete data
                 order_data = None
-                # Extract order ID - could be in different formats
+                # Extract order ID from returns API response
                 order_id = None
                 if ret.get('order') and ret['order'].get('id'):
                     order_id = str(ret['order']['id'])
                 elif ret.get('order_id'):  # Direct order_id field
                     order_id = str(ret['order_id'])
                     
-                if ret.get('order'):
-                    # Use embedded order data if available
-                    order_data = ret['order']
-                    print(f"Return {return_id}: Using embedded order data")
-                elif order_id:
+                # Always make separate API call to get complete order details with customer name
+                if order_id:
                     # Make separate API call to fetch order details
                     try:
                         print(f"Return {return_id}: Fetching order {order_id} via separate API call")
@@ -2658,10 +2655,11 @@ async def run_sync():
                     except Exception as e:
                         print(f"Error inserting order {str(order_data['id'])}: {e}")
                 
-                # Store return items - try embedded first, then separate API call
+                # Store return items - always try separate API call for complete data
                 items_data = []
-                if ret.get('items'):
-                    # Use embedded items data if available
+                
+                # First check if embedded items exist and have complete data
+                if ret.get('items') and len(ret['items']) > 0:
                     items_data = ret['items']
                     print(f"Return {return_id}: Using embedded items data ({len(items_data)} items)")
                 else:
