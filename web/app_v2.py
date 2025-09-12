@@ -3439,15 +3439,28 @@ async def test_returns():
         cursor = conn.cursor()
         
         # Simple query to get basic returns data
-        cursor.execute("""
-            SELECT r.id, r.api_id, r.status, r.created_at,
-                   c.name as client_name, w.name as warehouse_name
-            FROM returns r
-            LEFT JOIN clients c ON r.client_id = c.id
-            LEFT JOIN warehouses w ON r.warehouse_id = w.id
-            ORDER BY r.created_at DESC
-            LIMIT 5
-        """)
+        if USE_AZURE_SQL:
+            query = """
+                SELECT r.id, r.api_id, r.status, r.created_at,
+                       c.name as client_name, w.name as warehouse_name
+                FROM returns r
+                LEFT JOIN clients c ON r.client_id = c.id
+                LEFT JOIN warehouses w ON r.warehouse_id = w.id
+                ORDER BY r.created_at DESC
+                OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY
+            """
+        else:
+            query = """
+                SELECT r.id, r.api_id, r.status, r.created_at,
+                       c.name as client_name, w.name as warehouse_name
+                FROM returns r
+                LEFT JOIN clients c ON r.client_id = c.id
+                LEFT JOIN warehouses w ON r.warehouse_id = w.id
+                ORDER BY r.created_at DESC
+                LIMIT 5
+            """
+        
+        cursor.execute(query)
         
         rows = cursor.fetchall()
         
