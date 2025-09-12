@@ -620,6 +620,226 @@ async def get_warehouses():
             conn.close()
         return []
 
+@app.post("/api/returns/search")
+async def search_returns():
+    # Use same working logic as our test endpoint - ignore POST body for now
+    filter_params = {
+        'page': 1,
+        'limit': 20,
+        'client_id': None,
+        'warehouse_id': None,
+        'status': None,
+        'search': '',
+        'date_from': None,
+        'date_to': None,
+        'include_items': False
+    }
+    
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"Database connection error in search_returns: {e}")
+        return {"error": "Database connection failed", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
+    
+    # Extract filter parameters
+    page = filter_params.get('page', 1)
+    limit = filter_params.get('limit', 20)
+    client_id = filter_params.get('client_id')
+    status = filter_params.get('status')
+    search = filter_params.get('search') or ''
+    search = search.strip() if search else ''
+    include_items = filter_params.get('include_items', False)
+    
+    # Build query with filters
+    query = """
+    SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at,
+           r.processed, r.processed_at, r.warehouse_note, r.customer_note,
+           r.tracking_number, r.tracking_url, r.carrier, r.service,
+           r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided,
+           r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
+           r.last_synced_at,
+           c.name as client_name, w.name as warehouse_name,
+           o.order_number, o.customer_name
+    FROM returns r
+    LEFT JOIN clients c ON r.client_id = c.id
+    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
+    WHERE 1=1
+    """
+    
+    params = []
+    
+    if client_id:
+        placeholder = get_param_placeholder()
+        query += f" AND r.client_id = {placeholder}"
+        params.append(client_id)
+    
+    if status:
+        placeholder = get_param_placeholder()
+        query += f" AND r.status = {placeholder}"
+        params.append(status)
+        
+    if search:
+        placeholder = get_param_placeholder()
+        query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
+        search_param = f"%{search}%"
+        params.extend([search_param, search_param, search_param])
+    
+    # Add pagination
+    if USE_AZURE_SQL:
+        placeholder = get_param_placeholder()
+        query += f" ORDER BY r.created_at DESC OFFSET {placeholder} ROWS FETCH NEXT {placeholder} ROWS ONLY"
+        params.extend([(page - 1) * limit, limit])
+    else:
+        placeholder = get_param_placeholder()
+        query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
+        params.extend([limit, (page - 1) * limit])
+    
+    try:
+        cursor.execute(query, ensure_tuple_params(params))
+        rows = cursor.fetchall()
+        
+        returns = []
+        if USE_AZURE_SQL:
+            print(f"DEBUG: Raw rows type: {type(rows)}")
+            print(f"DEBUG: Raw first row: {rows[0] if rows else 'No rows'}")
+            print(f"DEBUG: Raw first row type: {type(rows[0]) if rows else 'No rows'}")
+            
+            # Try to see if rows are already dictionaries
+            if rows and hasattr(rows[0], 'keys'):
+                print(f"DEBUG: First row has keys: {list(rows[0].keys())}")
+                rows = rows  # Already dictionaries, don't convert
+            else:
+                print(f"DEBUG: Converting rows with rows_to_dict")
+                rows = rows_to_dict(cursor, rows) if rows else []
+                
+            # Debug: print first row to see what we're getting  
+            if rows:
+                print(f"DEBUG: Final first row: {rows[0]}")
+                print(f"DEBUG: Final first row type: {type(rows[0])}")
+    except Exception as e:
+        print(f"Query execution error in search_returns: {e}")
+        conn.close()
+        return {"error": "Query execution failed", "returns": [], "total_count": 0, "page": page, "limit": limit, "total_pages": 1}
+    
+    for row in rows:
+        if USE_AZURE_SQL:
+            return_dict = {
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "paid_by": row['paid_by'],
+                "status": row['status'] or '',
+                "created_at": row['created_at'],
+                "updated_at": row['updated_at'],
+                "processed": bool(row['processed']),
+                "processed_at": row['processed_at'],
+                "warehouse_note": row['warehouse_note'],
+                "customer_note": row['customer_note'],
+                "tracking_number": row['tracking_number'],
+                "tracking_url": row['tracking_url'],
+                "carrier": row['carrier'],
+                "service": row['service'],
+                "label_cost": float(row['label_cost']) if row['label_cost'] and str(row['label_cost']) != 'label_cost' else None,
+                "label_pdf_url": row['label_pdf_url'],
+                "rma_slip_url": row['rma_slip_url'],
+                "label_voided": bool(row['label_voided']),
+                "client_id": row['client_id'],
+                "warehouse_id": row['warehouse_id'],
+                "order_id": row['order_id'],
+                "return_integration_id": row['return_integration_id'],
+                "last_synced_at": row['last_synced_at'],
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name'],
+                "order_number": row['order_number'],
+                "customer_name": row['customer_name'],
+                "is_shared": False
+            }
+        else:
+            return_dict = {
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "paid_by": row['paid_by'],
+                "status": row['status'] or '',
+                "created_at": row['created_at'],
+                "updated_at": row['updated_at'],
+                "processed": bool(row['processed']),
+                "processed_at": row['processed_at'],
+                "warehouse_note": row['warehouse_note'],
+                "customer_note": row['customer_note'],
+                "tracking_number": row['tracking_number'],
+                "tracking_url": row['tracking_url'],
+                "carrier": row['carrier'],
+                "service": row['service'],
+                "label_cost": float(row['label_cost']) if row['label_cost'] and str(row['label_cost']) != 'label_cost' else None,
+                "label_pdf_url": row['label_pdf_url'],
+                "rma_slip_url": row['rma_slip_url'],
+                "label_voided": bool(row['label_voided']),
+                "client_id": row['client_id'],
+                "warehouse_id": row['warehouse_id'],
+                "order_id": row['order_id'],
+                "return_integration_id": row['return_integration_id'],
+                "last_synced_at": row['last_synced_at'],
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name'],
+                "order_number": row['order_number'],
+                "customer_name": row['customer_name'],
+                "is_shared": False
+            }
+        
+        returns.append(return_dict)
+    
+    # Get total count for pagination
+    count_query = """
+    SELECT COUNT(*) as total_count
+    FROM returns r
+    LEFT JOIN clients c ON r.client_id = c.id
+    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
+    WHERE 1=1
+    """
+    
+    count_params = []
+    if client_id:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.client_id = {placeholder}"
+        count_params.append(client_id)
+    if status:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.status = {placeholder}"
+        count_params.append(status)
+    if search:
+        placeholder = get_param_placeholder()
+        count_query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
+        search_param = f"%{search}%"
+        count_params.extend([search_param, search_param, search_param])
+    
+    cursor.execute(count_query, ensure_tuple_params(count_params))
+    count_result = cursor.fetchone()
+    
+    if USE_AZURE_SQL:
+        if hasattr(count_result, 'keys'):
+            total_count = count_result['total_count']
+        else:
+            count_dict = row_to_dict(cursor, count_result)
+            total_count = count_dict['total_count'] if count_dict else 0
+    else:
+        total_count = count_result['total_count'] if count_result else 0
+    
+    total_pages = (total_count + limit - 1) // limit
+    
+    conn.close()
+    
+    return {
+        "returns": returns,
+        "total_count": total_count,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages
+    }
+
 @app.get("/api/returns/search-test")  
 async def search_returns_test():
     # For now, just return basic data without filters to test if the endpoint works
