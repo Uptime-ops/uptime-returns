@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "2025-09-11-SYNC-LOGGING-DEBUG-V30"
+DEPLOYMENT_VERSION = "2025-01-15-ORDER-ITEMS-ENHANCEMENT-V42"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1719,7 +1719,6 @@ async def run_sync():
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", 
                                                  ensure_tuple_params((client_id, client_name)))
-                                    conn.commit()
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
@@ -1746,8 +1745,7 @@ async def run_sync():
                                 try:
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"INSERT INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})",
-                                                 (warehouse_id, warehouse_name))
-                                    conn.commit()
+                                                 ensure_tuple_params((warehouse_id, warehouse_name)))
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
@@ -1900,7 +1898,7 @@ async def run_sync():
                             cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
-                                product_id = existing[0]
+                                product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
                             else:
                                 # Create a placeholder product
                                 cursor.execute("""
@@ -2036,7 +2034,10 @@ async def run_sync():
                 WHERE id IN ({}) 
                 AND (customer_name IS NULL OR customer_name = '')
             """.format(format_in_clause(len(all_order_ids))), tuple(all_order_ids))
-            orders_needing_update = [row[0] for row in cursor.fetchall()]
+            order_rows = cursor.fetchall()
+            if USE_AZURE_SQL:
+                order_rows = rows_to_dict(cursor, order_rows) if order_rows else []
+            orders_needing_update = [row['id'] if USE_AZURE_SQL else row[0] for row in order_rows]
         else:
             orders_needing_update = []
         customers_updated = 0
@@ -2073,6 +2074,85 @@ async def run_sync():
                         
                         if customer_name:
                             customers_updated += 1
+                        
+                        # Process order items and store them as return items
+                        order_items = order_data.get('order_items', [])
+                        for item in order_items:
+                            try:
+                                # Get product details
+                                product_id = item.get('id')
+                                sku = item.get('sku', '')
+                                product_name = item.get('name', '')
+                                quantity_ordered = item.get('quantity', 0)
+                                quantity_shipped = item.get('quantity_shipped', 0)
+                                unit_price = item.get('unit_price', 0)
+                                
+                                # Use shipped quantity if available, otherwise use ordered quantity
+                                display_qty = quantity_shipped if quantity_shipped > 0 else quantity_ordered
+                                
+                                # Only process items that have a name and quantity
+                                if product_name and display_qty > 0:
+                                    # Ensure product exists
+                                    if USE_AZURE_SQL:
+                                        cursor.execute("""
+                                            INSERT INTO products (id, sku, name) 
+                                            VALUES (%s, %s, %s)
+                                        """, ensure_tuple_params((product_id, sku, product_name)))
+                                    else:
+                                        cursor.execute("""
+                                            INSERT OR IGNORE INTO products (id, sku, name) 
+                                            VALUES (?, ?, ?)
+                                        """, (product_id, sku, product_name))
+                                    
+                                    # Find the return that references this order
+                                    cursor.execute("""
+                                        SELECT id FROM returns WHERE order_id = %s
+                                    """, (order_id,))
+                                    return_rows = cursor.fetchall()
+                                    
+                                    for return_row in return_rows:
+                                        return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
+                                        
+                                        # Check if return item already exists
+                                        cursor.execute("""
+                                            SELECT COUNT(*) as count FROM return_items 
+                                            WHERE return_id = %s AND product_id = %s
+                                        """, (return_id, product_id))
+                                        item_result = cursor.fetchone()
+                                        exists = item_result['count'] > 0
+                                        
+                                        if not exists:
+                                            # Create return item from order item
+                                            if USE_AZURE_SQL:
+                                                cursor.execute("""
+                                                    INSERT INTO return_items 
+                                                    (return_id, product_id, quantity, return_reasons, 
+                                                     condition_on_arrival, quantity_received, quantity_rejected)
+                                                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                                """, ensure_tuple_params((
+                                                    return_id, product_id, display_qty,
+                                                    '["Original order item"]',  # Default return reason
+                                                    '["Unknown"]',  # Default condition
+                                                    display_qty,  # Assume all received
+                                                    0  # None rejected initially
+                                                )))
+                                            else:
+                                                cursor.execute("""
+                                                    INSERT INTO return_items 
+                                                    (return_id, product_id, quantity, return_reasons, 
+                                                     condition_on_arrival, quantity_received, quantity_rejected)
+                                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                                """, (
+                                                    return_id, product_id, display_qty,
+                                                    '["Original order item"]',  # Default return reason
+                                                    '["Unknown"]',  # Default condition
+                                                    display_qty,  # Assume all received
+                                                    0  # None rejected initially
+                                                ))
+                                        
+                            except Exception as item_error:
+                                print(f"Error processing order item {item.get('id', 'unknown')}: {item_error}")
+                                continue
                     
                     # Small delay between API calls
                     await asyncio.sleep(0.1)
@@ -2089,7 +2169,7 @@ async def run_sync():
         # Only mark as success if we actually synced something
         if sync_status['items_synced'] > 0:
             sync_status["last_sync_status"] = "success"
-            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names"
+            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names, processed order items"
         else:
             sync_status["last_sync_status"] = "warning"
             sync_status["last_sync_message"] = "No returns found to sync. Check API connection and logs."
@@ -2787,7 +2867,7 @@ async def get_deployment_version():
     """Simple endpoint to verify deployment version"""
     import datetime
     return {
-        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V10-DIRECT-SYNC-TEST", 
+        "version": "2025-01-15-ORDER-ITEMS-ENHANCEMENT-V42", 
         "timestamp": datetime.datetime.now().isoformat(),
         "status": "latest_deployment_active"
     }
