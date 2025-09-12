@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V82-FIX-DATABASE-SCHEMA-CUSTOMER-NAME-2025-09-12"
+DEPLOYMENT_VERSION = "V83-ENHANCED-DEBUGGING-ORDER-INSERTION-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2623,7 +2623,8 @@ async def run_sync():
                 if order_id:
                     # Make separate API call to fetch order details
                     try:
-                        print(f"Return {return_id}: Fetching order {order_id} via separate API call")
+                        print(f"🔄 Return {return_id}: Making API call for order {order_id}")
+                        sync_status["last_sync_message"] = f"Fetching order {order_id} for return {return_id}"
                         order_response = requests.get(
                             f"https://api.warehance.com/v1/orders/{order_id}",
                             headers=headers,
@@ -2634,7 +2635,7 @@ async def run_sync():
                             order_api_data = order_response.json()
                             if order_api_data.get("status") == "success":
                                 order_data = order_api_data.get("data", {})
-                                print(f"Return {return_id}: Successfully fetched order {order_id}")
+                                print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
                             else:
                                 print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
                         else:
@@ -2672,7 +2673,11 @@ async def run_sync():
                             """, ensure_tuple_params((str(order_data['id']), order_data.get('order_number', ''), customer_name)))
                             sync_status["orders_synced"] += 1
                     except Exception as e:
-                        print(f"Error inserting order {str(order_data['id'])}: {e}")
+                        import traceback
+                        print(f"ERROR inserting order {str(order_data['id'])}: {e}")
+                        print(f"Full traceback: {traceback.format_exc()}")
+                        print(f"Order data: {order_data}")
+                        print(f"Customer name: {customer_name}")
                 
                 # Store return items - always try separate API call for complete data
                 items_data = []
