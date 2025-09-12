@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V84-FIX-ORDER-ID-EXTRACTION-API-RESPONSE-2025-09-12"
+DEPLOYMENT_VERSION = "V85-CRITICAL-FIX-INCONSISTENT-ORDER-EXTRACTION-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2625,11 +2625,16 @@ async def run_sync():
                 
                 # Store order info - always make separate API call for complete data
                 order_data = None
-                # Extract order ID from returns API response
+                # Extract order ID from returns API response - use same robust logic as collection
                 order_id = None
-                if ret.get('order') and ret['order'].get('id'):
-                    order_id = str(ret['order']['id'])
-                elif ret.get('order_id'):  # Direct order_id field
+                if ret.get('order'):
+                    if isinstance(ret['order'], dict):
+                        # Nested object format: {"order": {"id": "123"}}
+                        order_id = str(ret['order'].get('id')) if ret['order'].get('id') else None
+                    else:
+                        # Direct ID format: {"order": "123"}
+                        order_id = str(ret['order'])
+                elif ret.get('order_id'):  # Alternative field name: {"order_id": "123"}
                     order_id = str(ret['order_id'])
                     
                 # Always make separate API call to get complete order details with customer name
