@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V83-ENHANCED-DEBUGGING-ORDER-INSERTION-2025-09-12"
+DEPLOYMENT_VERSION = "V84-FIX-ORDER-ID-EXTRACTION-API-RESPONSE-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2504,9 +2504,22 @@ async def run_sync():
                         except Exception as e:
                             print(f"Error handling warehouse: {e}")
                 
-                    # Collect order ID if present
-                    if ret.get('order') and ret['order'].get('id'):
-                        all_order_ids.add(ret['order']['id'])
+                    # Collect order ID if present - handle multiple API response formats
+                    order_id_to_collect = None
+                    if ret.get('order'):
+                        if isinstance(ret['order'], dict):
+                            # Nested object format: {"order": {"id": "123"}}
+                            order_id_to_collect = ret['order'].get('id')
+                        else:
+                            # Direct ID format: {"order": "123"}
+                            order_id_to_collect = ret['order']
+                    elif ret.get('order_id'):
+                        # Alternative field name: {"order_id": "123"}
+                        order_id_to_collect = ret['order_id']
+                    
+                    if order_id_to_collect:
+                        all_order_ids.add(str(order_id_to_collect))
+                        print(f"📋 Collected order ID {order_id_to_collect} for return {return_id}")
                     
                     # Update or insert return - with overflow protection
                     # Convert large IDs to string to prevent arithmetic overflow
@@ -2830,6 +2843,10 @@ async def run_sync():
                 total_count = data['data'].get('total_count', 0)
                 if total_fetched >= max_returns_to_process or len(returns_batch) < limit:
                     print(f"Stopping sync: processed {total_fetched} recent returns (limit: {max_returns_to_process})")
+                    print(f"🔢 COLLECTED {len(all_order_ids)} unique order IDs from {total_fetched} returns")
+                    if len(all_order_ids) > 0:
+                        sample_ids = list(all_order_ids)[:5]
+                        print(f"📝 Sample order IDs: {sample_ids}")
                     break
                     
             except Exception as e:
