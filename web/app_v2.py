@@ -1213,7 +1213,7 @@ async def get_return_detail(return_id: int):
         import requests
         
         headers = {
-            "X-API-KEY": WAREHANCE_API_KEY,
+            "X-API-KEY": "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1",
             "accept": "application/json"
         }
         
@@ -1284,16 +1284,8 @@ async def get_return_detail(return_id: int):
 async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
     try:
-        # Parse the request body as JSON - same as search endpoint
-        body = await request.json()
-        filter_params = {
-            'client_id': body.get('client_id'),
-            'status': body.get('status'),
-            'search': body.get('search', ''),
-            'date_from': body.get('date_from'),
-            'date_to': body.get('date_to')
-        }
-        print(f"DEBUG: Export filters: {filter_params}")
+        # Parse the request body as JSON
+        filter_params = await request.json()
     except Exception as e:
         print(f"JSON parsing error in export_returns_csv: {e}")
         filter_params = {}
@@ -1338,31 +1330,14 @@ async def export_returns_csv(request: Request):
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
-    # Add date filtering - same as search endpoint
-    date_from = filter_params.get('date_from')
-    date_to = filter_params.get('date_to')
-    
-    if date_from:
-        placeholder = get_param_placeholder()
-        query += f" AND r.created_at >= {placeholder}"
-        params.append(date_from)
-    
-    if date_to:
-        placeholder = get_param_placeholder()  
-        query += f" AND r.created_at <= {placeholder}"
-        params.append(date_to + ' 23:59:59')  # Include full day
-    
     query += " ORDER BY r.created_at DESC"
     
     cursor.execute(query, ensure_tuple_params(params))
     returns = cursor.fetchall()
     
-    # Convert rows to dict for Azure SQL - same logic as search endpoint
+    # Convert rows to dict for Azure SQL
     if USE_AZURE_SQL:
-        if returns and hasattr(returns[0], 'keys'):
-            pass  # Already dictionaries
-        else:
-            returns = rows_to_dict(cursor, returns) if returns else []
+        returns = rows_to_dict(cursor, returns) if returns else []
     
     # Create CSV in memory
     output = io.StringIO()
@@ -1382,23 +1357,19 @@ async def export_returns_csv(request: Request):
         customer_name = return_row['customer_name'] if return_row['customer_name'] else ''
         
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
-        placeholder = get_param_placeholder()
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
                    COALESCE(p.name, 'Unknown Product') as name, ri.quantity,
                    ri.return_reasons, ri.condition_on_arrival
             FROM return_items ri
             LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = {placeholder}
-        """, ensure_tuple_params((return_id,)))
+            WHERE ri.return_id = %s
+        """, (return_id,))
         items = cursor.fetchall()
         
-        # Convert items to dict for Azure SQL - same logic as search
+        # Convert items to dict for Azure SQL
         if USE_AZURE_SQL:
-            if items and hasattr(items[0], 'keys'):
-                pass  # Already dictionaries
-            else:
-                items = rows_to_dict(cursor, items) if items else []
+            items = rows_to_dict(cursor, items) if items else []
         
         if items:
             # Write return items from database
