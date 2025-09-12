@@ -611,7 +611,7 @@ async def search_returns(filter_params: dict):
            r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
            r.first_synced_at, r.last_synced_at,
            c.name as client_name, w.name as warehouse_name,
-           o.order_number
+           o.order_number, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -724,6 +724,7 @@ async def search_returns(filter_params: dict):
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
                 "order_number": row['order_number'],
+                "customer_name": row['customer_name'],
                 "is_shared": False
             }
         else:
@@ -755,6 +756,7 @@ async def search_returns(filter_params: dict):
                 "client_name": row['client_name'],
                 "warehouse_name": row['warehouse_name'],
                 "order_number": row['order_number'],
+                "customer_name": row['customer_name'],
                 "is_shared": False
             }
         
