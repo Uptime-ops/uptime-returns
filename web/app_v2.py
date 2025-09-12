@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V78-CORRECTED-COLUMN-NAMES-2025-09-12"
+DEPLOYMENT_VERSION = "V79-FOCUS-RECENT-RETURNS-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2367,9 +2367,11 @@ async def run_sync():
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
         print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
-        # Start from offset 0 to get all returns including newer ones with product data
-        offset = 0
-        limit = 50  # Smaller batches for testing
+        # Start from recent returns (last 200) to get returns with new order/items data
+        # API was updated last week, so focus on recent returns
+        offset = 0  # Start from most recent
+        limit = 20  # Smaller batches to focus on recent data with items
+        max_returns_to_process = 200  # Limit to recent returns only
         total_fetched = 0
         
         while True:
@@ -2416,11 +2418,18 @@ async def run_sync():
                 for ret in returns_batch:
                     return_id = ret['id']
                     client_name = ret.get('client', {}).get('name', 'no-client')
-                    log_sync_activity(f"Processing return {return_id} from client {client_name}")
+                    
+                    # Enhanced logging to see API response structure
+                    has_order = bool(ret.get('order'))
+                    has_items = bool(ret.get('items'))
+                    items_count = len(ret.get('items', [])) if ret.get('items') else 0
+                    
+                    print(f"Return {return_id}: order={has_order}, items={has_items} (count: {items_count})")
+                    log_sync_activity(f"Processing return {return_id} from {client_name}: order={has_order}, items={items_count}")
                     
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
-                    sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']})..."
+                    sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']}) - order:{has_order}, items:{items_count}"
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
@@ -2727,9 +2736,10 @@ async def run_sync():
                 
                 total_fetched += len(returns_batch)
                 
-                # Check if we've fetched all returns
+                # Check if we've fetched enough recent returns or reached limit
                 total_count = data['data'].get('total_count', 0)
-                if total_fetched >= total_count or len(returns_batch) < limit:
+                if total_fetched >= max_returns_to_process or len(returns_batch) < limit:
+                    print(f"Stopping sync: processed {total_fetched} recent returns (limit: {max_returns_to_process})")
                     break
                     
             except Exception as e:
