@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V63-ROWS-TO-DICT-FIX-2025-09-12"
+DEPLOYMENT_VERSION = "V69-SYNC-TRIGGER-FIX-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1783,13 +1783,9 @@ async def debug_simple_sync():
         }
 
 @app.post("/api/sync/trigger")
-async def trigger_sync(request: Request):
+async def trigger_sync():
     """Trigger a sync with Warehance API"""
-    try:
-        # Parse the request body as JSON (optional for this endpoint)
-        request_data = await request.json()
-    except Exception:
-        request_data = {}
+    # Don't parse request body - sync trigger doesn't need parameters
     
     global sync_status
     
