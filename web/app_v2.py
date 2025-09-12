@@ -3427,6 +3427,62 @@ async def test_direct_sync():
             "traceback": traceback.format_exc()
         }
 
+@app.get("/api/test-returns")
+async def test_returns():
+    """Simple test to get first 5 returns without complex search logic"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Simple query to get basic returns data
+        cursor.execute("""
+            SELECT r.id, r.api_id, r.status, r.created_at,
+                   c.name as client_name, w.name as warehouse_name
+            FROM returns r
+            LEFT JOIN clients c ON r.client_id = c.id
+            LEFT JOIN warehouses w ON r.warehouse_id = w.id
+            ORDER BY r.created_at DESC
+            LIMIT 5
+        """)
+        
+        rows = cursor.fetchall()
+        
+        if USE_AZURE_SQL:
+            results = [{
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "status": row['status'],
+                "created_at": str(row['created_at']),
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name']
+            } for row in rows]
+        else:
+            results = [{
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "status": row['status'],
+                "created_at": str(row['created_at']),
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name']
+            } for row in rows]
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "count": len(results),
+            "returns": results,
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Test returns failed: {str(e)}"
+        }
+
 @app.post("/api/clear-placeholder-data")
 async def clear_placeholder_data():
     """Clear existing placeholder data from database to allow fresh sync with real data"""
