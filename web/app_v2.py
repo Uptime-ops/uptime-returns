@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.37-CREATE-TEST-DATA-FOR-RECENT-RETURNS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.39-FIX-CSV-EXPORT-INT-OVERFLOW-GRACEFUL-SKIP-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1465,17 +1465,22 @@ async def export_returns_csv(request: Request):
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
         placeholder = get_param_placeholder()
         try:
-            cursor.execute(f"""
-                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
-                       COALESCE(p.name, 'Unknown Product') as name, 
-                       ri.quantity as order_quantity,
-                       ri.quantity_received as return_quantity,
-                       ri.return_reasons, ri.condition_on_arrival
-                FROM return_items ri
-                LEFT JOIN products p ON TRY_CAST(ri.product_id AS BIGINT) = TRY_CAST(p.id AS BIGINT)
-                WHERE ri.return_id = {placeholder}
-            """, (str(return_id),))
-            items = cursor.fetchall()
+            # Skip if this return_id would cause INT overflow in the database
+            if int(return_id) > 2147483647:  # Max INT value
+                print(f"=== CSV EXPORT: Skipping return {return_id} - would cause INT overflow ===")
+                items = []
+            else:
+                cursor.execute(f"""
+                    SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
+                           COALESCE(p.name, 'Unknown Product') as name, 
+                           ri.quantity as order_quantity,
+                           ri.quantity_received as return_quantity,
+                           ri.return_reasons, ri.condition_on_arrival
+                    FROM return_items ri
+                    LEFT JOIN products p ON TRY_CAST(ri.product_id AS BIGINT) = TRY_CAST(p.id AS BIGINT)
+                    WHERE ri.return_id = {placeholder}
+                """, (str(return_id),))
+                items = cursor.fetchall()
             print(f"=== CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items ===")
         except Exception as query_error:
             print(f"=== CSV EXPORT ERROR: Query failed for return {return_id}: {query_error} ===")
