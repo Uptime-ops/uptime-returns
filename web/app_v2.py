@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.12-SYNTAX-FIX-CSV-EXPORT-2025-01-15"
+DEPLOYMENT_VERSION = "V87.13-SYNTAX-FIXED-READY-FOR-TEST-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -375,9 +375,6 @@ def rows_to_dict(cursor, rows):
     # Try a completely different approach - manual dictionary building
     try:
         columns = [column[0] for column in cursor.description]
-        print(f"DEBUG rows_to_dict - Columns: {columns}")
-        print(f"DEBUG rows_to_dict - First row type: {type(rows[0])}")
-        print(f"DEBUG rows_to_dict - First row: {rows[0]}")
         
         result = []
         for row in rows:
@@ -389,14 +386,11 @@ def rows_to_dict(cursor, rows):
                     row_dict[col_name] = None
             result.append(row_dict)
         
-        print(f"DEBUG rows_to_dict - First result: {result[0] if result else 'No result'}")
         return result
         
     except Exception as e:
-        print(f"DEBUG rows_to_dict - ERROR: {e}")
         # Fallback - return rows as-is if they're already dictionaries
         if rows and isinstance(rows[0], dict):
-            print("DEBUG rows_to_dict - Rows already dictionaries, returning as-is")
             return rows
         return []
 
