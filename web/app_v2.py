@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.25-HYBRID-INDIVIDUAL-API-APPROACH-2025-01-15"
+DEPLOYMENT_VERSION = "V87.26-ADD-HYBRID-TEST-ENDPOINT-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4406,6 +4406,169 @@ async def test_direct_sync():
             "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()
         }
+
+@app.get("/api/test-hybrid-sync")
+async def test_hybrid_sync():
+    """Test the hybrid individual API sync approach directly"""
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "version": DEPLOYMENT_VERSION,
+        "hybrid_test": {}
+    }
+    
+    try:
+        # Use same headers as main sync
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get baseline counts
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_before = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM return_items") 
+        return_items_before = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+        
+        results["hybrid_test"]["before"] = {
+            "products": products_before,
+            "return_items": return_items_before
+        }
+        
+        # Test hybrid approach on one return
+        cursor.execute("SELECT TOP 1 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 1")
+        test_return = cursor.fetchone()
+        return_id = test_return[0] if not USE_AZURE_SQL else test_return['id']
+        
+        results["hybrid_test"]["test_return_id"] = str(return_id)
+        
+        # Try individual API call
+        print(f"🧪 HYBRID TEST: Testing return {return_id}")
+        individual_response = requests.get(
+            f"https://api.warehance.com/v1/returns/{return_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        results["hybrid_test"]["api_call"] = {
+            "status_code": individual_response.status_code,
+            "success": individual_response.status_code == 200
+        }
+        
+        if individual_response.status_code == 200:
+            individual_data = individual_response.json()
+            if individual_data.get("status") == "success":
+                return_data = individual_data.get("data", {})
+                items = return_data.get('items', [])
+                
+                results["hybrid_test"]["api_data"] = {
+                    "has_items": len(items) > 0,
+                    "items_count": len(items),
+                    "items": []
+                }
+                
+                products_created = 0
+                return_items_created = 0
+                
+                # Process each item
+                for item in items:
+                    item_id = item.get('id')
+                    product_data = item.get('product', {})
+                    product_sku = product_data.get('sku', '')
+                    product_name = product_data.get('name', '')
+                    quantity = item.get('quantity', 0)
+                    
+                    item_result = {
+                        "item_id": item_id,
+                        "product_sku": product_sku,
+                        "product_name": product_name,
+                        "quantity": quantity,
+                        "has_product_data": bool(product_name)
+                    }
+                    
+                    if product_name and product_sku:  # Real product data
+                        print(f"🎯 HYBRID TEST: Found real product: {product_name}")
+                        
+                        # Create product if not exists
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                        existing = cursor.fetchone()
+                        
+                        if not existing:
+                            cursor.execute(f"""
+                                INSERT INTO products (sku, name, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                            """, ensure_tuple_params((product_sku, product_name)))
+                            conn.commit()
+                            products_created += 1
+                            item_result["product_created"] = True
+                        else:
+                            item_result["product_existed"] = True
+                        
+                        # Get product ID
+                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                        product_result = cursor.fetchone()
+                        db_product_id = product_result['id'] if USE_AZURE_SQL else product_result[0]
+                        
+                        # Create return item if not exists
+                        cursor.execute(f"""
+                            SELECT COUNT(*) as count FROM return_items 
+                            WHERE return_id = {placeholder} AND product_id = {placeholder}
+                        """, (str(return_id), db_product_id))
+                        item_exists_result = cursor.fetchone()
+                        item_exists = item_exists_result['count'] > 0 if USE_AZURE_SQL else item_exists_result[0] > 0
+                        
+                        if not item_exists:
+                            cursor.execute(f"""
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                       {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                            """, ensure_tuple_params((
+                                str(return_id), db_product_id, quantity,
+                                '["Hybrid test"]', '["Good condition"]', quantity, 0
+                            )))
+                            conn.commit()
+                            return_items_created += 1
+                            item_result["return_item_created"] = True
+                        else:
+                            item_result["return_item_existed"] = True
+                    
+                    results["hybrid_test"]["items"].append(item_result)
+                
+                # Get final counts
+                cursor.execute("SELECT COUNT(*) as count FROM products")
+                products_after = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) as count FROM return_items")
+                return_items_after = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+                
+                results["hybrid_test"]["after"] = {
+                    "products": products_after,
+                    "return_items": return_items_after
+                }
+                
+                results["hybrid_test"]["created"] = {
+                    "products": products_created,
+                    "return_items": return_items_created
+                }
+                
+                results["hybrid_test"]["success"] = products_created > 0 or return_items_created > 0
+                results["hybrid_test"]["status"] = "✅ HYBRID TEST COMPLETED"
+            
+        conn.close()
+        return results
+        
+    except Exception as e:
+        results["hybrid_test"]["error"] = str(e)
+        results["hybrid_test"]["status"] = f"❌ HYBRID TEST FAILED: {str(e)}"
+        return results
 
 @app.get("/api/test-comprehensive")
 async def test_comprehensive():
