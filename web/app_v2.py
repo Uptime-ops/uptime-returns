@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.26-ADD-HYBRID-TEST-ENDPOINT-2025-01-15"
+DEPLOYMENT_VERSION = "V87.27-FULL-HYBRID-SYNC-ALL-RETURNS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2547,16 +2547,28 @@ async def run_sync():
                 conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Get a sample of return IDs from database to test individual API calls
-            cursor.execute("SELECT TOP 5 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 5")
+            # Get ALL return IDs from database to sync individual API calls
+            cursor.execute("SELECT id FROM returns ORDER BY created_at DESC")
             sample_returns = cursor.fetchall()
+            print(f"🔄 HYBRID SYNC: Processing {len(sample_returns)} returns with individual API calls...")
             
             individual_success_count = 0
-            for return_row in sample_returns:
+            total_returns = len(sample_returns)
+            
+            for idx, return_row in enumerate(sample_returns):
                 return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
-                print(f"🧪 HYBRID SYNC: Testing individual return API for {return_id}...")
+                
+                # Progress logging
+                if idx % 50 == 0 or idx == total_returns - 1:
+                    print(f"🧪 HYBRID SYNC: Processing return {idx+1}/{total_returns} (ID: {return_id})...")
+                    sync_status["last_sync_message"] = f"Processing return {idx+1}/{total_returns} with individual API..."
                 
                 try:
+                    # Add small delay to avoid overwhelming the API
+                    import time
+                    if idx % 10 == 0 and idx > 0:
+                        time.sleep(0.5)  # Half second delay every 10 requests
+                    
                     # Use same approach as working individual return endpoint
                     individual_response = requests.get(
                         f"https://api.warehance.com/v1/returns/{return_id}",
