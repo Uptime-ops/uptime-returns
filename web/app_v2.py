@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87-REMOVE-LIMITS-FASTER-PROCESSING-2025-09-12"
+DEPLOYMENT_VERSION = "V87.1-FIX-BATCH-SIZE-REFERENCE-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2912,11 +2912,11 @@ async def run_sync():
         
         orders_needing_update = [row['order_id'] if USE_AZURE_SQL else row[0] for row in order_id_rows]
         print(f"📋 Found {len(orders_needing_update)} returns with order IDs needing customer data")
-        print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_update)} orders (no 500 limit) in batches of {batch_size}")
-        customers_updated = 0
         
         # Fetch order details in batches (NO LIMIT - process all orders)
         batch_size = 50  # Fetch 50 orders at a time (increased from 20 for speed)
+        print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_update)} orders (no 500 limit) in batches of {batch_size}")
+        customers_updated = 0
         for i in range(0, len(orders_needing_update), batch_size):  # Process ALL orders (removed 500 limit)
             batch = orders_needing_update[i:i+batch_size]
             batch_num = (i // batch_size) + 1
