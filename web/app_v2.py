@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.32-FIX-PRODUCT-CREATION-LOGIC-AND-INT-OVERFLOW-2025-01-15"
+DEPLOYMENT_VERSION = "V87.34-FIX-CRITICAL-ACTUAL-PRODUCT-ID-BUG-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -3079,6 +3079,8 @@ async def run_sync():
                                         VALUES ({placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                     """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
                                 product_id = cursor.lastrowid
+                                # CRITICAL FIX: Set actual_product_id so return_items can be created
+                                actual_product_id = product_id
                         elif product_id > 0:
                             # Ensure product exists - simplified approach
                             try:
