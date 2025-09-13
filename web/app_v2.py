@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.15-FIX-RETURNS-ENDPOINT-500-ERROR-2025-01-15"
+DEPLOYMENT_VERSION = "V87.16-AZURE-SQL-DICTIONARY-FIX-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -693,7 +693,10 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     
     cursor.execute(count_query, ensure_tuple_params(params))
     count_result = cursor.fetchone()
-    total_count = count_result[0] if count_result else 0
+    if USE_AZURE_SQL:
+        total_count = count_result['total_count'] if count_result else 0
+    else:
+        total_count = count_result[0] if count_result else 0
     
     # Get paginated results
     query += " ORDER BY r.created_at DESC"
