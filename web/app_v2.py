@@ -8,6 +8,7 @@ import os
 import datetime
 DEPLOYMENT_VERSION = "V87.10-SAFE-CSV-EXPORT-IMPROVEMENTS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
+# Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
 print("=== THIS IS THE NEW APP_V2.PY FILE ===")
