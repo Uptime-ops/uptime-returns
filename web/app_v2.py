@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.9-REVERT-TO-WORKING-STATE-2025-01-15"
+DEPLOYMENT_VERSION = "V87.10-SAFE-CSV-EXPORT-IMPROVEMENTS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1283,6 +1283,7 @@ async def get_return_detail(return_id: int):
 @app.post("/api/returns/export/csv")
 async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
+    print("=== CSV EXPORT: Starting export process ===")
     try:
         # Parse the request body as JSON
         filter_params = await request.json()
@@ -1378,12 +1379,12 @@ async def export_returns_csv(request: Request):
             # Write return items from database
             for item in items:
                 reasons = ''
-                if item['return_reasons']:
+                if item.get('return_reasons'):
                     try:
                         reasons_data = json.loads(item['return_reasons'])
                         reasons = ', '.join(reasons_data) if isinstance(reasons_data, list) else str(reasons_data)
                     except:
-                        reasons = str(item['return_reasons'])
+                        reasons = str(item.get('return_reasons', ''))
                 
                 writer.writerow([
                     return_row['client_name'] or '',
@@ -1391,9 +1392,9 @@ async def export_returns_csv(request: Request):
                     return_row['order_date'] or '',
                     return_row['return_date'],
                     return_row['order_number'] or '',
-                    item['name'] or '',
-                    item['order_quantity'] or 0,  # Original order quantity
-                    item['return_quantity'] or 0,  # Actual return quantity received
+                    item.get('name', '') or '',
+                    item.get('order_quantity', 0) or 0,  # Original order quantity
+                    item.get('return_quantity', 0) or 0,  # Actual return quantity received
                     reasons
                 ])
         else:
