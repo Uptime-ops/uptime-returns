@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.23-FIX-API-AUTH-AND-COROUTINE-ERRORS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.24-AUTO-MIGRATION-AND-API-FIXES-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2485,6 +2485,54 @@ async def run_sync():
         # Test database connection early with detailed logging
         print("=== SYNC DEBUG: Testing database connection...")
         sync_status["last_sync_message"] = "STEP 2: Testing database connection..."
+        
+        # CRITICAL: Ensure database schema is migrated before sync
+        print("=== SYNC DEBUG: Ensuring database schema is migrated (INT -> BIGINT)...")
+        sync_status["last_sync_message"] = "STEP 2.1: Running database migration..."
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            # Check if products.id is still INT and needs migration
+            if USE_AZURE_SQL:
+                cursor.execute("""
+                    SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
+                """)
+                result = cursor.fetchone()
+                current_type = result[0] if result else "unknown"
+                
+                if current_type == "int":
+                    print(f"🔧 SYNC DEBUG: products.id is {current_type}, running migration to BIGINT...")
+                    # Run critical migrations
+                    migrations = [
+                        "ALTER TABLE products ALTER COLUMN id BIGINT",
+                        "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
+                    ]
+                    for migration in migrations:
+                        try:
+                            cursor.execute(migration)
+                            conn.commit()
+                            print(f"✅ SYNC DEBUG: Migration successful: {migration}")
+                        except Exception as mig_err:
+                            print(f"⚠️ SYNC DEBUG: Migration warning: {migration} - {mig_err}")
+                    
+                    # Verify migration
+                    cursor.execute("""
+                        SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
+                    """)
+                    new_result = cursor.fetchone()
+                    new_type = new_result[0] if new_result else "unknown"
+                    print(f"✅ SYNC DEBUG: products.id type after migration: {new_type}")
+                else:
+                    print(f"✅ SYNC DEBUG: products.id already {current_type}, migration not needed")
+            
+            conn.close()
+        except Exception as schema_err:
+            print(f"⚠️ SYNC DEBUG: Schema migration error (continuing): {schema_err}")
+        
+        sync_status["last_sync_message"] = "STEP 2.2: Database migration completed, continuing sync..."
         
         print(f"=== SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
         print(f"=== SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
