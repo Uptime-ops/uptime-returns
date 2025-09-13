@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V86.1-ADD-SYNC-STOP-ENDPOINT-2025-09-12"
+DEPLOYMENT_VERSION = "V87-REMOVE-LIMITS-FASTER-PROCESSING-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2912,19 +2912,24 @@ async def run_sync():
         
         orders_needing_update = [row['order_id'] if USE_AZURE_SQL else row[0] for row in order_id_rows]
         print(f"📋 Found {len(orders_needing_update)} returns with order IDs needing customer data")
+        print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_update)} orders (no 500 limit) in batches of {batch_size}")
         customers_updated = 0
         
-        # Fetch order details in batches (limit to avoid timeout)
-        batch_size = 20  # Fetch 20 orders at a time
-        for i in range(0, min(len(orders_needing_update), 500), batch_size):  # Max 500 orders per sync
+        # Fetch order details in batches (NO LIMIT - process all orders)
+        batch_size = 50  # Fetch 50 orders at a time (increased from 20 for speed)
+        for i in range(0, len(orders_needing_update), batch_size):  # Process ALL orders (removed 500 limit)
             batch = orders_needing_update[i:i+batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(orders_needing_update) + batch_size - 1) // batch_size
+            print(f"📦 Processing batch {batch_num}/{total_batches} ({len(batch)} orders)")
+            sync_status["last_sync_message"] = f"Processing batch {batch_num}/{total_batches} - {sync_status['orders_synced']} orders completed"
             
             for order_id in batch:
                 try:
                     order_response = requests.get(
                         f"https://api.warehance.com/v1/orders/{order_id}",
                         headers=headers,
-                        timeout=5
+                        timeout=3  # Reduced from 5s to 3s for speed
                     )
                     if order_response.status_code == 200:
                         order_data = order_response.json().get('data', {})
