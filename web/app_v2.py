@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.10-SAFE-CSV-EXPORT-IMPROVEMENTS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.11-CSV-DEBUG-AND-SCHEMA-FIX-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1287,15 +1287,19 @@ async def export_returns_csv(request: Request):
     print("=== CSV EXPORT: Starting export process ===")
     try:
         # Parse the request body as JSON
-        filter_params = await request.json()
-    except Exception as e:
-        print(f"JSON parsing error in export_returns_csv: {e}")
-        filter_params = {}
-    
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+        try:
+            filter_params = await request.json()
+            print(f"=== CSV EXPORT: Filter params: {filter_params} ===")
+        except Exception as e:
+            print(f"JSON parsing error in export_returns_csv: {e}")
+            filter_params = {}
+        
+        print("=== CSV EXPORT: Getting database connection ===")
+        conn = get_db_connection()
+        print("=== CSV EXPORT: Database connection successful ===")
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
     
     # First get all returns matching the filter
     query = """
@@ -1360,17 +1364,22 @@ async def export_returns_csv(request: Request):
         
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
         placeholder = get_param_placeholder()
-        cursor.execute(f"""
-            SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
-                   COALESCE(p.name, 'Unknown Product') as name, 
-                   ri.quantity as order_quantity,
-                   ri.quantity_received as return_quantity,
-                   ri.return_reasons, ri.condition_on_arrival
-            FROM return_items ri
-            LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = {placeholder}
-        """, (return_id,))
-        items = cursor.fetchall()
+        try:
+            cursor.execute(f"""
+                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
+                       COALESCE(p.name, 'Unknown Product') as name, 
+                       ri.quantity as order_quantity,
+                       ri.quantity_received as return_quantity,
+                       ri.return_reasons, ri.condition_on_arrival
+                FROM return_items ri
+                LEFT JOIN products p ON CAST(ri.product_id AS BIGINT) = CAST(p.id AS BIGINT)
+                WHERE ri.return_id = {placeholder}
+            """, (str(return_id),))
+            items = cursor.fetchall()
+            print(f"=== CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items ===")
+        except Exception as query_error:
+            print(f"=== CSV EXPORT ERROR: Query failed for return {return_id}: {query_error} ===")
+            items = []  # Continue with empty items instead of crashing
         
         # Convert items to dict for Azure SQL
         if USE_AZURE_SQL:
