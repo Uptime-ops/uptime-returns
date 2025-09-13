@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.20-FIX-MISSING-PRODUCT-DATA-PLACEHOLDER-2025-01-15"
+DEPLOYMENT_VERSION = "V87.21-CRITICAL-FIX-PRODUCT-ID-MAPPING-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2954,7 +2954,12 @@ async def run_sync():
                                 print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
                                 actual_product_id = None
                         else:
-                            actual_product_id = product_id
+                            # Product ID > 0, so product should exist or have been created above
+                            # actual_product_id should already be set correctly in the Azure SQL path
+                            # For SQLite, we can use the API product_id directly  
+                            if not USE_AZURE_SQL:
+                                actual_product_id = product_id
+                            # For Azure SQL, actual_product_id is already set correctly above
                         
                         # Store return item with proper error handling
                         import json
