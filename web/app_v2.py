@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.35-BYPASS-INT-OVERFLOW-WITH-SMALLER-IDS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.36-CREATE-TEST-DATA-FOR-EXISTING-RETURN-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4475,8 +4475,9 @@ async def create_csv_test_data():
             product_result = cursor.fetchone()
             db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
             
-            # Create return item with small return_id to avoid overflow
-            small_return_id = str(1000 + idx)  # Use small IDs like 1001, 1002
+            # Use an existing return ID from the database to satisfy foreign key constraints
+            # We know from logs that return IDs like 1, 2, 3 exist and are small enough
+            existing_return_id = str(idx)  # Use small existing IDs like 1, 2
             
             if USE_AZURE_SQL:
                 cursor.execute(f"""
@@ -4485,7 +4486,7 @@ async def create_csv_test_data():
                     VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
                            {placeholder}, {placeholder}, GETDATE(), GETDATE())
                 """, ensure_tuple_params((
-                    small_return_id, db_product_id, 2,
+                    existing_return_id, db_product_id, 2,
                     '["CSV Export Test"]',
                     '["Good condition"]',
                     2, 0
@@ -4497,7 +4498,7 @@ async def create_csv_test_data():
                     VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
                            {placeholder}, {placeholder}, datetime('now'), datetime('now'))
                 """, ensure_tuple_params((
-                    small_return_id, db_product_id, 2,
+                    existing_return_id, db_product_id, 2,
                     '["CSV Export Test"]',
                     '["Good condition"]',
                     2, 0
