@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V86-DATABASE-DRIVEN-APPROACH-LIKE-INDIVIDUAL-RETURNS-2025-09-12"
+DEPLOYMENT_VERSION = "V86.1-ADD-SYNC-STOP-ENDPOINT-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1807,6 +1807,22 @@ async def trigger_sync_test():
     asyncio.create_task(run_sync())
     
     return {"message": "Sync started via GET test", "status": "started"}
+
+@app.post("/api/sync/stop")
+async def stop_sync():
+    """Force stop any running sync process"""
+    global sync_status
+    
+    was_running = sync_status["is_running"]
+    sync_status["is_running"] = False
+    sync_status["last_sync_status"] = "stopped"
+    sync_status["last_sync_message"] = "Sync stopped by user request"
+    
+    return {
+        "message": f"Sync {'stopped' if was_running else 'was not running'}",
+        "status": "stopped",
+        "was_running": was_running
+    }
 
 @app.get("/api/debug/minimal-sync-test")
 async def minimal_sync_test():
