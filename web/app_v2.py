@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.22-COMPREHENSIVE-DEBUG-LOGGING-AND-TESTS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.23-FIX-API-AUTH-AND-COROUTINE-ERRORS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4303,7 +4303,7 @@ async def test_comprehensive():
         # Test 3: API Connectivity Test (single return)
         print("🧪 TEST 3: Testing API connectivity")
         try:
-            headers = {"Authorization": f"Bearer {WAREHANCE_API_KEY}"}
+            headers = {"X-API-KEY": WAREHANCE_API_KEY}
             api_response = requests.get(
                 "https://api.warehance.com/v1/returns?limit=1",
                 headers=headers,
@@ -4373,13 +4373,14 @@ async def test_comprehensive():
         # Test 5: Sync Status Check
         print("🧪 TEST 5: Checking current sync status")
         try:
-            sync_status = get_sync_status()
+            # Access global sync_status directly instead of calling async function
+            global sync_status
             results["tests"]["sync_status"] = {
-                "current_status": sync_status.get("current_sync", {}).get("status"),
-                "items_synced": sync_status.get("current_sync", {}).get("items_synced", 0),
-                "products_synced": sync_status.get("current_sync", {}).get("products_synced", 0),
-                "return_items_synced": sync_status.get("current_sync", {}).get("return_items_synced", 0),
-                "last_sync_message": sync_status.get("current_sync", {}).get("last_sync_message"),
+                "current_status": sync_status.get("status", "unknown"),
+                "items_synced": sync_status.get("items_synced", 0),
+                "products_synced": sync_status.get("products_synced", 0),
+                "return_items_synced": sync_status.get("return_items_synced", 0),
+                "last_sync_message": sync_status.get("last_sync_message", "No message"),
                 "status": "✅ PASS"
             }
         except Exception as sync_err:
