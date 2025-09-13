@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.27-FULL-HYBRID-SYNC-ALL-RETURNS-2025-01-15"
+DEPLOYMENT_VERSION = "V87.28-ADD-MANUAL-PRODUCT-POPULATION-TEST-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4417,6 +4417,105 @@ async def test_direct_sync():
         return {
             "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()
+        }
+
+@app.get("/api/manual-populate-test")
+async def manual_populate_test():
+    """Manually populate products and return_items using working individual API calls"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear existing test data
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Get 10 recent returns to populate manually
+        cursor.execute("SELECT TOP 10 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 10")
+        sample_returns = cursor.fetchall()
+        
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        products_created = 0
+        items_created = 0
+        
+        for return_row in sample_returns:
+            return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
+            
+            # Use proven working individual API approach
+            individual_response = requests.get(
+                f"https://api.warehance.com/v1/returns/{return_id}",
+                headers=headers,
+                timeout=10
+            )
+            
+            if individual_response.status_code == 200:
+                individual_data = individual_response.json()
+                if individual_data.get("status") == "success":
+                    return_data = individual_data.get("data", {})
+                    items = return_data.get('items', [])
+                    
+                    for item in items:
+                        product_data = item.get('product', {})
+                        product_sku = product_data.get('sku', '')
+                        product_name = product_data.get('name', '')
+                        quantity = item.get('quantity', 0)
+                        
+                        if product_name and product_sku:
+                            # Create product if not exists
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                            existing = cursor.fetchone()
+                            
+                            if not existing:
+                                cursor.execute(f"""
+                                    INSERT INTO products (sku, name, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
+                                """, ensure_tuple_params((product_sku, product_name)))
+                                conn.commit()
+                                products_created += 1
+                            
+                            # Get product ID
+                            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                            product_result = cursor.fetchone()
+                            db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+                            
+                            # Create return item
+                            cursor.execute(f"""
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                       {placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
+                            """, ensure_tuple_params((
+                                str(return_id), db_product_id, quantity,
+                                '["Manual API populate test"]',
+                                '["Good condition"]',
+                                quantity, 0
+                            )))
+                            conn.commit()
+                            items_created += 1
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Manual populate test completed successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "This uses the proven working individual API approach"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Manual populate test failed: {str(e)}"
         }
 
 @app.get("/api/test-hybrid-sync")
