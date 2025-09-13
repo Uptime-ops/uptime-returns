@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.19-SCHEMA-MIGRATION-INT-TO-BIGINT-FIX-2025-01-15"
+DEPLOYMENT_VERSION = "V87.20-FIX-MISSING-PRODUCT-DATA-PLACEHOLDER-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2869,6 +2869,7 @@ async def run_sync():
                         
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
                         if product_id == 0 and product_sku:
+                            # Original logic for products with SKU but no ID
                             # Try to find existing product by SKU
                             placeholder = get_param_placeholder()
                             cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
@@ -2921,6 +2922,39 @@ async def run_sync():
                             except Exception as prod_err:
                                 print(f"Product INSERT error for ID {product_id}: {prod_err}")
                                 # Continue processing even if product insert fails
+                        elif product_id == 0 and not product_sku:
+                            # Handle case where both product_id and product_sku are missing/empty
+                            # Create a placeholder product for the return item
+                            try:
+                                item_id = item.get('id', 'unknown')
+                                placeholder_sku = f"UNKNOWN_ITEM_{item_id}"
+                                placeholder_name = f"Return Item {item_id} (No Product Data)"
+                                
+                                if USE_AZURE_SQL:
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"""
+                                        INSERT INTO products (sku, name, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((placeholder_sku, placeholder_name)))
+                                    # Get the newly inserted product ID
+                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (placeholder_sku,))
+                                    new_product = cursor.fetchone()
+                                    actual_product_id = new_product['id'] if new_product else None
+                                    sync_status["products_synced"] += 1
+                                    print(f"Placeholder product created: SKU: {placeholder_sku}, DB ID: {actual_product_id}")
+                                else:
+                                    # SQLite version
+                                    cursor.execute("""
+                                        INSERT INTO products (sku, name, created_at, updated_at)
+                                        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    """, (placeholder_sku, placeholder_name))
+                                    actual_product_id = cursor.lastrowid
+                                    sync_status["products_synced"] += 1
+                            except Exception as placeholder_err:
+                                print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
+                                actual_product_id = None
+                        else:
+                            actual_product_id = product_id
                         
                         # Store return item with proper error handling
                         import json
