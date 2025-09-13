@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.30-FORCE-DEPLOY-DIRECT-PRODUCT-INSERTION-2025-01-15"
+DEPLOYMENT_VERSION = "V87.31-FIX-SQL-PARAMETER-MISMATCH-ERROR-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4464,10 +4464,16 @@ async def direct_populate_from_working_returns():
             existing = cursor.fetchone()
             
             if not existing:
-                cursor.execute(f"""
-                    INSERT INTO products (sku, name, created_at, updated_at)
-                    VALUES ({placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
-                """, ensure_tuple_params((product_sku, product_name)))
+                if USE_AZURE_SQL:
+                    cursor.execute(f"""
+                        INSERT INTO products (sku, name, created_at, updated_at)
+                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                    """, ensure_tuple_params((product_sku, product_name)))
+                else:
+                    cursor.execute(f"""
+                        INSERT INTO products (sku, name, created_at, updated_at)
+                        VALUES ({placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                    """, ensure_tuple_params((product_sku, product_name)))
                 conn.commit()
                 products_created += 1
             
@@ -4477,17 +4483,30 @@ async def direct_populate_from_working_returns():
             db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
             
             # Create return item
-            cursor.execute(f"""
-                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
-                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
-                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
-                       {placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
-            """, ensure_tuple_params((
-                str(return_id), db_product_id, quantity,
-                '["Direct populate from working return"]',
-                '["Good condition"]',
-                quantity, 0
-            )))
+            if USE_AZURE_SQL:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                """, ensure_tuple_params((
+                    str(return_id), db_product_id, quantity,
+                    '["Direct populate from working return"]',
+                    '["Good condition"]',
+                    quantity, 0
+                )))
+            else:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                """, ensure_tuple_params((
+                    str(return_id), db_product_id, quantity,
+                    '["Direct populate from working return"]',
+                    '["Good condition"]',
+                    quantity, 0
+                )))
             conn.commit()
             items_created += 1
         
