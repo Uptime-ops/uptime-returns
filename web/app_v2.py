@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.21-CRITICAL-FIX-PRODUCT-ID-MAPPING-2025-01-15"
+DEPLOYMENT_VERSION = "V87.21-CRITICAL-FIX-PRODUCT-ID-MAPPING-DEPLOY-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
