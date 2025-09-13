@@ -1720,11 +1720,10 @@ async def debug_one_return_sync():
                         result["product_merge"] = "success"
                     else:
                         # SQLite version - can use explicit IDs
-                        placeholder = get_param_placeholder()
-                        cursor.execute(f"""
+                        cursor.execute("""
                             INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                            VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """, (product_id, product_sku, product_name))
                         result["product_insert"] = "success"
                         
                     conn.commit()
@@ -2803,11 +2802,10 @@ async def run_sync():
                                         print(f"Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
                                 else:
                                     # SQLite version - can use explicit IDs
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"""
+                                    cursor.execute("""
                                         INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    """, (product_id, product_sku, product_name))
                                     sync_status["products_synced"] += 1
                             except Exception as prod_err:
                                 print(f"Product INSERT error for ID {product_id}: {prod_err}")
