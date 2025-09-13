@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.13-SYNTAX-FIXED-DEPLOY-RETRY-2025-01-15"
+DEPLOYMENT_VERSION = "V87.14-ADD-MISSING-RETURNS-ENDPOINT-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -614,6 +614,88 @@ async def get_warehouses():
         if 'conn' in locals():
             conn.close()
         return []
+
+@app.get("/api/returns")
+async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] = None, status: Optional[str] = None, search: Optional[str] = None):
+    """Get returns with pagination and filtering for GET requests"""
+    # Create a mock request object with query parameters
+    filter_params = {
+        'page': page,
+        'limit': limit,
+        'client_id': client_id,
+        'status': status,
+        'search': search
+    }
+    
+    conn = get_db_connection()
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Build query with filters
+    query = """
+    SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at, 
+           r.processed, r.processed_at, r.warehouse_note, r.customer_note, 
+           r.tracking_number, r.tracking_url, r.carrier, r.service, 
+           r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided,
+           r.client_id, r.warehouse_id, r.order_id, r.return_integration_id, 
+           r.last_synced_at, c.name as client_name, w.name as warehouse_name,
+           o.order_number, o.customer_name
+    FROM returns r
+    LEFT JOIN clients c ON r.client_id = c.id
+    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
+    WHERE 1=1
+    """
+    
+    params = []
+    if client_id:
+        placeholder = get_param_placeholder()
+        query += f" AND r.client_id = {placeholder}"
+        params.append(client_id)
+    
+    if status:
+        if status == 'pending':
+            query += " AND r.processed = 0"
+        elif status == 'processed':
+            query += " AND r.processed = 1"
+    
+    if search:
+        placeholder = get_param_placeholder()
+        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        search_param = f"%{search}%"
+        params.extend([search_param, search_param, search_param])
+    
+    # Count total rows for pagination
+    count_query = query.replace("SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at, r.processed, r.processed_at, r.warehouse_note, r.customer_note, r.tracking_number, r.tracking_url, r.carrier, r.service, r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided, r.client_id, r.warehouse_id, r.order_id, r.return_integration_id, r.last_synced_at, c.name as client_name, w.name as warehouse_name, o.order_number, o.customer_name", "SELECT COUNT(*) as total_count")
+    
+    cursor.execute(count_query, ensure_tuple_params(params))
+    count_result = cursor.fetchone()
+    total_count = count_result[0] if count_result else 0
+    
+    # Get paginated results
+    query += " ORDER BY r.created_at DESC"
+    limit_clause = format_limit_clause(limit, (page - 1) * limit)
+    query += f" {limit_clause}"
+    
+    cursor.execute(query, ensure_tuple_params(params))
+    rows = cursor.fetchall()
+    
+    # Convert rows to dict for Azure SQL
+    if USE_AZURE_SQL:
+        rows = rows_to_dict(cursor, rows) if rows else []
+    
+    conn.close()
+    
+    total_pages = (total_count + limit - 1) // limit
+    
+    return {
+        "returns": rows,
+        "total_count": total_count,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages
+    }
 
 @app.post("/api/returns/search")
 async def search_returns(request: Request):
