@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.36-CREATE-TEST-DATA-FOR-EXISTING-RETURN-2025-01-15"
+DEPLOYMENT_VERSION = "V87.37-CREATE-TEST-DATA-FOR-RECENT-RETURNS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1248,7 +1248,7 @@ async def search_returns_test():
     }
 
 @app.get("/api/returns/{return_id}")
-async def get_return_detail(return_id: int):
+async def get_return_detail(return_id: str):
     """Get detailed information for a specific return including order items if available"""
     conn = get_db_connection()
     if not USE_AZURE_SQL:
