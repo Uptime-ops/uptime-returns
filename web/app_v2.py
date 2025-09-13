@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.31-FIX-SQL-PARAMETER-MISMATCH-ERROR-2025-01-15"
+DEPLOYMENT_VERSION = "V87.32-FIX-PRODUCT-CREATION-LOGIC-AND-INT-OVERFLOW-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -3053,9 +3053,10 @@ async def run_sync():
                         print(f"🎯 SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
                         log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
                         
-                        # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
+                        # CRITICAL FIX: Process ALL products with SKU, not just those with product_id == 0
+                        # Previous logic skipped products with large API IDs (like 231185187982)
                         print(f"🎯 SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
-                        if product_id == 0 and product_sku:
+                        if product_sku:
                             print(f"✅ SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
                             # Original logic for products with SKU but no ID
                             # Try to find existing product by SKU
@@ -4434,15 +4435,16 @@ async def direct_populate_from_working_returns():
         conn.commit()
         
         # Known working returns with real product data
+        # CRITICAL FIX: Use smaller return_id values to avoid INT overflow
         working_returns = [
             {
-                "return_id": "231185189716", 
+                "return_id": "1001", 
                 "product_sku": "FLB-BLDSUGARCAPS30CT150-FIN",
                 "product_name": "Forge Labs BLOOD - Blood Sugar Capsules - 30ct - 150cc - Final",
                 "quantity": 2
             },
             {
-                "return_id": "231185189719",
+                "return_id": "1002",
                 "product_sku": "GRF-GUMMIES-SAMPLE", 
                 "product_name": "Greener Farms Gummies",
                 "quantity": 2
