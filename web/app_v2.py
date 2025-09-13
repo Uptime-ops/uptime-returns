@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.1-FIX-BATCH-SIZE-REFERENCE-2025-09-12"
+DEPLOYMENT_VERSION = "V87.2-INCREASE-RETURNS-FETCH-BATCH-SIZE-2025-09-12"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2405,7 +2405,7 @@ async def run_sync():
         # Start from recent returns (last 200) to get returns with new order/items data
         # API was updated last week, so focus on recent returns
         offset = 0  # Start from most recent
-        limit = 20  # Smaller batches to focus on recent data with items
+        limit = 50  # Increased batch size for faster returns fetching (was 20)
         max_returns_to_process = 200  # Limit to recent returns only
         total_fetched = 0
         
