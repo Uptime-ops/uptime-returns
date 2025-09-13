@@ -1716,6 +1716,7 @@ async def debug_one_return_sync():
                         """, ensure_tuple_params((product_id, product_sku, product_name)))
                         result["product_merge"] = "success"
                     else:
+                        # SQLite version - can use explicit IDs
                         placeholder = get_param_placeholder()
                         cursor.execute(f"""
                             INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
@@ -2798,6 +2799,7 @@ async def run_sync():
                                         actual_product_id = existing_product['id']
                                         print(f"Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
                                 else:
+                                    # SQLite version - can use explicit IDs
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
                                         INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
@@ -3013,6 +3015,7 @@ async def run_sync():
                                                 VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                             """, ensure_tuple_params((sku, product_name)))
                                     else:
+                                        # SQLite version - can use explicit IDs
                                         cursor.execute("""
                                             INSERT OR IGNORE INTO products (id, sku, name) 
                                             VALUES (?, ?, ?)
