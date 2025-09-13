@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.14-ADD-MISSING-RETURNS-ENDPOINT-2025-01-15"
+DEPLOYMENT_VERSION = "V87.15-FIX-RETURNS-ENDPOINT-500-ERROR-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -667,7 +667,29 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
         params.extend([search_param, search_param, search_param])
     
     # Count total rows for pagination
-    count_query = query.replace("SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at, r.processed, r.processed_at, r.warehouse_note, r.customer_note, r.tracking_number, r.tracking_url, r.carrier, r.service, r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided, r.client_id, r.warehouse_id, r.order_id, r.return_integration_id, r.last_synced_at, c.name as client_name, w.name as warehouse_name, o.order_number, o.customer_name", "SELECT COUNT(*) as total_count")
+    count_query = """
+    SELECT COUNT(*) as total_count
+    FROM returns r
+    LEFT JOIN clients c ON r.client_id = c.id
+    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN orders o ON r.order_id = o.id
+    WHERE 1=1
+    """
+    
+    # Add same filters to count query
+    if client_id:
+        placeholder = get_param_placeholder()
+        count_query += f" AND r.client_id = {placeholder}"
+    
+    if status:
+        if status == 'pending':
+            count_query += " AND r.processed = 0"
+        elif status == 'processed':
+            count_query += " AND r.processed = 1"
+    
+    if search:
+        placeholder = get_param_placeholder()
+        count_query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
     
     cursor.execute(count_query, ensure_tuple_params(params))
     count_result = cursor.fetchone()
