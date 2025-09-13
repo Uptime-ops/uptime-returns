@@ -2779,17 +2779,24 @@ async def run_sync():
                             # Ensure product exists - simplified approach
                             try:
                                 if USE_AZURE_SQL:
-                                    # Check if product exists, insert if not
+                                    # Check if product exists by SKU, insert if not
                                     placeholder = get_param_placeholder()
-                                    cursor.execute(f"SELECT COUNT(*) as count FROM products WHERE id = {placeholder}", (product_id,))
-                                    result = cursor.fetchone()
-                                    if result['count'] == 0:
+                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                    existing_product = cursor.fetchone()
+                                    if not existing_product:
                                         cursor.execute(f"""
-                                            INSERT INTO products (id, sku, name, created_at, updated_at)
-                                            VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                            INSERT INTO products (sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        """, ensure_tuple_params((product_sku, product_name)))
+                                        # Get the newly inserted product ID
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                        new_product = cursor.fetchone()
+                                        actual_product_id = new_product['id'] if new_product else None
                                         sync_status["products_synced"] += 1
-                                        print(f"Product inserted: ID {product_id}, SKU: {product_sku}")
+                                        print(f"Product inserted: SKU: {product_sku}, DB ID: {actual_product_id}")
+                                    else:
+                                        actual_product_id = existing_product['id']
+                                        print(f"Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
                                 else:
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
@@ -2810,9 +2817,9 @@ async def run_sync():
                                 cursor.execute(f"""
                                     SELECT COUNT(*) as count FROM return_items 
                                     WHERE return_id = {placeholder} AND product_id = {placeholder}
-                                """, (return_id, product_id if product_id > 0 else None))
+                                """, (return_id, actual_product_id))
                                 result = cursor.fetchone()
-                                if result['count'] == 0:
+                                if result['count'] == 0 and actual_product_id:
                                     cursor.execute(f"""
                                         INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
@@ -2820,7 +2827,7 @@ async def run_sync():
                                                {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                     """, ensure_tuple_params((
                                         return_id,
-                                        product_id if product_id > 0 else None,
+                                        actual_product_id,
                                         item.get('quantity', 0),
                                         json.dumps(item.get('return_reasons', [])),
                                         json.dumps(item.get('condition_on_arrival', [])),
@@ -2828,7 +2835,9 @@ async def run_sync():
                                         item.get('quantity_rejected', 0)
                                     )))
                                     sync_status["return_items_synced"] += 1
-                                    print(f"Return item inserted: return {return_id}, product {product_id}, qty {item.get('quantity', 0)}")
+                                    print(f"Return item inserted: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
+                                elif not actual_product_id:
+                                    print(f"Skipping return item - no product ID found for SKU {product_sku}")
                             else:
                                 # SQLite - use INSERT OR REPLACE
                                 placeholder = get_param_placeholder()
@@ -2995,15 +3004,28 @@ async def run_sync():
                                     # Ensure product exists
                                     if USE_AZURE_SQL:
                                         placeholder = get_param_placeholder()
-                                        cursor.execute(f"""
-                                            INSERT INTO products (id, sku, name) 
-                                            VALUES ({placeholder}, {placeholder}, {placeholder})
-                                        """, ensure_tuple_params((product_id, sku, product_name)))
+                                        # Check if product exists first
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (sku,))
+                                        existing = cursor.fetchone()
+                                        if not existing:
+                                            cursor.execute(f"""
+                                                INSERT INTO products (sku, name, created_at, updated_at) 
+                                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params((sku, product_name)))
                                     else:
                                         cursor.execute("""
                                             INSERT OR IGNORE INTO products (id, sku, name) 
                                             VALUES (?, ?, ?)
                                         """, (product_id, sku, product_name))
+                                    
+                                    # Get actual product ID from database (since we can't use explicit ID)
+                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (sku,))
+                                    db_product = cursor.fetchone()
+                                    if db_product:
+                                        actual_product_id = db_product['id']
+                                    else:
+                                        print(f"Warning: Product not found in DB for SKU {sku}")
+                                        continue
                                     
                                     # Find the return that references this order
                                     placeholder = get_param_placeholder()
@@ -3016,10 +3038,11 @@ async def run_sync():
                                         return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
                                         
                                         # Check if return item already exists
-                                        cursor.execute("""
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"""
                                             SELECT COUNT(*) as count FROM return_items 
-                                            WHERE return_id = %s AND product_id = %s
-                                        """, (return_id, product_id))
+                                            WHERE return_id = {placeholder} AND product_id = {placeholder}
+                                        """, (return_id, actual_product_id))
                                         item_result = cursor.fetchone()
                                         exists = item_result['count'] > 0
                                         
@@ -3046,7 +3069,7 @@ async def run_sync():
                                                      condition_on_arrival, quantity_received, quantity_rejected)
                                                     VALUES (?, ?, ?, ?, ?, ?, ?)
                                                 """, (
-                                                    return_id, product_id, display_qty,
+                                                    return_id, actual_product_id, display_qty,
                                                     '["Original order item"]',  # Default return reason
                                                     '["Unknown"]',  # Default condition
                                                     display_qty,  # Assume all received
