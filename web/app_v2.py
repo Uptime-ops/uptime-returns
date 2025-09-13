@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.21-CRITICAL-FIX-PRODUCT-ID-MAPPING-DEPLOY-2025-01-15"
+DEPLOYMENT_VERSION = "V87.22-COMPREHENSIVE-DEBUG-LOGGING-AND-TESTS-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2830,14 +2830,23 @@ async def run_sync():
                 # Store return items - always try separate API call for complete data
                 items_data = []
                 
+                # COMPREHENSIVE LOGGING: Check return structure
+                print(f"🔍 SYNC TRACE: Return {return_id} structure analysis:")
+                print(f"🔍 SYNC TRACE: - ret.keys() = {list(ret.keys()) if isinstance(ret, dict) else 'Not a dict'}")
+                print(f"🔍 SYNC TRACE: - ret.get('items') = {ret.get('items')}")
+                print(f"🔍 SYNC TRACE: - items type = {type(ret.get('items'))}")
+                print(f"🔍 SYNC TRACE: - items length = {len(ret.get('items', [])) if ret.get('items') else 'None'}")
+                
                 # First check if embedded items exist and have complete data
                 if ret.get('items') and len(ret['items']) > 0:
                     items_data = ret['items']
-                    print(f"Return {return_id}: Using embedded items data ({len(items_data)} items)")
+                    print(f"✅ SYNC TRACE: Return {return_id}: Using embedded items data ({len(items_data)} items)")
+                    print(f"🔍 SYNC TRACE: First item structure: {items_data[0] if items_data else 'No items'}")
                 else:
+                    print(f"⚠️ SYNC TRACE: Return {return_id}: No embedded items, trying separate API call")
                     # Make separate API call to fetch return items
                     try:
-                        print(f"Return {return_id}: Fetching return items via separate API call")
+                        print(f"🔄 SYNC TRACE: Return {return_id}: Fetching return items via separate API call")
                         items_response = requests.get(
                             f"https://api.warehance.com/v1/returns/{return_id}/items",
                             headers=headers,
@@ -2846,29 +2855,35 @@ async def run_sync():
                         
                         if items_response.status_code == 200:
                             items_api_data = items_response.json()
+                            print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
                             if items_api_data.get("status") == "success":
                                 items_data = items_api_data.get("data", [])
-                                print(f"Return {return_id}: Successfully fetched {len(items_data)} return items")
+                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
                             else:
-                                print(f"Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                                print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                         else:
-                            print(f"Return {return_id}: Items API call failed with status {items_response.status_code}")
+                            print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
                     except Exception as items_err:
-                        print(f"Return {return_id}: Error fetching return items: {items_err}")
+                        print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
                 
                 # Process return items if we have them
                 if items_data:
                     items_count = len(items_data)
+                    print(f"🎯 SYNC TRACE: Processing {items_count} return items for return {return_id}")
                     log_sync_activity(f"Processing {items_count} return items for return {return_id}")
                     for item_idx, item in enumerate(items_data, 1):
+                        print(f"🔍 SYNC TRACE: Item {item_idx}/{items_count} full structure: {item}")
                         # Get or create product
                         product_id = item.get('product', {}).get('id', 0)
                         product_sku = item.get('product', {}).get('sku', '')
                         product_name = item.get('product', {}).get('name', '')
+                        print(f"🎯 SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
                         log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
                         
                         # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
+                        print(f"🎯 SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
                         if product_id == 0 and product_sku:
+                            print(f"✅ SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
                             # Original logic for products with SKU but no ID
                             # Try to find existing product by SKU
                             placeholder = get_param_placeholder()
@@ -2923,12 +2938,14 @@ async def run_sync():
                                 print(f"Product INSERT error for ID {product_id}: {prod_err}")
                                 # Continue processing even if product insert fails
                         elif product_id == 0 and not product_sku:
+                            print(f"✅ SYNC TRACE: Taking path 2: product_id=0 AND no SKU - creating placeholder")
                             # Handle case where both product_id and product_sku are missing/empty
                             # Create a placeholder product for the return item
                             try:
                                 item_id = item.get('id', 'unknown')
                                 placeholder_sku = f"UNKNOWN_ITEM_{item_id}"
                                 placeholder_name = f"Return Item {item_id} (No Product Data)"
+                                print(f"🎯 SYNC TRACE: Creating placeholder - item_id={item_id}, sku={placeholder_sku}, name={placeholder_name}")
                                 
                                 if USE_AZURE_SQL:
                                     placeholder = get_param_placeholder()
@@ -2954,25 +2971,33 @@ async def run_sync():
                                 print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
                                 actual_product_id = None
                         else:
+                            print(f"✅ SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
                             # Product ID > 0, so product should exist or have been created above
                             # actual_product_id should already be set correctly in the Azure SQL path
                             # For SQLite, we can use the API product_id directly  
                             if not USE_AZURE_SQL:
                                 actual_product_id = product_id
+                                print(f"🎯 SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
+                            else:
+                                print(f"🎯 SYNC TRACE: Azure SQL path - actual_product_id should be set from above logic")
                             # For Azure SQL, actual_product_id is already set correctly above
                         
                         # Store return item with proper error handling
+                        print(f"🎯 SYNC TRACE: Preparing to create return_item - return_id={return_id}, actual_product_id={actual_product_id}")
                         import json
                         try:
                             if USE_AZURE_SQL:
+                                print(f"🎯 SYNC TRACE: Azure SQL path - checking if return_item exists")
                                 # Simplified insert for Azure SQL - check and insert
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
                                     SELECT COUNT(*) as count FROM return_items 
                                     WHERE return_id = {placeholder} AND product_id = {placeholder}
-                                """, (return_id, actual_product_id))
+                                """, (str(return_id), actual_product_id))
                                 result = cursor.fetchone()
-                                if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0) and actual_product_id:
+                                exists = result['count'] > 0 if USE_AZURE_SQL else result[0] > 0
+                                print(f"🎯 SYNC TRACE: Return item exists check - count={result}, exists={exists}, actual_product_id={actual_product_id}")
+                                if not exists and actual_product_id:
                                     cursor.execute(f"""
                                         INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
@@ -2988,9 +3013,11 @@ async def run_sync():
                                         item.get('quantity_rejected', 0)
                                     )))
                                     sync_status["return_items_synced"] += 1
-                                    print(f"Return item inserted: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
+                                    print(f"✅ SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                 elif not actual_product_id:
-                                    print(f"Skipping return item - no product ID found for SKU {product_sku}")
+                                    print(f"⚠️ SYNC TRACE: Skipping return item - no valid product ID (actual_product_id={actual_product_id})")
+                                else:
+                                    print(f"⚠️ SYNC TRACE: Skipping return item - already exists (return_id={return_id}, product_id={actual_product_id})")
                             else:
                                 # SQLite - use INSERT OR REPLACE
                                 placeholder = get_param_placeholder()
@@ -3015,10 +3042,13 @@ async def run_sync():
                             print(f"Return item INSERT error for return {return_id}, product {product_id}: {item_err}")
                             # Continue processing other items
                     
+                    print(f"✅ SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
                     log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
                 else:
+                    print(f"⚠️ SYNC TRACE: No items found for return {return_id} - items_data is empty")
+                    print(f"⚠️ SYNC TRACE: Return {return_id} items field from API: {ret.get('items')}")
                     log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
-                    print(f"Successfully processed return {return_id} (no items)")
+                    print(f"⚠️ SYNC TRACE: Successfully processed return {return_id} (no items)")
                 
                 total_fetched += len(returns_batch)
                 
@@ -4215,6 +4245,161 @@ async def test_direct_sync():
             "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()
         }
+
+@app.get("/api/test-comprehensive")
+async def test_comprehensive():
+    """Comprehensive test suite for debugging sync and export issues"""
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "version": DEPLOYMENT_VERSION,
+        "tests": {}
+    }
+    
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Test 1: Database State
+        print("🧪 TEST 1: Checking database state")
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_count = cursor.fetchone()
+        returns_total = returns_count['count'] if USE_AZURE_SQL else returns_count[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_count = cursor.fetchone()
+        products_total = products_count['count'] if USE_AZURE_SQL else products_count[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        return_items_count = cursor.fetchone()
+        return_items_total = return_items_count['count'] if USE_AZURE_SQL else return_items_count[0]
+        
+        results["tests"]["database_state"] = {
+            "returns_count": returns_total,
+            "products_count": products_total,
+            "return_items_count": return_items_total,
+            "status": "✅ PASS"
+        }
+        
+        # Test 2: Sample Return Structure
+        print("🧪 TEST 2: Checking sample return structure")
+        cursor.execute("SELECT TOP 1 * FROM returns" if USE_AZURE_SQL else "SELECT * FROM returns LIMIT 1")
+        sample_return = cursor.fetchone()
+        if sample_return:
+            sample_return_dict = dict(sample_return) if USE_AZURE_SQL else dict(sample_return)
+            results["tests"]["sample_return"] = {
+                "exists": True,
+                "id": sample_return_dict.get('id'),
+                "has_order_id": bool(sample_return_dict.get('order_id')),
+                "status": "✅ PASS"
+            }
+        else:
+            results["tests"]["sample_return"] = {
+                "exists": False,
+                "status": "❌ FAIL - No returns found"
+            }
+        
+        # Test 3: API Connectivity Test (single return)
+        print("🧪 TEST 3: Testing API connectivity")
+        try:
+            headers = {"Authorization": f"Bearer {WAREHANCE_API_KEY}"}
+            api_response = requests.get(
+                "https://api.warehance.com/v1/returns?limit=1",
+                headers=headers,
+                timeout=10
+            )
+            if api_response.status_code == 200:
+                api_data = api_response.json()
+                api_returns = api_data.get('data', {}).get('returns', [])
+                results["tests"]["api_connectivity"] = {
+                    "status_code": 200,
+                    "returns_in_response": len(api_returns),
+                    "first_return_has_items": bool(api_returns[0].get('items')) if api_returns else False,
+                    "first_return_items_count": len(api_returns[0].get('items', [])) if api_returns else 0,
+                    "status": "✅ PASS"
+                }
+                if api_returns and api_returns[0].get('items'):
+                    first_item = api_returns[0]['items'][0]
+                    results["tests"]["api_connectivity"]["sample_item_structure"] = {
+                        "item_id": first_item.get('id'),
+                        "product_id": first_item.get('product', {}).get('id'),
+                        "product_sku": first_item.get('product', {}).get('sku'),
+                        "product_name": first_item.get('product', {}).get('name'),
+                        "quantity": first_item.get('quantity')
+                    }
+            else:
+                results["tests"]["api_connectivity"] = {
+                    "status_code": api_response.status_code,
+                    "status": f"❌ FAIL - API returned {api_response.status_code}"
+                }
+        except Exception as api_err:
+            results["tests"]["api_connectivity"] = {
+                "error": str(api_err),
+                "status": "❌ FAIL - API connection error"
+            }
+        
+        # Test 4: Database Schema Check
+        print("🧪 TEST 4: Checking database schema")
+        try:
+            # Check products table structure
+            if USE_AZURE_SQL:
+                cursor.execute("""
+                    SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'products'
+                    ORDER BY ORDINAL_POSITION
+                """)
+                products_schema = cursor.fetchall()
+                products_schema = [dict(row) for row in products_schema]
+            else:
+                cursor.execute("PRAGMA table_info(products)")
+                products_schema = cursor.fetchall()
+                products_schema = [dict(row) for row in products_schema]
+            
+            results["tests"]["database_schema"] = {
+                "products_columns": products_schema,
+                "products_id_type": next((col for col in products_schema if col.get('COLUMN_NAME') == 'id' or col.get('name') == 'id'), {}).get('DATA_TYPE' if USE_AZURE_SQL else 'type'),
+                "status": "✅ PASS"
+            }
+        except Exception as schema_err:
+            results["tests"]["database_schema"] = {
+                "error": str(schema_err),
+                "status": "❌ FAIL - Schema check error"
+            }
+        
+        conn.close()
+        
+        # Test 5: Sync Status Check
+        print("🧪 TEST 5: Checking current sync status")
+        try:
+            sync_status = get_sync_status()
+            results["tests"]["sync_status"] = {
+                "current_status": sync_status.get("current_sync", {}).get("status"),
+                "items_synced": sync_status.get("current_sync", {}).get("items_synced", 0),
+                "products_synced": sync_status.get("current_sync", {}).get("products_synced", 0),
+                "return_items_synced": sync_status.get("current_sync", {}).get("return_items_synced", 0),
+                "last_sync_message": sync_status.get("current_sync", {}).get("last_sync_message"),
+                "status": "✅ PASS"
+            }
+        except Exception as sync_err:
+            results["tests"]["sync_status"] = {
+                "error": str(sync_err),
+                "status": "❌ FAIL - Sync status error"
+            }
+        
+        results["overall_status"] = "✅ TEST SUITE COMPLETED"
+        results["summary"] = {
+            "total_tests": len(results["tests"]),
+            "passed_tests": len([t for t in results["tests"].values() if "✅ PASS" in t.get("status", "")]),
+            "failed_tests": len([t for t in results["tests"].values() if "❌ FAIL" in t.get("status", "")])
+        }
+        
+        return results
+        
+    except Exception as e:
+        results["overall_status"] = f"❌ TEST SUITE FAILED: {str(e)}"
+        return results
 
 @app.get("/api/test-returns")
 async def test_returns():
