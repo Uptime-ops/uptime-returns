@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.11-CSV-DEBUG-AND-SCHEMA-FIX-2025-01-15"
+DEPLOYMENT_VERSION = "V87.12-SYNTAX-FIX-CSV-EXPORT-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1285,21 +1285,20 @@ async def get_return_detail(return_id: int):
 async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
     print("=== CSV EXPORT: Starting export process ===")
+    # Parse the request body as JSON
     try:
-        # Parse the request body as JSON
-        try:
-            filter_params = await request.json()
-            print(f"=== CSV EXPORT: Filter params: {filter_params} ===")
-        except Exception as e:
-            print(f"JSON parsing error in export_returns_csv: {e}")
-            filter_params = {}
-        
-        print("=== CSV EXPORT: Getting database connection ===")
-        conn = get_db_connection()
-        print("=== CSV EXPORT: Database connection successful ===")
-        if not USE_AZURE_SQL:
-            conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        filter_params = await request.json()
+        print(f"=== CSV EXPORT: Filter params: {filter_params} ===")
+    except Exception as e:
+        print(f"JSON parsing error in export_returns_csv: {e}")
+        filter_params = {}
+    
+    print("=== CSV EXPORT: Getting database connection ===")
+    conn = get_db_connection()
+    print("=== CSV EXPORT: Database connection successful ===")
+    if not USE_AZURE_SQL:
+        conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
     
     # First get all returns matching the filter
     query = """
