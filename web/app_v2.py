@@ -1357,13 +1357,16 @@ async def export_returns_csv(request: Request):
         customer_name = return_row['customer_name'] if return_row['customer_name'] else ''
         
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
-        cursor.execute("""
+        placeholder = get_param_placeholder()
+        cursor.execute(f"""
             SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
-                   COALESCE(p.name, 'Unknown Product') as name, ri.quantity,
+                   COALESCE(p.name, 'Unknown Product') as name, 
+                   ri.quantity as order_quantity,
+                   ri.quantity_received as return_quantity,
                    ri.return_reasons, ri.condition_on_arrival
             FROM return_items ri
             LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = %s
+            WHERE ri.return_id = {placeholder}
         """, (return_id,))
         items = cursor.fetchall()
         
@@ -1389,8 +1392,8 @@ async def export_returns_csv(request: Request):
                     return_row['return_date'],
                     return_row['order_number'] or '',
                     item['name'] or '',
-                    item['quantity'] or 0,  # Order Qty (using return qty as placeholder)
-                    item['quantity'] or 0,  # Return Qty
+                    item['order_quantity'] or 0,  # Original order quantity
+                    item['return_quantity'] or 0,  # Actual return quantity received
                     reasons
                 ])
         else:
@@ -3059,7 +3062,7 @@ async def run_sync():
                                                      condition_on_arrival, quantity_received, quantity_rejected)
                                                     VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                                 """, ensure_tuple_params((
-                                                    return_id, product_id, display_qty,
+                                                    return_id, actual_product_id, display_qty,
                                                     '["Original order item"]',  # Default return reason
                                                     '["Unknown"]',  # Default condition
                                                     display_qty,  # Assume all received
