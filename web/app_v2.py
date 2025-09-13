@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.24-AUTO-MIGRATION-AND-API-FIXES-2025-01-15"
+DEPLOYMENT_VERSION = "V87.25-HYBRID-INDIVIDUAL-API-APPROACH-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2536,6 +2536,119 @@ async def run_sync():
         
         print(f"=== SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
         print(f"=== SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
+        
+        # ALTERNATIVE APPROACH: Use individual return API calls (proven to work)
+        print("🔄 HYBRID SYNC: Testing individual return API approach...")
+        sync_status["last_sync_message"] = "STEP 2.3: Testing hybrid individual return API approach..."
+        
+        try:
+            conn = get_db_connection()
+            if not USE_AZURE_SQL:
+                conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Get a sample of return IDs from database to test individual API calls
+            cursor.execute("SELECT TOP 5 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 5")
+            sample_returns = cursor.fetchall()
+            
+            individual_success_count = 0
+            for return_row in sample_returns:
+                return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
+                print(f"🧪 HYBRID SYNC: Testing individual return API for {return_id}...")
+                
+                try:
+                    # Use same approach as working individual return endpoint
+                    individual_response = requests.get(
+                        f"https://api.warehance.com/v1/returns/{return_id}",
+                        headers=headers,
+                        timeout=10
+                    )
+                    
+                    if individual_response.status_code == 200:
+                        individual_data = individual_response.json()
+                        if individual_data.get("status") == "success":
+                            return_data = individual_data.get("data", {})
+                            items = return_data.get('items', [])
+                            
+                            print(f"✅ HYBRID SYNC: Return {return_id} has {len(items)} items")
+                            
+                            # Process items using our placeholder logic
+                            for item in items:
+                                item_id = item.get('id')
+                                product_data = item.get('product', {})
+                                product_sku = product_data.get('sku', '')
+                                product_name = product_data.get('name', '')
+                                quantity = item.get('quantity', 0)
+                                
+                                if product_name:  # If we have real product data
+                                    print(f"🎯 HYBRID SYNC: Found real product: {product_name} (SKU: {product_sku})")
+                                    
+                                    # Create/find product
+                                    placeholder = get_param_placeholder()
+                                    if USE_AZURE_SQL:
+                                        # Check if product exists
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                        existing = cursor.fetchone()
+                                        if not existing:
+                                            cursor.execute(f"""
+                                                INSERT INTO products (sku, name, created_at, updated_at)
+                                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params((product_sku, product_name)))
+                                            conn.commit()
+                                            sync_status["products_synced"] += 1
+                                            print(f"✅ HYBRID SYNC: Created product: {product_name}")
+                                        
+                                        # Get product ID
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                        product_result = cursor.fetchone()
+                                        db_product_id = product_result['id'] if product_result else None
+                                        
+                                        if db_product_id:
+                                            # Create return item
+                                            cursor.execute(f"""
+                                                SELECT COUNT(*) as count FROM return_items 
+                                                WHERE return_id = {placeholder} AND product_id = {placeholder}
+                                            """, (str(return_id), db_product_id))
+                                            item_exists = cursor.fetchone()
+                                            
+                                            if item_exists and item_exists['count'] == 0:
+                                                cursor.execute(f"""
+                                                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                                           {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                                """, ensure_tuple_params((
+                                                    str(return_id), db_product_id, quantity,
+                                                    '["Individual API call"]',
+                                                    '["Good condition"]',
+                                                    quantity, 0
+                                                )))
+                                                conn.commit()
+                                                sync_status["return_items_synced"] += 1
+                                                print(f"✅ HYBRID SYNC: Created return item for {product_name}")
+                            
+                            individual_success_count += 1
+                        else:
+                            print(f"⚠️ HYBRID SYNC: Return {return_id} API returned non-success")
+                    else:
+                        print(f"❌ HYBRID SYNC: Return {return_id} API failed with {individual_response.status_code}")
+                
+                except Exception as individual_err:
+                    print(f"💥 HYBRID SYNC: Error with return {return_id}: {individual_err}")
+            
+            conn.close()
+            
+            if individual_success_count > 0:
+                print(f"🎉 HYBRID SYNC: Successfully processed {individual_success_count} returns with individual API calls!")
+                sync_status["last_sync_message"] = f"STEP 2.4: Hybrid approach successful - processed {individual_success_count} returns"
+                sync_status["items_synced"] = individual_success_count
+            else:
+                print("⚠️ HYBRID SYNC: No returns successfully processed with individual approach")
+                sync_status["last_sync_message"] = "STEP 2.4: Hybrid approach failed - no returns processed"
+                
+        except Exception as hybrid_err:
+            print(f"💥 HYBRID SYNC: Hybrid approach error: {hybrid_err}")
+            sync_status["last_sync_message"] = f"STEP 2.4: Hybrid approach error: {hybrid_err}"
         
         conn = get_db_connection()
         if not conn:
