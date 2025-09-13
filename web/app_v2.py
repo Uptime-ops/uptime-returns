@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.18-FIX-CSV-BIGINT-OVERFLOW-TRY-CAST-2025-01-15"
+DEPLOYMENT_VERSION = "V87.19-SCHEMA-MIGRATION-INT-TO-BIGINT-FIX-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2231,7 +2231,7 @@ async def initialize_database():
             """,
             'products': """
                 CREATE TABLE products (
-                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    id BIGINT IDENTITY(1,1) PRIMARY KEY,
                     sku NVARCHAR(100),
                     name NVARCHAR(500),
                     created_at DATETIME DEFAULT GETDATE(),
@@ -2269,7 +2269,7 @@ async def initialize_database():
                 CREATE TABLE return_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
                     return_id NVARCHAR(50),
-                    product_id INT,
+                    product_id BIGINT,
                     quantity INT DEFAULT 0,
                     return_reasons NVARCHAR(MAX),
                     condition_on_arrival NVARCHAR(MAX),
@@ -4050,7 +4050,10 @@ async def migrate_to_bigint():
             "ALTER TABLE returns ALTER COLUMN order_id BIGINT",
             "ALTER TABLE return_items ALTER COLUMN return_id BIGINT",
             "ALTER TABLE email_history ALTER COLUMN client_id BIGINT",
-            "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT"
+            "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT",
+            # CRITICAL: Fix product ID overflow issues
+            "ALTER TABLE products ALTER COLUMN id BIGINT",
+            "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
         ]
         
         for cmd in migration_commands:
