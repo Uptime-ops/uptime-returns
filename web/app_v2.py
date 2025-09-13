@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.16-AZURE-SQL-DICTIONARY-FIX-2025-01-15"
+DEPLOYMENT_VERSION = "V87.18-FIX-CSV-BIGINT-OVERFLOW-TRY-CAST-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1472,7 +1472,7 @@ async def export_returns_csv(request: Request):
                        ri.quantity_received as return_quantity,
                        ri.return_reasons, ri.condition_on_arrival
                 FROM return_items ri
-                LEFT JOIN products p ON CAST(ri.product_id AS BIGINT) = CAST(p.id AS BIGINT)
+                LEFT JOIN products p ON TRY_CAST(ri.product_id AS BIGINT) = TRY_CAST(p.id AS BIGINT)
                 WHERE ri.return_id = {placeholder}
             """, (str(return_id),))
             items = cursor.fetchall()
@@ -2099,7 +2099,7 @@ async def migrate_database():
                 """, (table_name, column_name))
                 
                 result = cursor.fetchone()
-                exists = result['count'] > 0
+                exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
                 
                 if not exists:
                     # Add the column
@@ -2329,7 +2329,7 @@ async def initialize_database():
                 """, (table_name,))
                 
                 result = cursor.fetchone()
-                exists = result['count'] > 0
+                exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
                 
                 if not exists:
                     cursor.execute(create_sql)
@@ -2661,7 +2661,7 @@ async def run_sync():
                         placeholder = get_param_placeholder()
                         cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
-                        exists = return_result['count'] > 0
+                        exists = (return_result['count'] > 0 if USE_AZURE_SQL else return_result[0] > 0)
                         
                         if exists:
                             # Update existing return
@@ -2805,7 +2805,7 @@ async def run_sync():
                             placeholder = get_param_placeholder()
                             cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order_data['id']),))
                             order_result = cursor.fetchone()
-                            if order_result['count'] == 0:
+                            if (order_result['count'] == 0 if USE_AZURE_SQL else order_result[0] == 0):
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
@@ -2933,14 +2933,14 @@ async def run_sync():
                                     WHERE return_id = {placeholder} AND product_id = {placeholder}
                                 """, (return_id, actual_product_id))
                                 result = cursor.fetchone()
-                                if result['count'] == 0 and actual_product_id:
+                                if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0) and actual_product_id:
                                     cursor.execute(f"""
                                         INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
                                         VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
                                                {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                     """, ensure_tuple_params((
-                                        return_id,
+                                        str(return_id),  # Convert to string for NVARCHAR field
                                         actual_product_id,
                                         item.get('quantity', 0),
                                         json.dumps(item.get('return_reasons', [])),
@@ -3071,7 +3071,7 @@ async def run_sync():
                             # Check if order exists first
                             cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (order_id,))
                             result = cursor.fetchone()
-                            if result['count'] == 0:
+                            if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0):
                                 # Insert new order
                                 cursor.execute(f"""
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
@@ -3159,7 +3159,10 @@ async def run_sync():
                                             WHERE return_id = {placeholder} AND product_id = {placeholder}
                                         """, (return_id, actual_product_id))
                                         item_result = cursor.fetchone()
-                                        exists = item_result['count'] > 0
+                                        if USE_AZURE_SQL:
+                                            exists = item_result['count'] > 0 if item_result else False
+                                        else:
+                                            exists = item_result[0] > 0 if item_result else False
                                         
                                         if not exists:
                                             # Create return item from order item
@@ -4144,7 +4147,7 @@ async def test_direct_sync():
                 placeholder = get_param_placeholder()
                 cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (str(return_id),))
                 result = cursor.fetchone()
-                exists = result['count'] > 0
+                exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
                 print(f"Return {return_id} exists in DB: {exists}")
                 
                 conn.close()
