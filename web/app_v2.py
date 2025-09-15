@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.44-FIX-GET-RETURN-DETAIL-SELECT-STAR-INT-OVERFLOW"
+DEPLOYMENT_VERSION = "V87.45-FIX-LIKE-QUERIES-CAUSING-INT-OVERFLOW"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -662,7 +662,7 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     
     if search:
         placeholder = get_param_placeholder()
-        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -689,7 +689,7 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     
     if search:
         placeholder = get_param_placeholder()
-        count_query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        count_query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
     
     cursor.execute(count_query, ensure_tuple_params(params))
     count_result = cursor.fetchone()
@@ -1048,7 +1048,7 @@ async def search_returns_test():
     
     if search:
         placeholder = get_param_placeholder()
-        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
@@ -1075,7 +1075,7 @@ async def search_returns_test():
     
     if search:
         placeholder = get_param_placeholder()
-        count_query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        count_query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         count_params.extend([search_param, search_param, search_param])
     
@@ -1437,7 +1437,7 @@ async def export_returns_csv(request: Request):
     
     if search:
         placeholder = get_param_placeholder()
-        query += f" AND (r.tracking_number LIKE {placeholder} OR r.id LIKE {placeholder} OR c.name LIKE {placeholder})"
+        query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
     
