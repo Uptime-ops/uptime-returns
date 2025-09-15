@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.52-FINAL-FIX-TABLE-CREATION-PLUS-SIMPLE-INSERTS"
+DEPLOYMENT_VERSION = "V87.53-SQL-PERMISSIONS-AND-TABLE-DIAGNOSTICS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2765,6 +2765,119 @@ async def debug_table_schemas():
 
     except Exception as e:
         return {"error": str(e), "exception_type": str(type(e))}
+
+@app.get("/api/debug/sql-diagnostics")
+async def sql_diagnostics():
+    """Comprehensive SQL diagnostics to investigate permissions and table issues"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        diagnostics = {}
+
+        # 1. Check current database and user
+        try:
+            cursor.execute("SELECT DB_NAME() as current_database, USER_NAME() as current_user, SUSER_NAME() as login_name")
+            result = cursor.fetchone()
+            diagnostics["database_info"] = {
+                "database": result[0] if result else "unknown",
+                "user": result[1] if result else "unknown",
+                "login": result[2] if result else "unknown"
+            }
+        except Exception as e:
+            diagnostics["database_info"] = {"error": str(e)}
+
+        # 2. Check user permissions
+        try:
+            cursor.execute("""
+                SELECT
+                    dp.state_desc,
+                    dp.permission_name,
+                    s.name AS principal_name
+                FROM sys.database_permissions dp
+                LEFT JOIN sys.objects o ON dp.major_id = o.object_id
+                LEFT JOIN sys.database_principals s ON dp.grantee_principal_id = s.principal_id
+                WHERE s.name = USER_NAME()
+            """)
+            permissions = []
+            for row in cursor.fetchall():
+                permissions.append({
+                    "state": row[0],
+                    "permission": row[1],
+                    "principal": row[2]
+                })
+            diagnostics["permissions"] = permissions
+        except Exception as e:
+            diagnostics["permissions"] = {"error": str(e)}
+
+        # 3. List all tables in database
+        try:
+            cursor.execute("""
+                SELECT TABLE_NAME, TABLE_TYPE
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = 'dbo'
+                ORDER BY TABLE_NAME
+            """)
+            tables = []
+            for row in cursor.fetchall():
+                tables.append({
+                    "name": row[0],
+                    "type": row[1]
+                })
+            diagnostics["all_tables"] = tables
+        except Exception as e:
+            diagnostics["all_tables"] = {"error": str(e)}
+
+        # 4. Check if specific tables exist
+        target_tables = ['products', 'return_items']
+        for table_name in target_tables:
+            try:
+                cursor.execute(f"""
+                    SELECT COUNT(*) as exists_check
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_NAME = '{table_name}' AND TABLE_SCHEMA = 'dbo'
+                """)
+                result = cursor.fetchone()
+                exists = result[0] > 0 if result else False
+                diagnostics[f"{table_name}_table_exists"] = exists
+
+                if exists:
+                    cursor.execute(f"SELECT COUNT(*) as row_count FROM {table_name}")
+                    result = cursor.fetchone()
+                    diagnostics[f"{table_name}_row_count"] = result[0] if result else 0
+            except Exception as e:
+                diagnostics[f"{table_name}_check_error"] = str(e)
+
+        # 5. Test table creation permission
+        try:
+            test_table_sql = """
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='test_permissions_table' AND xtype='U')
+            CREATE TABLE test_permissions_table (id INT, test_col NVARCHAR(50))
+            """
+            cursor.execute(test_table_sql)
+            diagnostics["create_table_test"] = "SUCCESS"
+
+            # Clean up test table
+            cursor.execute("DROP TABLE IF EXISTS test_permissions_table")
+            diagnostics["drop_table_test"] = "SUCCESS"
+        except Exception as e:
+            diagnostics["create_table_test"] = f"FAILED: {str(e)}"
+
+        # 6. Test INSERT permission on existing table
+        try:
+            cursor.execute("SELECT COUNT(*) FROM returns")
+            diagnostics["read_existing_table"] = "SUCCESS"
+        except Exception as e:
+            diagnostics["read_existing_table"] = f"FAILED: {str(e)}"
+
+        conn.close()
+        return diagnostics
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        }
 
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
