@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.47-TARGET-RETURNS-WITH-REAL-PRODUCT-DATA"
+DEPLOYMENT_VERSION = "V87.48-DEBUG-WHY-NO-RETURN-ITEMS-CREATED"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2572,6 +2572,77 @@ async def sync_returns_with_product_data():
             "returns_with_product_data": returns_with_data,
             "return_items_created": return_items_created
         }
+
+@app.get("/api/debug/test-single-return-231185187956")
+async def debug_specific_return():
+    """Debug why return 231185187956 with known product data didn't create return_items"""
+    try:
+        # Get API key
+        api_key = WAREHANCE_API_KEY
+        headers = {"X-API-KEY": api_key, "accept": "application/json"}
+        
+        # Fetch specific return
+        response = requests.get(
+            "https://api.warehance.com/v1/returns/231185187956", 
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            return {"error": f"API call failed: {response.status_code}"}
+        
+        data = response.json()
+        return_data = data.get('data', {})
+        items = return_data.get('items', [])
+        
+        debug_info = {
+            "return_id": return_data.get('id'),
+            "items_array_exists": items is not None,
+            "items_count": len(items) if items else 0,
+            "items_details": []
+        }
+        
+        # Check each item
+        if items:
+            for item in items:
+                product_info = item.get('product', {})
+                item_debug = {
+                    "item_id": item.get('id'),
+                    "has_product": product_info is not None,
+                    "product_id": product_info.get('id'),
+                    "product_sku": product_info.get('sku'),
+                    "product_name": product_info.get('name'),
+                    "quantity": item.get('quantity'),
+                    "has_complete_data": bool(product_info.get('sku') and product_info.get('name'))
+                }
+                debug_info["items_details"].append(item_debug)
+        
+        # Test database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if this return exists in database
+        placeholder = get_param_placeholder()
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ("231185187956",))
+        result = cursor.fetchone()
+        return_exists = result['count'] if USE_AZURE_SQL else result[0]
+        
+        # Check return_items for this return
+        cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder}", ("231185187956",))
+        result = cursor.fetchone()
+        return_items_count = result['count'] if USE_AZURE_SQL else result[0]
+        
+        conn.close()
+        
+        debug_info["database_status"] = {
+            "return_exists_in_db": return_exists > 0,
+            "return_items_in_db": return_items_count
+        }
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
 
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
