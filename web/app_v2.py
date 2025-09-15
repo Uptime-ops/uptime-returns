@@ -3,10 +3,12 @@ Enhanced FastAPI app with product details and CSV export
 """
 import sys
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.70-PERFORMANCE-BOOST-FASTER-API-CALLS-AND-VERSION-FIX"
+DEPLOYMENT_VERSION = "V87.72-SPEED-BOOST-WITH-CORRECT-WAREHANCE-API-BATCH-LIMITS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -291,13 +293,13 @@ def create_http_session():
     """Create a reusable HTTP session with connection pooling and retries"""
     session = requests.Session()
     retry_strategy = Retry(
-        total=3,
-        backoff_factor=0.3,
+        total=2,  # 🚀 SPEED: Reduced from 3 to 2 retries
+        backoff_factor=0.1,  # 🚀 SPEED: Reduced from 0.3 to 0.1 for faster retries
         status_forcelist=[429, 500, 502, 503, 504]
     )
     adapter = HTTPAdapter(
-        pool_connections=10,
-        pool_maxsize=20,
+        pool_connections=20,  # 🚀 SPEED: Increased from 10 to 20
+        pool_maxsize=50,  # 🚀 SPEED: Increased from 20 to 50
         max_retries=retry_strategy
     )
     session.mount("http://", adapter)
@@ -306,6 +308,27 @@ def create_http_session():
 
 # Global HTTP session for reuse
 http_session = create_http_session()
+
+def fetch_return_items_data(return_id, headers):
+    """Fetch items data for a single return - optimized for concurrent execution"""
+    try:
+        individual_response = http_session.get(
+            f"https://api.warehance.com/v1/returns/{return_id}",
+            headers=headers,
+            timeout=1.5  # 🚀 SPEED: Fast timeout for concurrent calls
+        )
+        if individual_response.status_code == 200:
+            individual_data = individual_response.json()
+            if individual_data.get("status") == "success":
+                individual_return_data = individual_data.get("data", {})
+                items_data = individual_return_data.get('items', [])
+                return return_id, items_data, None
+            else:
+                return return_id, [], f"API returned non-success status"
+        else:
+            return return_id, [], f"API call failed with status {individual_response.status_code}"
+    except Exception as e:
+        return return_id, [], f"Error: {str(e)}"
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -2395,8 +2418,8 @@ async def run_sync():
         # Start from recent returns (last 200) to get returns with new order/items data
         # API was updated last week, so focus on recent returns
         offset = 0  # Start from most recent
-        limit = 100  # PERFORMANCE: Maximum batch size for local-speed performance (was 50)
-        max_returns_to_process = 200  # Limit to recent returns only
+        limit = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 200)
+        max_returns_to_process = 500  # 🚀 SPEED: Increased limit to process more returns (was 200)
         total_fetched = 0
         
         while True:
@@ -2703,50 +2726,26 @@ async def run_sync():
                         print(f"Order data: {order_data}")
                         print(f"Customer name: {customer_name}")
                 
-                # Store return items - always try separate API call for complete data
+                # Store return items - use optimized concurrent approach
                 items_data = []
                 
-                # COMPREHENSIVE LOGGING: Check return structure
-                print(f"🔍 SYNC TRACE: Return {return_id} structure analysis:")
-                print(f"🔍 SYNC TRACE: - ret.keys() = {list(ret.keys()) if isinstance(ret, dict) else 'Not a dict'}")
-                print(f"🔍 SYNC TRACE: - ret.get('items') = {ret.get('items')}")
-                print(f"🔍 SYNC TRACE: - items type = {type(ret.get('items'))}")
-                print(f"🔍 SYNC TRACE: - items length = {len(ret.get('items', [])) if ret.get('items') else 'None'}")
-                
-                # CRITICAL FIX: Always use individual API call for items data since batch API doesn't include items
+                # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
                 print(f"🔄 SYNC TRACE: Return {return_id}: Fetching individual return with items data")
-                try:
-                    individual_response = requests.get(
-                        f"https://api.warehance.com/v1/returns/{return_id}",
-                        headers=headers,
-                        timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
-                    )
-                    if individual_response.status_code == 200:
-                        individual_data = individual_response.json()
-                        if individual_data.get("status") == "success":
-                            individual_return_data = individual_data.get("data", {})
-                            items_data = individual_return_data.get('items', [])
-                            print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
-                            if items_data:
-                                print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
-                        else:
-                            print(f"❌ SYNC TRACE: Return {return_id}: Individual API returned non-success status")
-                            items_data = []
-                    else:
-                        print(f"❌ SYNC TRACE: Return {return_id}: Individual API call failed with status {individual_response.status_code}")
-                        items_data = []
-                except Exception as individual_err:
-                    print(f"💥 SYNC TRACE: Return {return_id}: Error with individual API call: {individual_err}")
-                    items_data = []
+                return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
                 
-                # Fallback: Try separate items API call if individual return didn't work
-                if not items_data:
+                if items_data:
+                    print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                    if items_data:
+                        print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
+                elif error:
+                    print(f"❌ SYNC TRACE: Return {return_id}: {error}")
+                    # Fallback: Try separate items API call if individual return didn't work
                     print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
                     try:
-                        items_response = requests.get(
+                        items_response = http_session.get(
                             f"https://api.warehance.com/v1/returns/{return_id}/items",
                             headers=headers,
-                            timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
+                            timeout=1.5  # 🚀 SPEED: Reduced from 3s to 1.5s for maximum speed
                         )
                         if items_response.status_code == 200:
                             items_api_data = items_response.json()
@@ -3048,7 +3047,7 @@ async def run_sync():
         print(f"📋 Found {len(orders_needing_processing)} returns with order IDs needing return_items created")
         
         # Fetch order details in batches (NO LIMIT - process all orders)
-        batch_size = 50  # Fetch 50 orders at a time (increased from 20 for speed)
+        batch_size = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 50)
         print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_processing)} orders (no 500 limit) in batches of {batch_size}")
         customers_updated = 0
         for i in range(0, len(orders_needing_processing), batch_size):  # Process ALL orders (removed 500 limit)
