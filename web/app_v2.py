@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.59-PERFORMANCE-FIXES-BATCH-COMMITS-NO-DELAYS"
+DEPLOYMENT_VERSION = "V87.60-CRITICAL-FIX-REPLACE-1000-INDIVIDUAL-API-CALLS-WITH-BATCH"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -46,6 +46,27 @@ if not WAREHANCE_API_KEY:
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or 'database.azure.com' in DATABASE_URL))
+
+# 🚀 CURSOR PERFORMANCE FIX: HTTP connection pooling for API calls
+def create_http_session():
+    """Create a reusable HTTP session with connection pooling and retries"""
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
+    adapter = HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=20,
+        max_retries=retry_strategy
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+# Global HTTP session for reuse
+http_session = create_http_session()
 
 # Debug database configuration
 print(f"=== DATABASE CONFIGURATION ===")
@@ -278,6 +299,8 @@ import io
 from datetime import datetime
 import asyncio
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import sys
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -2334,130 +2357,10 @@ async def run_sync():
         print(f"=== SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
         print(f"=== SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
         
-        # ALTERNATIVE APPROACH: Use individual return API calls (proven to work)
-        print("🔄 HYBRID SYNC: Testing individual return API approach...")
-        sync_status["last_sync_message"] = "STEP 2.3: Testing hybrid individual return API approach..."
-        
-        try:
-            conn = get_db_connection()
-            if not USE_AZURE_SQL:
-                conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get ALL return IDs from database to sync individual API calls
-            cursor.execute("SELECT id FROM returns ORDER BY created_at DESC")
-            sample_returns = cursor.fetchall()
-            print(f"🔄 HYBRID SYNC: Processing {len(sample_returns)} returns with individual API calls...")
-            
-            individual_success_count = 0
-            total_returns = len(sample_returns)
-            
-            for idx, return_row in enumerate(sample_returns):
-                return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
-                
-                # Progress logging
-                if idx % 50 == 0 or idx == total_returns - 1:
-                    print(f"🧪 HYBRID SYNC: Processing return {idx+1}/{total_returns} (ID: {return_id})...")
-                    sync_status["last_sync_message"] = f"Processing return {idx+1}/{total_returns} with individual API..."
-                
-                try:
-                    # Removed artificial delay per Cursor's performance optimization
-                    
-                    # Use same approach as working individual return endpoint
-                    individual_response = requests.get(
-                        f"https://api.warehance.com/v1/returns/{return_id}",
-                        headers=headers,
-                        timeout=10
-                    )
-                    
-                    if individual_response.status_code == 200:
-                        individual_data = individual_response.json()
-                        if individual_data.get("status") == "success":
-                            return_data = individual_data.get("data", {})
-                            items = return_data.get('items', [])
-                            
-                            print(f"✅ HYBRID SYNC: Return {return_id} has {len(items)} items")
-                            
-                            # Process items using our placeholder logic
-                            for item in items:
-                                item_id = item.get('id')
-                                product_data = item.get('product', {})
-                                product_sku = product_data.get('sku', '')
-                                product_name = product_data.get('name', '')
-                                quantity = item.get('quantity', 0)
-                                
-                                if product_name:  # If we have real product data
-                                    print(f"🎯 HYBRID SYNC: Found real product: {product_name} (SKU: {product_sku})")
-                                    
-                                    # Create/find product
-                                    placeholder = get_param_placeholder()
-                                    if USE_AZURE_SQL:
-                                        # Check if product exists
-                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                        existing = cursor.fetchone()
-                                        if not existing:
-                                            cursor.execute(f"""
-                                                INSERT INTO products (sku, name, created_at, updated_at)
-                                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                            """, ensure_tuple_params((product_sku, product_name)))
-                                            # Removed individual commit - will batch commit later
-                                            sync_status["products_synced"] += 1
-                                            print(f"✅ HYBRID SYNC: Created product: {product_name}")
-                                        
-                                        # Get product ID
-                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                        product_result = cursor.fetchone()
-                                        db_product_id = product_result['id'] if product_result else None
-                                        
-                                        if db_product_id:
-                                            # Create return item
-                                            cursor.execute(f"""
-                                                SELECT COUNT(*) as count FROM return_items 
-                                                WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
-                                            """, (str(return_id), db_product_id))
-                                            item_exists = cursor.fetchone()
-                                            
-                                            if item_exists and item_exists['count'] == 0:
-                                                cursor.execute(f"""
-                                                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
-                                                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
-                                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
-                                                           {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                                """, ensure_tuple_params((
-                                                    str(return_id), db_product_id, quantity,
-                                                    '["Individual API call"]',
-                                                    '["Good condition"]',
-                                                    quantity, 0
-                                                )))
-                                                # Removed individual commit - will batch commit later
-                                                sync_status["return_items_synced"] += 1
-                                                print(f"✅ HYBRID SYNC: Created return item for {product_name}")
-                            
-                            individual_success_count += 1
-                        else:
-                            print(f"⚠️ HYBRID SYNC: Return {return_id} API returned non-success")
-                    else:
-                        print(f"❌ HYBRID SYNC: Return {return_id} API failed with {individual_response.status_code}")
-                
-                except Exception as individual_err:
-                    print(f"💥 HYBRID SYNC: Error with return {return_id}: {individual_err}")
-
-            # CURSOR PERFORMANCE FIX: Batch commit all operations at once instead of individual commits
-            print("🚀 PERFORMANCE: Committing all database operations in batch...")
-            conn.commit()
-            conn.close()
-            
-            if individual_success_count > 0:
-                print(f"🎉 HYBRID SYNC: Successfully processed {individual_success_count} returns with individual API calls!")
-                sync_status["last_sync_message"] = f"STEP 2.4: Hybrid approach successful - processed {individual_success_count} returns"
-                sync_status["items_synced"] = individual_success_count
-            else:
-                print("⚠️ HYBRID SYNC: No returns successfully processed with individual approach")
-                sync_status["last_sync_message"] = "STEP 2.4: Hybrid approach failed - no returns processed"
-                
-        except Exception as hybrid_err:
-            print(f"💥 HYBRID SYNC: Hybrid approach error: {hybrid_err}")
-            sync_status["last_sync_message"] = f"STEP 2.4: Hybrid approach error: {hybrid_err}"
+        # 🚀 CURSOR PERFORMANCE FIX: Removed inefficient individual API calls (1,000+ calls)
+        # Now using efficient batch API processing below (10 batch calls instead)
+        print("🚀 PERFORMANCE: Skipping individual API calls, using batch processing...")
+        sync_status["last_sync_message"] = "STEP 2.3: Using efficient batch API processing..."
         
         conn = get_db_connection()
         if not conn:
@@ -2497,7 +2400,7 @@ async def run_sync():
             try:
                 url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
                 log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
-                response = requests.get(url, headers=headers)
+                response = http_session.get(url, headers=headers)
                 
                 if response.status_code != 200:
                     error_text = response.text[:500] if response.text else "No response body"
