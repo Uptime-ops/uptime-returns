@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.60-CRITICAL-FIX-REPLACE-1000-INDIVIDUAL-API-CALLS-WITH-BATCH"
+DEPLOYMENT_VERSION = "V87.61-FIX-IMPORT-ORDER-HTTP-SESSION-NAMEERROR"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -48,25 +48,7 @@ DATABASE_URL = os.getenv('DATABASE_URL', '')
 USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or 'database.azure.com' in DATABASE_URL))
 
 # 🚀 CURSOR PERFORMANCE FIX: HTTP connection pooling for API calls
-def create_http_session():
-    """Create a reusable HTTP session with connection pooling and retries"""
-    session = requests.Session()
-    retry_strategy = Retry(
-        total=3,
-        backoff_factor=0.3,
-        status_forcelist=[429, 500, 502, 503, 504]
-    )
-    adapter = HTTPAdapter(
-        pool_connections=10,
-        pool_maxsize=20,
-        max_retries=retry_strategy
-    )
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
-
-# Global HTTP session for reuse
-http_session = create_http_session()
+# (Function definition moved after imports to avoid NameError)
 
 # Debug database configuration
 print(f"=== DATABASE CONFIGURATION ===")
@@ -303,6 +285,27 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import sys
 import smtplib
+
+# 🚀 CURSOR PERFORMANCE FIX: HTTP connection pooling for API calls
+def create_http_session():
+    """Create a reusable HTTP session with connection pooling and retries"""
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.3,
+        status_forcelist=[429, 500, 502, 503, 504]
+    )
+    adapter = HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=20,
+        max_retries=retry_strategy
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+# Global HTTP session for reuse
+http_session = create_http_session()
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
