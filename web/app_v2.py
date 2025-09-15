@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.45-FIX-LIKE-QUERIES-CAUSING-INT-OVERFLOW"
+DEPLOYMENT_VERSION = "V87.47-TARGET-RETURNS-WITH-REAL-PRODUCT-DATA"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2424,6 +2424,153 @@ async def get_sync_status():
             "deployment_version": DEPLOYMENT_VERSION,
             "sql_fix_applied": "YES - MERGE statements + parameterized queries",
             "identity_insert_fixed": "YES - Removed IDENTITY_INSERT, using MERGE"
+        }
+
+@app.post("/api/sync/target-returns-with-data")
+async def sync_returns_with_product_data():
+    """Target and process returns that have real product data in items array"""
+    global sync_status
+    
+    if sync_status["is_running"]:
+        return {"message": "Sync already in progress", "status": "running"}
+    
+    try:
+        sync_status["is_running"] = True
+        sync_status["last_sync_status"] = "running"
+        sync_status["last_sync_message"] = "Targeting returns with product data..."
+        
+        # Get API key
+        api_key = WAREHANCE_API_KEY
+        headers = {"X-API-KEY": api_key, "accept": "application/json"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        processed_count = 0
+        returns_with_data = 0
+        return_items_created = 0
+        
+        # First, get a batch of returns to check for product data
+        print("Fetching returns to check for product data...")
+        
+        # Get first 20 returns to analyze
+        response = requests.get(
+            "https://api.warehance.com/v1/returns?limit=20&offset=0", 
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            sync_status["last_sync_status"] = "error"
+            sync_status["last_sync_message"] = f"API call failed: {response.status_code}"
+            return {"error": f"API call failed: {response.status_code}"}
+        
+        data = response.json()
+        returns_data = data.get('data', {}).get('returns', [])
+        
+        print(f"Analyzing {len(returns_data)} returns for product data...")
+        
+        # Check each return for real product data
+        for return_item in returns_data:
+            processed_count += 1
+            return_id = return_item.get('id')
+            items = return_item.get('items', [])
+            
+            # Skip if no items array or empty
+            if not items or items is None:
+                print(f"Return {return_id}: No items array")
+                continue
+                
+            # Check if any item has real product data
+            has_real_data = False
+            for item in items:
+                if item.get('product', {}).get('sku') and item.get('product', {}).get('name'):
+                    has_real_data = True
+                    break
+            
+            if not has_real_data:
+                print(f"Return {return_id}: Items array exists but no product data")
+                continue
+                
+            print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing...")
+            returns_with_data += 1
+            
+            # Process return items with real data
+            for item in items:
+                product_info = item.get('product', {})
+                if product_info.get('sku') and product_info.get('name'):
+                    item_id = item.get('id')
+                    product_id = product_info.get('id')
+                    sku = product_info.get('sku')
+                    name = product_info.get('name')
+                    quantity = item.get('quantity', 1)
+                    
+                    print(f"  Item {item_id}: {sku} - {name} (qty: {quantity})")
+                    
+                    # First ensure product exists in products table
+                    placeholder = get_param_placeholder()
+                    product_merge_sql = f"""
+                    MERGE products AS target
+                    USING (SELECT {placeholder} as id, {placeholder} as sku, {placeholder} as name) AS source
+                    ON target.id = source.id
+                    WHEN NOT MATCHED THEN
+                        INSERT (id, sku, name) VALUES (source.id, source.sku, source.name);
+                    """
+                    
+                    try:
+                        cursor.execute(product_merge_sql, (product_id, sku, name))
+                        print(f"    Product {product_id} ensured in products table")
+                    except Exception as e:
+                        print(f"    Error inserting product {product_id}: {e}")
+                        continue
+                    
+                    # Now insert return_item
+                    return_item_merge_sql = f"""
+                    MERGE return_items AS target
+                    USING (SELECT {placeholder} as id, {placeholder} as return_id, {placeholder} as product_id, {placeholder} as quantity) AS source
+                    ON target.id = source.id
+                    WHEN NOT MATCHED THEN
+                        INSERT (id, return_id, product_id, quantity) VALUES (source.id, source.return_id, source.product_id, source.quantity);
+                    """
+                    
+                    try:
+                        cursor.execute(return_item_merge_sql, (item_id, return_id, product_id, quantity))
+                        return_items_created += 1
+                        print(f"    Return item {item_id} created successfully")
+                    except Exception as e:
+                        print(f"    Error inserting return_item {item_id}: {e}")
+        
+        # Commit all changes
+        conn.commit()
+        conn.close()
+        
+        sync_status["is_running"] = False
+        sync_status["last_sync_status"] = "success"
+        sync_status["last_sync_message"] = f"Targeted sync: {returns_with_data} returns with data, {return_items_created} items created"
+        sync_status["return_items_synced"] = return_items_created
+        
+        return {
+            "status": "success",
+            "message": f"Targeted sync completed successfully",
+            "processed_returns": processed_count,
+            "returns_with_product_data": returns_with_data,
+            "return_items_created": return_items_created
+        }
+        
+    except Exception as e:
+        sync_status["is_running"] = False
+        sync_status["last_sync_status"] = "error"
+        sync_status["last_sync_message"] = f"Targeted sync error: {str(e)}"
+        
+        if 'conn' in locals():
+            conn.close()
+            
+        return {
+            "status": "error",
+            "message": str(e),
+            "processed_returns": processed_count,
+            "returns_with_product_data": returns_with_data,
+            "return_items_created": return_items_created
         }
 
 def convert_date_for_sql(date_string):
