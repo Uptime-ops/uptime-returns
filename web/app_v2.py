@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.67-CRITICAL-FIX-ALWAYS-USE-INDIVIDUAL-API-CALLS-FOR-ITEMS-DATA"
+DEPLOYMENT_VERSION = "V87.70-PERFORMANCE-BOOST-FASTER-API-CALLS-AND-VERSION-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1347,7 +1347,7 @@ async def get_return_detail(return_id: str):
             response = requests.get(
                 f"https://api.warehance.com/v1/orders/{order_id}",
                 headers=headers,
-                timeout=10
+                timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
             )
             
             if response.status_code == 200:
@@ -2111,9 +2111,9 @@ async def sync_returns_with_product_data():
         
         # Get first 20 returns to analyze
         response = requests.get(
-            "https://api.warehance.com/v1/returns?limit=20&offset=0", 
+            "https://api.warehance.com/v1/returns?limit=20&offset=0",
             headers=headers,
-            timeout=30
+            timeout=10  # 🚀 PERFORMANCE: Reduced from 30s to 10s for debug endpoint
         )
         
         if response.status_code != 200:
@@ -2652,7 +2652,7 @@ async def run_sync():
                         order_response = requests.get(
                             f"https://api.warehance.com/v1/orders/{order_id}",
                             headers=headers,
-                            timeout=10
+                            timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
                         )
                         
                         if order_response.status_code == 200:
@@ -2719,7 +2719,7 @@ async def run_sync():
                     individual_response = requests.get(
                         f"https://api.warehance.com/v1/returns/{return_id}",
                         headers=headers,
-                        timeout=10
+                        timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
                     )
                     if individual_response.status_code == 200:
                         individual_data = individual_response.json()
@@ -2746,7 +2746,7 @@ async def run_sync():
                         items_response = requests.get(
                             f"https://api.warehance.com/v1/returns/{return_id}/items",
                             headers=headers,
-                            timeout=10
+                            timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
                         )
                         if items_response.status_code == 200:
                             items_api_data = items_response.json()
