@@ -2169,24 +2169,24 @@ async def sync_returns_with_product_data():
                     # Use simple INSERT with IDENTITY_INSERT for Azure SQL
                     try:
                         if USE_AZURE_SQL:
-                            # Enable IDENTITY_INSERT for Azure SQL to allow explicit ID values
-                            cursor.execute("SET IDENTITY_INSERT products ON")
-
-                        product_insert_sql = f"INSERT INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
-                        cursor.execute(product_insert_sql, (product_id, sku, name))
-
-                        if USE_AZURE_SQL:
-                            # Disable IDENTITY_INSERT after INSERT
-                            cursor.execute("SET IDENTITY_INSERT products OFF")
+                            # 🚨 FIXED: Use MERGE instead of IDENTITY_INSERT for Azure SQL
+                            merge_sql = f"""
+                                MERGE products AS target
+                                USING (VALUES ({placeholder}, {placeholder})) AS source (sku, name)
+                                ON target.sku = source.sku
+                                WHEN NOT MATCHED THEN
+                                    INSERT (sku, name, created_at, updated_at)
+                                    VALUES (source.sku, source.name, GETDATE(), GETDATE());
+                            """
+                            cursor.execute(merge_sql, (sku, name))
+                        else:
+                            # SQLite - can use explicit IDs
+                            product_insert_sql = f"INSERT OR IGNORE INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
+                            cursor.execute(product_insert_sql, (product_id, sku, name))
 
                         print(f"    Product {product_id} inserted successfully")
                     except Exception as e:
-                        if USE_AZURE_SQL:
-                            try:
-                                cursor.execute("SET IDENTITY_INSERT products OFF")
-                            except:
-                                pass
-                        print(f"    Product {product_id} insert failed (probably exists): {e}")
+                        print(f"    Product {product_id} insert failed: {e}")
                         # Continue anyway - product might already exist
 
                     # Now insert return_item
@@ -2800,10 +2800,11 @@ async def run_sync():
                                 # Create a placeholder product
                                 placeholder = get_param_placeholder()
                                 if USE_AZURE_SQL:
+                                    # 🚨 FIXED: Remove explicit ID INSERT for IDENTITY column
                                     cursor.execute(f"""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
+                                        INSERT INTO products (sku, name, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
                                 else:
                                     cursor.execute(f"""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
@@ -2928,7 +2929,7 @@ async def run_sync():
                                         INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
                                         VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
-                                               {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                               {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                     """, ensure_tuple_params((
                                         str(return_id),  # Convert to string for NVARCHAR field
                                         actual_product_id,
@@ -2936,7 +2937,9 @@ async def run_sync():
                                         json.dumps(item.get('return_reasons', [])),
                                         json.dumps(item.get('condition_on_arrival', [])),
                                         item.get('quantity_received', 0),
-                                        item.get('quantity_rejected', 0)
+                                        item.get('quantity_rejected', 0),
+                                        convert_date_for_sql(datetime.now().isoformat()),  # created_at
+                                        convert_date_for_sql(datetime.now().isoformat())   # updated_at
                                     )))
                                     sync_status["return_items_synced"] += 1
                                     print(f"✅ SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
