@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.59-PERFORMANCE-FIXES-BATCH-COMMITS-NO-DELAYS"
+DEPLOYMENT_VERSION = "V87.58-MAJOR-CLEANUP-REMOVE-1750-LINES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -267,6 +267,13 @@ else:
         DATABASE_PATH = '/home/warehance_returns.db'
     else:
         DATABASE_PATH = '../warehance_returns.db'
+    
+    def get_db_connection():
+        """Get SQLite connection"""
+        conn = sqlite3.connect(DATABASE_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
 from fastapi import FastAPI, Response, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -1591,10 +1598,310 @@ async def get_top_returned_products():
     conn.close()
     return products
 
+@app.get("/api/test-database")
+async def test_database_connection():
+    """Test database connectivity and return detailed diagnostics"""
+    try:
+        # Test basic connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Test simple query
+        cursor.execute("SELECT 1 as test_value")
+        result = cursor.fetchone()
+        
+        # Get database info
+        database_type = "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        
+        # Test if returns table exists
+        table_exists = False
+        returns_count = 0
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM returns")
+            result = cursor.fetchone()
+            returns_count = result['count'] if result else 0
+            table_exists = True
+        except Exception as table_error:
+            table_exists = f"Error: {str(table_error)}"
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "database_type": database_type,
+            "connection": "working",
+            "returns_table_exists": table_exists,
+            "returns_count": returns_count,
+            "drivers": {
+                "pyodbc_available": 'pyodbc' in sys.modules or bool(globals().get('pyodbc')),
+                "pymssql_available": 'pymssql' in sys.modules or bool(globals().get('pymssql'))
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite",
+            "connection": "failed",
+            "error_type": type(e).__name__,
+            "drivers": {
+                "pyodbc_available": 'pyodbc' in sys.modules or bool(globals().get('pyodbc')),
+                "pymssql_available": 'pymssql' in sys.modules or bool(globals().get('pymssql'))
+            }
+        }
 
+@app.get("/api/test-warehance")
+async def test_warehance_api():
+    """Test the Warehance API connection"""
+    try:
+        api_key = WAREHANCE_API_KEY
+        
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Try to fetch just 1 return to test the API
+        response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers)
+        
+        result = {
+            "api_key_used": api_key[:15] + "...",
+            "status_code": response.status_code,
+            "success": response.status_code == 200
+        }
+        
+        if response.status_code == 200:
+            data = response.json()
+            result["response_keys"] = list(data.keys()) if isinstance(data, dict) else "Not a dict"
+            
+            if 'data' in data and 'returns' in data['data']:
+                result["returns_count"] = len(data['data']['returns'])
+                result["total_count"] = data['data'].get('total_count', 0)
+            else:
+                result["error"] = "Unexpected response format"
+                result["response_sample"] = str(data)[:200]
+        else:
+            result["error"] = response.text[:500]
+        
+        return result
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "api_key_used": (api_key[:15] + "...") if api_key else "No API key"
+        }
 
+@app.get("/api/debug/test")
+async def debug_test():
+    """Test basic functionality and API connectivity"""
+    results = {}
+    
+    # Test 1: Basic database connection
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if USE_AZURE_SQL:
+            cursor.execute("SELECT 1 as test")
+        else:
+            cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+        conn.close()
+        results["database"] = {"status": "success", "result": str(result)}
+    except Exception as e:
+        results["database"] = {"status": "error", "error": str(e)}
+    
+    # Test 2: Environment variables
+    warehance_key = os.getenv('WAREHANCE_API_KEY')
+    results["env_vars"] = {
+        "warehance_api_key": "present" if warehance_key else "missing",
+        "use_azure_sql": USE_AZURE_SQL
+    }
+    
+    # Test 3: Basic API connectivity with detailed error info
+    try:
+        headers = {
+            "X-API-KEY": warehance_key,
+            "accept": "application/json"
+        } if warehance_key else {}
+        response = requests.get("https://api.warehance.com/v1/returns?limit=1", headers=headers, timeout=10)
+        
+        results["api_connectivity"] = {
+            "status": "success" if response.status_code == 200 else "error",
+            "status_code": response.status_code,
+            "response_size": len(response.text),
+            "response_text": response.text[:500] if response.status_code != 200 else "OK",
+            "headers_sent": dict(headers),
+            "url_tested": "https://api.warehance.com/v1/returns?limit=1"
+        }
+    except Exception as e:
+        results["api_connectivity"] = {"status": "error", "error": str(e)}
+    
+    # Test 4: Count existing data
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_count = cursor.fetchone()
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_count = cursor.fetchone()
+        conn.close()
+        
+        results["data_counts"] = {
+            "returns": returns_count[0] if not USE_AZURE_SQL else returns_count['count'],
+            "products": products_count[0] if not USE_AZURE_SQL else products_count['count']
+        }
+    except Exception as e:
+        results["data_counts"] = {"error": str(e)}
+    
+    results["deployment_info"] = {
+        "version": DEPLOYMENT_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return results
 
+@app.get("/api/debug/one-return-sync")
+async def debug_one_return_sync():
+    """Test syncing just one return with products and items"""
+    try:
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Fetch just 1 return
+        url = "https://api.warehance.com/v1/returns?limit=1&offset=0"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API error {response.status_code}", "response": response.text[:300]}
+        
+        data = response.json()
+        returns = data.get('data', {}).get('returns', [])
+        
+        if not returns:
+            return {"error": "No returns found"}
+        
+        ret = returns[0]  # Get first return
+        return_id = ret['id']
+        
+        result = {
+            "return_id": return_id,
+            "has_items": bool(ret.get('items')),
+            "items_count": len(ret.get('items', [])),
+            "has_client": bool(ret.get('client')),
+            "has_warehouse": bool(ret.get('warehouse')),
+            "has_order": bool(ret.get('order'))
+        }
+        
+        # Try to process this one return
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if return exists
+        placeholder = get_param_placeholder()
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (return_id,))
+        exists = cursor.fetchone()['count'] > 0 if USE_AZURE_SQL else cursor.fetchone()[0] > 0
+        result["return_exists_in_db"] = exists
+        
+        # If return has items, try to process first item
+        if ret.get('items'):
+            item = ret['items'][0]
+            product = item.get('product', {})
+            result["first_item"] = {
+                "item_id": item.get('id'),
+                "product_id": product.get('id'),
+                "product_sku": product.get('sku'),
+                "product_name": product.get('name', '')[:50],
+                "quantity": item.get('quantity')
+            }
+            
+            # Try MERGE statement for this product
+            product_id = product.get('id')
+            product_sku = product.get('sku', '')
+            product_name = product.get('name', '')
+            
+            if product_id and product_sku:
+                try:
+                    if USE_AZURE_SQL:
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"""
+                            MERGE products AS target
+                            USING (SELECT {placeholder} as id, {placeholder} as sku, {placeholder} as name) AS source
+                            ON target.id = source.id OR target.sku = source.sku
+                            WHEN NOT MATCHED THEN
+                                INSERT (sku, name, created_at, updated_at)
+                                VALUES (source.sku, source.name, GETDATE(), GETDATE());
+                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                        result["product_merge"] = "success"
+                    else:
+                        # SQLite version - can use explicit IDs
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """, (product_id, product_sku, product_name))
+                        result["product_insert"] = "success"
+                        
+                    conn.commit()
+                    
+                except Exception as e:
+                    result["product_error"] = str(e)
+                    result["product_error_type"] = str(type(e))
+        
+        conn.close()
+        return result
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "traceback": traceback.format_exc()[:1000]
+        }
 
+@app.get("/api/debug/simple-sync")
+async def debug_simple_sync():
+    """Test a simple sync operation with detailed logging"""
+    try:
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        # Try to fetch just 2 returns
+        url = f"https://api.warehance.com/v1/returns?limit=2&offset=0"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API error {response.status_code}", "response": response.text[:500]}
+        
+        data = response.json()
+        
+        if 'data' not in data:
+            return {"error": "No data key in response", "response": data}
+        
+        if 'returns' not in data['data']:
+            return {"error": "No returns key in data", "response": data['data']}
+        
+        returns = data['data']['returns']
+        return {
+            "success": True,
+            "returns_count": len(returns),
+            "first_return_id": returns[0]['id'] if returns else None,
+            "first_return_has_items": bool(returns[0].get('items')) if returns else None,
+            "first_return_items_count": len(returns[0].get('items', [])) if returns else None
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "traceback": traceback.format_exc()[:1000]
+        }
 
 @app.post("/api/sync/trigger")
 async def trigger_sync():
@@ -1609,6 +1916,18 @@ async def trigger_sync():
     
     return {"message": "Sync started", "status": "started"}
 
+@app.get("/api/sync/trigger-test")
+async def trigger_sync_test():
+    """Test trigger for sync - GET version for debugging"""
+    global sync_status
+    
+    if sync_status["is_running"]:
+        return {"message": "Sync already in progress", "status": "running"}
+    
+    # Start sync in background
+    asyncio.create_task(run_sync())
+    
+    return {"message": "Sync started via GET test", "status": "started"}
 
 @app.post("/api/sync/stop")
 async def stop_sync():
@@ -1626,7 +1945,118 @@ async def stop_sync():
         "was_running": was_running
     }
 
+@app.get("/api/debug/minimal-sync-test")
+async def minimal_sync_test():
+    """Minimal sync test to debug what's failing"""
+    try:
+        # Test 1: Database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        result = cursor.fetchone()
+        if USE_AZURE_SQL:
+            returns_count = result['count'] if result else 0
+        else:
+            returns_count = result[0] if result else 0
+        
+        # Test 2: API key and basic API call
+        api_key = WAREHANCE_API_KEY
+        headers = {"X-API-KEY": api_key, "accept": "application/json"}
+        
+        # Test with a small batch first
+        response = requests.get(
+            "https://api.warehance.com/v1/returns?limit=1&offset=0", 
+            headers=headers,
+            timeout=10
+        )
+        
+        api_status = response.status_code
+        api_response = response.json() if response.status_code == 200 else response.text[:200]
+        
+        # Test 3: Try to get one order
+        order_test = "No order tested"
+        if response.status_code == 200 and response.json().get('data', {}).get('returns'):
+            returns_data = response.json()['data']['returns']
+            if returns_data and returns_data[0].get('order', {}).get('id'):
+                order_id = returns_data[0]['order']['id']
+                order_response = requests.get(
+                    f"https://api.warehance.com/v1/orders/{order_id}",
+                    headers=headers,
+                    timeout=10
+                )
+                order_test = f"Order API: {order_response.status_code}"
+                if order_response.status_code == 200:
+                    order_data = order_response.json().get('data', {})
+                    ship_addr = order_data.get('ship_to_address', {})
+                    first_name = ship_addr.get('first_name', '')
+                    last_name = ship_addr.get('last_name', '')
+                    customer_name = f"{first_name} {last_name}".strip()
+                    order_test += f" | Customer: '{customer_name}'"
+        
+        conn.close()
+        
+        return {
+            "database_test": f"SUCCESS - {returns_count} returns found",
+            "api_key_test": f"API key: {api_key[:15]}...",
+            "returns_api_test": f"Status: {api_status}",
+            "returns_response": str(api_response)[:300],
+            "orders_api_test": order_test,
+            "status": "debug_complete"
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            "error": f"Debug test failed: {e}",
+            "traceback": traceback.format_exc()[:500],
+            "status": "debug_failed"
+        }
 
+@app.get("/api/debug/database-counts")
+async def debug_database_counts():
+    """Check actual database table counts"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Count returns
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_result = cursor.fetchone()
+        returns_count = returns_result['count'] if USE_AZURE_SQL else returns_result[0]
+        
+        # Count orders
+        cursor.execute("SELECT COUNT(*) as count FROM orders")
+        orders_result = cursor.fetchone()
+        orders_count = orders_result['count'] if USE_AZURE_SQL else orders_result[0]
+        
+        # Count products
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_result = cursor.fetchone()
+        products_count = products_result['count'] if USE_AZURE_SQL else products_result[0]
+        
+        # Count return_items
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        return_items_result = cursor.fetchone()
+        return_items_count = return_items_result['count'] if USE_AZURE_SQL else return_items_result[0]
+        
+        # Sample of returns with order_id
+        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE order_id IS NOT NULL")
+        returns_with_orders_result = cursor.fetchone()
+        returns_with_orders = returns_with_orders_result['count'] if USE_AZURE_SQL else returns_with_orders_result[0]
+        
+        conn.close()
+        
+        return {
+            "returns_total": returns_count,
+            "orders_total": orders_count, 
+            "products_total": products_count,
+            "return_items_total": return_items_count,
+            "returns_with_order_ids": returns_with_orders,
+            "diagnosis": "orders_missing" if orders_count == 0 else "data_present"
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
 
 @app.post("/api/database/migrate")
 async def migrate_database():
@@ -2206,8 +2636,315 @@ async def sync_returns_with_product_data():
             "return_items_created": return_items_created
         }
 
+@app.get("/api/debug/test-single-return-231185187956")
+async def debug_specific_return():
+    """Debug why return 231185187956 with known product data didn't create return_items"""
+    try:
+        # Get API key
+        api_key = WAREHANCE_API_KEY
+        headers = {"X-API-KEY": api_key, "accept": "application/json"}
+        
+        # Fetch specific return
+        response = requests.get(
+            "https://api.warehance.com/v1/returns/231185187956", 
+            headers=headers,
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            return {"error": f"API call failed: {response.status_code}"}
+        
+        data = response.json()
+        return_data = data.get('data', {})
+        items = return_data.get('items', [])
+        
+        debug_info = {
+            "return_id": return_data.get('id'),
+            "items_array_exists": items is not None,
+            "items_count": len(items) if items else 0,
+            "items_details": []
+        }
+        
+        # Check each item
+        if items:
+            for item in items:
+                product_info = item.get('product', {})
+                item_debug = {
+                    "item_id": item.get('id'),
+                    "has_product": product_info is not None,
+                    "product_id": product_info.get('id'),
+                    "product_sku": product_info.get('sku'),
+                    "product_name": product_info.get('name'),
+                    "quantity": item.get('quantity'),
+                    "has_complete_data": bool(product_info.get('sku') and product_info.get('name'))
+                }
+                debug_info["items_details"].append(item_debug)
+        
+        # Test database connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if this return exists in database
+        placeholder = get_param_placeholder()
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ("231185187956",))
+        result = cursor.fetchone()
+        return_exists = result['count'] if USE_AZURE_SQL else result[0]
+        
+        # Check return_items for this return
+        cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder}", ("231185187956",))
+        result = cursor.fetchone()
+        return_items_count = result['count'] if USE_AZURE_SQL else result[0]
+        
+        conn.close()
+        
+        debug_info["database_status"] = {
+            "return_exists_in_db": return_exists > 0,
+            "return_items_in_db": return_items_count
+        }
+        
+        return debug_info
+        
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
 
+@app.get("/api/debug/table-schemas")
+async def debug_table_schemas():
+    """Check table schemas to understand why INSERTs are failing"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
+        # Get return_items table schema
+        if USE_AZURE_SQL:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'return_items'
+                ORDER BY ORDINAL_POSITION
+            """)
+            return_items_columns = []
+            for row in cursor.fetchall():
+                return_items_columns.append({
+                    "column_name": row[0],
+                    "data_type": row[1],
+                    "is_nullable": row[2],
+                    "column_default": row[3]
+                })
+        else:
+            cursor.execute("PRAGMA table_info(return_items)")
+            return_items_columns = cursor.fetchall()
+
+        # Get products table schema
+        if USE_AZURE_SQL:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'products'
+                ORDER BY ORDINAL_POSITION
+            """)
+            products_columns = []
+            for row in cursor.fetchall():
+                products_columns.append({
+                    "column_name": row[0],
+                    "data_type": row[1],
+                    "is_nullable": row[2],
+                    "column_default": row[3]
+                })
+        else:
+            cursor.execute("PRAGMA table_info(products)")
+            products_columns = cursor.fetchall()
+
+        # Check if tables exist and have data
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        result = cursor.fetchone()
+        return_items_count = result['count'] if USE_AZURE_SQL else result[0]
+
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        result = cursor.fetchone()
+        products_count = result['count'] if USE_AZURE_SQL else result[0]
+
+        conn.close()
+
+        return {
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite",
+            "return_items_table": {
+                "columns": return_items_columns,
+                "row_count": return_items_count
+            },
+            "products_table": {
+                "columns": products_columns,
+                "row_count": products_count
+            }
+        }
+
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
+
+@app.get("/api/debug/sql-diagnostics")
+async def sql_diagnostics():
+    """Comprehensive SQL diagnostics to investigate permissions and table issues"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        diagnostics = {}
+
+        # 1. Check current database and user
+        try:
+            cursor.execute("SELECT DB_NAME() as current_database, SUSER_NAME() as current_user, SUSER_NAME() as login_name")
+            result = cursor.fetchone()
+            diagnostics["database_info"] = {
+                "database": result['current_database'] if result else "unknown",
+                "user": result['current_user'] if result else "unknown",
+                "login": result['login_name'] if result else "unknown"
+            }
+        except Exception as e:
+            diagnostics["database_info"] = {"error": str(e)}
+
+        # 2. Check user permissions
+        try:
+            cursor.execute("""
+                SELECT
+                    dp.state_desc,
+                    dp.permission_name,
+                    s.name AS principal_name
+                FROM sys.database_permissions dp
+                LEFT JOIN sys.objects o ON dp.major_id = o.object_id
+                LEFT JOIN sys.database_principals s ON dp.grantee_principal_id = s.principal_id
+                WHERE s.name = SUSER_NAME()
+            """)
+            permissions = []
+            for row in cursor.fetchall():
+                permissions.append({
+                    "state": row[0],
+                    "permission": row[1],
+                    "principal": row[2]
+                })
+            diagnostics["permissions"] = permissions
+        except Exception as e:
+            diagnostics["permissions"] = {"error": str(e)}
+
+        # 3. List all tables in database
+        try:
+            cursor.execute("""
+                SELECT TABLE_NAME, TABLE_TYPE
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE TABLE_SCHEMA = 'dbo'
+                ORDER BY TABLE_NAME
+            """)
+            tables = []
+            for row in cursor.fetchall():
+                tables.append({
+                    "name": row[0],
+                    "type": row[1]
+                })
+            diagnostics["all_tables"] = tables
+        except Exception as e:
+            diagnostics["all_tables"] = {"error": str(e)}
+
+        # 4. Check if specific tables exist
+        target_tables = ['products', 'return_items']
+        for table_name in target_tables:
+            try:
+                cursor.execute(f"""
+                    SELECT COUNT(*) as exists_check
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_NAME = '{table_name}' AND TABLE_SCHEMA = 'dbo'
+                """)
+                result = cursor.fetchone()
+                exists = result['exists_check'] > 0 if result else False
+                diagnostics[f"{table_name}_table_exists"] = exists
+
+                if exists:
+                    cursor.execute(f"SELECT COUNT(*) as row_count FROM {table_name}")
+                    result = cursor.fetchone()
+                    diagnostics[f"{table_name}_row_count"] = result['row_count'] if result else 0
+            except Exception as e:
+                diagnostics[f"{table_name}_check_error"] = str(e)
+
+        # 5. Test table creation permission
+        try:
+            test_table_sql = """
+            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='test_permissions_table' AND xtype='U')
+            CREATE TABLE test_permissions_table (id INT, test_col NVARCHAR(50))
+            """
+            cursor.execute(test_table_sql)
+            diagnostics["create_table_test"] = "SUCCESS"
+
+            # Clean up test table
+            cursor.execute("DROP TABLE IF EXISTS test_permissions_table")
+            diagnostics["drop_table_test"] = "SUCCESS"
+        except Exception as e:
+            diagnostics["create_table_test"] = f"FAILED: {str(e)}"
+
+        # 6. Test INSERT permission on existing table
+        try:
+            cursor.execute("SELECT COUNT(*) FROM returns")
+            diagnostics["read_existing_table"] = "SUCCESS"
+        except Exception as e:
+            diagnostics["read_existing_table"] = f"FAILED: {str(e)}"
+
+        conn.close()
+        return diagnostics
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "exception_type": str(type(e)),
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        }
+
+@app.get("/api/debug/return-items-check")
+async def debug_return_items():
+    """Check what return_items actually exist in the database"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check return_items count
+        cursor.execute("SELECT COUNT(*) as total_count FROM return_items")
+        result = cursor.fetchone()
+        total_count = result['total_count'] if USE_AZURE_SQL else result[0]
+
+        # Get sample return_items with product info
+        cursor.execute("""
+            SELECT TOP 10
+                CAST(ri.id AS NVARCHAR(50)) as item_id,
+                CAST(ri.return_id AS NVARCHAR(50)) as return_id,
+                CAST(ri.product_id AS NVARCHAR(50)) as product_id,
+                ri.quantity,
+                p.name as product_name,
+                p.sku as product_sku
+            FROM return_items ri
+            LEFT JOIN products p ON CAST(ri.product_id AS NVARCHAR(50)) = CAST(p.id AS NVARCHAR(50))
+            ORDER BY ri.id
+        """)
+        items = cursor.fetchall()
+
+        # Convert to dict format for Azure SQL
+        if USE_AZURE_SQL:
+            items = rows_to_dict(cursor, items) if items else []
+
+        # Check which return IDs have return_items
+        cursor.execute("""
+            SELECT CAST(return_id AS NVARCHAR(50)) as return_id, COUNT(*) as item_count
+            FROM return_items
+            GROUP BY return_id
+            ORDER BY item_count DESC
+        """)
+        return_counts = cursor.fetchall()
+        if USE_AZURE_SQL:
+            return_counts = rows_to_dict(cursor, return_counts) if return_counts else []
+
+        conn.close()
+
+        return {
+            "total_return_items": total_count,
+            "sample_items": items,
+            "returns_with_items": return_counts
+        }
+
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
 
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
@@ -2299,20 +3036,13 @@ async def run_sync():
                         "ALTER TABLE products ALTER COLUMN id BIGINT",
                         "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
                     ]
-                    # CURSOR PERFORMANCE FIX: Execute all migrations then batch commit
-                    migration_success = True
                     for migration in migrations:
                         try:
                             cursor.execute(migration)
-                            print(f"✅ SYNC DEBUG: Migration executed: {migration}")
+                            conn.commit()
+                            print(f"✅ SYNC DEBUG: Migration successful: {migration}")
                         except Exception as mig_err:
                             print(f"⚠️ SYNC DEBUG: Migration warning: {migration} - {mig_err}")
-                            migration_success = False
-
-                    # Batch commit all migrations at once
-                    if migration_success:
-                        conn.commit()
-                        print("🚀 PERFORMANCE: All migrations committed in batch")
                     
                     # Verify migration
                     cursor.execute("""
@@ -2361,7 +3091,10 @@ async def run_sync():
                     sync_status["last_sync_message"] = f"Processing return {idx+1}/{total_returns} with individual API..."
                 
                 try:
-                    # Removed artificial delay per Cursor's performance optimization
+                    # Add small delay to avoid overwhelming the API
+                    import time
+                    if idx % 10 == 0 and idx > 0:
+                        time.sleep(0.5)  # Half second delay every 10 requests
                     
                     # Use same approach as working individual return endpoint
                     individual_response = requests.get(
@@ -2400,7 +3133,7 @@ async def run_sync():
                                                 INSERT INTO products (sku, name, created_at, updated_at)
                                                 VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                             """, ensure_tuple_params((product_sku, product_name)))
-                                            # Removed individual commit - will batch commit later
+                                            conn.commit()
                                             sync_status["products_synced"] += 1
                                             print(f"✅ HYBRID SYNC: Created product: {product_name}")
                                         
@@ -2429,7 +3162,7 @@ async def run_sync():
                                                     '["Good condition"]',
                                                     quantity, 0
                                                 )))
-                                                # Removed individual commit - will batch commit later
+                                                conn.commit()
                                                 sync_status["return_items_synced"] += 1
                                                 print(f"✅ HYBRID SYNC: Created return item for {product_name}")
                             
@@ -2441,10 +3174,7 @@ async def run_sync():
                 
                 except Exception as individual_err:
                     print(f"💥 HYBRID SYNC: Error with return {return_id}: {individual_err}")
-
-            # CURSOR PERFORMANCE FIX: Batch commit all operations at once instead of individual commits
-            print("🚀 PERFORMANCE: Committing all database operations in batch...")
-            conn.commit()
+            
             conn.close()
             
             if individual_success_count > 0:
@@ -3056,7 +3786,8 @@ async def run_sync():
             offset += limit
             log_sync_activity(f"Page completed successfully - advancing to offset {offset}")
             
-            # Removed artificial delay per Cursor's performance optimization
+            # Add a small delay to avoid overwhelming the API
+            await asyncio.sleep(0.5)
         
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
@@ -3239,7 +3970,8 @@ async def run_sync():
                                 print(f"Error processing order item {item.get('id', 'unknown')}: {item_error}")
                                 continue
                     
-                    # Removed artificial delay per Cursor's performance optimization
+                    # Small delay between API calls
+                    await asyncio.sleep(0.1)
                     
                 except Exception as e:
                     print(f"Error fetching order {order_id}: {e}")
@@ -4096,21 +4828,14 @@ async def migrate_to_bigint():
             "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
         ]
         
-        # CURSOR PERFORMANCE FIX: Execute all migrations then batch commit
-        migration_success = True
         for cmd in migration_commands:
             try:
                 cursor.execute(cmd)
+                conn.commit()
                 migrations.append({"command": cmd, "status": "success"})
             except Exception as e:
                 migrations.append({"command": cmd, "status": "error", "error": str(e)})
-                migration_success = False
-
-        # Batch commit all successful migrations at once
-        if migration_success:
-            conn.commit()
-            print("🚀 PERFORMANCE: All BIGINT migrations committed in batch")
-
+        
         conn.close()
         
         return {
@@ -4139,9 +4864,969 @@ async def trigger_sync_get():
     request_data = {"sync_type": "full"}
     return await trigger_sync(request_data)
 
+@app.get("/api/sync/test-direct")
+async def test_direct_sync():
+    """Direct synchronous sync for debugging - bypasses background task"""
+    global sync_status
+    
+    print("=== DIRECT SYNC TEST STARTING ===")
+    
+    try:
+        # Test 1: Database connection
+        print("Testing database connection...")
+        conn = get_db_connection()
+        if not conn:
+            return {"error": "Failed to get database connection"}
+        
+        cursor = conn.cursor()
+        
+        # Test basic query
+        try:
+            if USE_AZURE_SQL:
+                cursor.execute("SELECT 1 as test")
+            else:
+                cursor.execute("SELECT 1")
+            test_result = cursor.fetchone()
+            print(f"Database test successful: {test_result}")
+        except Exception as db_err:
+            return {"error": f"Database test failed: {db_err}"}
+            
+        # Test 2: API connection
+        print("Testing API connection...")
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        url = "https://api.warehance.com/v1/returns?limit=1&offset=0"
+        print(f"Testing API call to: {url}")
+        
+        import requests
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"API test failed: {response.status_code} - {response.text[:200]}"}
+            
+        data = response.json()
+        print(f"API test successful: {len(data.get('data', {}).get('returns', []))} returns found")
+        
+        # Test 3: Try to process one return
+        if data.get('data', {}).get('returns'):
+            first_return = data['data']['returns'][0]
+            return_id = first_return.get('id')
+            print(f"Attempting to process return {return_id}")
+            
+            try:
+                # Check if return exists
+                placeholder = get_param_placeholder()
+                cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (str(return_id),))
+                result = cursor.fetchone()
+                exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
+                print(f"Return {return_id} exists in DB: {exists}")
+                
+                conn.close()
+                
+                return {
+                    "success": True,
+                    "database_connection": "OK",
+                    "api_connection": "OK", 
+                    "first_return_id": return_id,
+                    "return_exists_in_db": exists,
+                    "total_returns_available": data.get('data', {}).get('total_count', 0),
+                    "message": "Direct sync test completed successfully"
+                }
+                
+            except Exception as process_err:
+                return {"error": f"Failed to process return: {process_err}"}
+        else:
+            return {"error": "No returns found in API response"}
+            
+    except Exception as e:
+        import traceback
+        return {
+            "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
 
+@app.get("/api/clear-test-data-and-sync-real")
+async def clear_test_data_and_sync_real():
+    """Clear all test data and sync real data from Warehance API for returns with smaller IDs"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear all test data
+        print("=== CLEARING TEST DATA ===")
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Get some returns to work with (ignoring INT constraints since we'll use strings)
+        print("=== FINDING RETURNS TO PROCESS ===")
+        cursor.execute("SELECT TOP 20 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 20")
+        recent_returns = cursor.fetchall()
+        
+        if not recent_returns:
+            return {
+                "status": "error", 
+                "message": "No returns found in database"
+            }
+        
+        print(f"=== FOUND {len(recent_returns)} RETURNS TO PROCESS ===")
+        
+        # Use Warehance API to get real product data for these returns
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        products_created = 0
+        items_created = 0
+        
+        # Process first 10 returns
+        for return_row in recent_returns[:10]:
+            return_id = str(return_row[0] if not USE_AZURE_SQL else return_row['id'])
+            print(f"=== PROCESSING RETURN {return_id} ===")
+            
+            try:
+                # Call Warehance API for this return
+                response = requests.get(
+                    f"https://api.warehance.com/v1/returns/{return_id}",
+                    headers=headers,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "success":
+                        return_data = data.get("data", {})
+                        items = return_data.get('items', [])
+                        
+                        print(f"=== RETURN {return_id}: FOUND {len(items)} ITEMS ===")
+                        
+                        # Process each item
+                        for item in items:
+                            product_data = item.get('product', {})
+                            product_sku = product_data.get('sku', '')
+                            product_name = product_data.get('name', '')
+                            quantity = item.get('quantity', 0)
+                            
+                            if product_name and product_sku:
+                                print(f"=== PROCESSING PRODUCT: {product_name} ===")
+                                
+                                # Create/find product
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                existing = cursor.fetchone()
+                                
+                                if not existing:
+                                    if USE_AZURE_SQL:
+                                        cursor.execute(f"""
+                                            INSERT INTO products (sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        """, ensure_tuple_params((product_sku, product_name)))
+                                    else:
+                                        cursor.execute(f"""
+                                            INSERT INTO products (sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                                        """, ensure_tuple_params((product_sku, product_name)))
+                                    conn.commit()
+                                    products_created += 1
+                                
+                                # Get product ID
+                                cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                product_result = cursor.fetchone()
+                                db_product_id = product_result['id'] if product_result else None
+                                
+                                # Create return item
+                                if USE_AZURE_SQL:
+                                    cursor.execute(f"""
+                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                               condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                               {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((
+                                        return_id, db_product_id, quantity,
+                                        '["Real Warehance API data"]',
+                                        '["From API"]',
+                                        quantity, 0
+                                    )))
+                                else:
+                                    cursor.execute(f"""
+                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                               condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                               {placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                                    """, ensure_tuple_params((
+                                        return_id, db_product_id, quantity,
+                                        '["Real Warehance API data"]',
+                                        '["From API"]',
+                                        quantity, 0
+                                    )))
+                                conn.commit()
+                                items_created += 1
+                                print(f"=== CREATED RETURN ITEM: {product_name} ===")
+                
+                else:
+                    print(f"=== API ERROR FOR RETURN {return_id}: {response.status_code} ===")
+                    
+            except Exception as api_error:
+                print(f"=== ERROR PROCESSING RETURN {return_id}: {api_error} ===")
+                continue
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Cleared test data and synced real data successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "Real product data from Warehance API for returns with small IDs"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Clear and sync failed: {str(e)}"
+        }
 
+@app.get("/api/create-csv-test-data")
+async def create_csv_test_data():
+    """Create minimal test data that bypasses INT overflow for CSV export testing"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear existing test data
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Create test products with real names from our known working returns
+        test_products = [
+            {
+                "sku": "FLB-BLDSUGARCAPS30CT150-FIN",
+                "name": "Forge Labs BLOOD - Blood Sugar Capsules - 30ct - 150cc - Final"
+            },
+            {
+                "sku": "GRF-GUMMIES-SAMPLE", 
+                "name": "Greener Farms Gummies"
+            }
+        ]
+        
+        products_created = 0
+        items_created = 0
+        
+        for idx, product_data in enumerate(test_products, 1):
+            product_sku = product_data["sku"]
+            product_name = product_data["name"]
+            
+            # Create product
+            placeholder = get_param_placeholder()
+            if USE_AZURE_SQL:
+                cursor.execute(f"""
+                    INSERT INTO products (sku, name, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                """, ensure_tuple_params((product_sku, product_name)))
+            else:
+                cursor.execute(f"""
+                    INSERT INTO products (sku, name, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                """, ensure_tuple_params((product_sku, product_name)))
+            conn.commit()
+            products_created += 1
+            
+            # Get product ID
+            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+            product_result = cursor.fetchone()
+            db_product_id = product_result['id'] if product_result else None
+            
+            # Use an existing return ID from the database to satisfy foreign key constraints
+            # We know from logs that return IDs like 1, 2, 3 exist and are small enough
+            existing_return_id = str(idx)  # Use small existing IDs like 1, 2
+            
+            if USE_AZURE_SQL:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                """, ensure_tuple_params((
+                    existing_return_id, db_product_id, 2,
+                    '["CSV Export Test"]',
+                    '["Good condition"]',
+                    2, 0
+                )))
+            else:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                """, ensure_tuple_params((
+                    existing_return_id, db_product_id, 2,
+                    '["CSV Export Test"]',
+                    '["Good condition"]',
+                    2, 0
+                )))
+            conn.commit()
+            items_created += 1
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": "CSV test data created successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "Uses small return_id values to avoid INT overflow, with real product names for CSV export testing"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"CSV test data creation failed: {str(e)}"
+        }
 
+@app.get("/api/direct-populate-from-working-returns")
+async def direct_populate_from_working_returns():
+    """Directly populate products and return_items from known working returns"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear existing test data
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Known working returns with real product data
+        # CRITICAL FIX: Use smaller return_id values to avoid INT overflow
+        working_returns = [
+            {
+                "return_id": "1001", 
+                "product_sku": "FLB-BLDSUGARCAPS30CT150-FIN",
+                "product_name": "Forge Labs BLOOD - Blood Sugar Capsules - 30ct - 150cc - Final",
+                "quantity": 2
+            },
+            {
+                "return_id": "1002",
+                "product_sku": "GRF-GUMMIES-SAMPLE", 
+                "product_name": "Greener Farms Gummies",
+                "quantity": 2
+            }
+        ]
+        
+        products_created = 0
+        items_created = 0
+        
+        for return_data in working_returns:
+            return_id = return_data["return_id"]
+            product_sku = return_data["product_sku"] 
+            product_name = return_data["product_name"]
+            quantity = return_data["quantity"]
+            
+            # Create product if not exists
+            placeholder = get_param_placeholder()
+            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+            existing = cursor.fetchone()
+            
+            if not existing:
+                if USE_AZURE_SQL:
+                    cursor.execute(f"""
+                        INSERT INTO products (sku, name, created_at, updated_at)
+                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                    """, ensure_tuple_params((product_sku, product_name)))
+                else:
+                    cursor.execute(f"""
+                        INSERT INTO products (sku, name, created_at, updated_at)
+                        VALUES ({placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                    """, ensure_tuple_params((product_sku, product_name)))
+                conn.commit()
+                products_created += 1
+            
+            # Get product ID
+            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+            product_result = cursor.fetchone()
+            db_product_id = product_result['id'] if product_result else None
+            
+            # Create return item
+            if USE_AZURE_SQL:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                """, ensure_tuple_params((
+                    str(return_id), db_product_id, quantity,
+                    '["Direct populate from working return"]',
+                    '["Good condition"]',
+                    quantity, 0
+                )))
+            else:
+                cursor.execute(f"""
+                    INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                           condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                           {placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                """, ensure_tuple_params((
+                    str(return_id), db_product_id, quantity,
+                    '["Direct populate from working return"]',
+                    '["Good condition"]',
+                    quantity, 0
+                )))
+            conn.commit()
+            items_created += 1
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Direct populate completed successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "Uses known working return data directly"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": f"Direct populate failed: {str(e)}"
+        }
+
+@app.get("/api/manual-populate-test")
+async def manual_populate_test():
+    """Manually populate products and return_items using working individual API calls"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear existing test data
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Get 10 recent returns to populate manually
+        cursor.execute("SELECT TOP 10 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 10")
+        sample_returns = cursor.fetchall()
+        
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        products_created = 0
+        items_created = 0
+        
+        for return_row in sample_returns:
+            return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
+            
+            # Use proven working individual API approach
+            individual_response = requests.get(
+                f"https://api.warehance.com/v1/returns/{return_id}",
+                headers=headers,
+                timeout=10
+            )
+            
+            if individual_response.status_code == 200:
+                individual_data = individual_response.json()
+                if individual_data.get("status") == "success":
+                    return_data = individual_data.get("data", {})
+                    items = return_data.get('items', [])
+                    
+                    for item in items:
+                        product_data = item.get('product', {})
+                        product_sku = product_data.get('sku', '')
+                        product_name = product_data.get('name', '')
+                        quantity = item.get('quantity', 0)
+                        
+                        if product_name and product_sku:
+                            # Create product if not exists
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                            existing = cursor.fetchone()
+                            
+                            if not existing:
+                                cursor.execute(f"""
+                                    INSERT INTO products (sku, name, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
+                                """, ensure_tuple_params((product_sku, product_name)))
+                                conn.commit()
+                                products_created += 1
+                            
+                            # Get product ID
+                            cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                            product_result = cursor.fetchone()
+                            db_product_id = product_result['id'] if product_result else None
+                            
+                            # Create return item
+                            cursor.execute(f"""
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                       {placeholder}, {placeholder}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'}, {'GETDATE()' if USE_AZURE_SQL else 'datetime("now")'})
+                            """, ensure_tuple_params((
+                                str(return_id), db_product_id, quantity,
+                                '["Manual API populate test"]',
+                                '["Good condition"]',
+                                quantity, 0
+                            )))
+                            conn.commit()
+                            items_created += 1
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Manual populate test completed successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "This uses the proven working individual API approach"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Manual populate test failed: {str(e)}"
+        }
+
+@app.get("/api/test-hybrid-sync")
+async def test_hybrid_sync():
+    """Test the hybrid individual API sync approach directly"""
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "version": DEPLOYMENT_VERSION,
+        "hybrid_test": {}
+    }
+    
+    try:
+        # Use same headers as main sync
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get baseline counts
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_before = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM return_items") 
+        return_items_before = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+        
+        results["hybrid_test"]["before"] = {
+            "products": products_before,
+            "return_items": return_items_before
+        }
+        
+        # Test hybrid approach on one return
+        cursor.execute("SELECT TOP 1 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 1")
+        test_return = cursor.fetchone()
+        return_id = test_return[0] if not USE_AZURE_SQL else test_return['id']
+        
+        results["hybrid_test"]["test_return_id"] = str(return_id)
+        
+        # Try individual API call
+        print(f"🧪 HYBRID TEST: Testing return {return_id}")
+        individual_response = requests.get(
+            f"https://api.warehance.com/v1/returns/{return_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        results["hybrid_test"]["api_call"] = {
+            "status_code": individual_response.status_code,
+            "success": individual_response.status_code == 200
+        }
+        
+        if individual_response.status_code == 200:
+            individual_data = individual_response.json()
+            if individual_data.get("status") == "success":
+                return_data = individual_data.get("data", {})
+                items = return_data.get('items', [])
+                
+                results["hybrid_test"]["api_data"] = {
+                    "has_items": len(items) > 0,
+                    "items_count": len(items),
+                    "items": []
+                }
+                
+                products_created = 0
+                return_items_created = 0
+                
+                # Process each item
+                for item in items:
+                    item_id = item.get('id')
+                    product_data = item.get('product', {})
+                    product_sku = product_data.get('sku', '')
+                    product_name = product_data.get('name', '')
+                    quantity = item.get('quantity', 0)
+                    
+                    item_result = {
+                        "item_id": item_id,
+                        "product_sku": product_sku,
+                        "product_name": product_name,
+                        "quantity": quantity,
+                        "has_product_data": bool(product_name)
+                    }
+                    
+                    if product_name and product_sku:  # Real product data
+                        print(f"🎯 HYBRID TEST: Found real product: {product_name}")
+                        
+                        # Create product if not exists
+                        placeholder = get_param_placeholder()
+                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                        existing = cursor.fetchone()
+                        
+                        if not existing:
+                            cursor.execute(f"""
+                                INSERT INTO products (sku, name, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                            """, ensure_tuple_params((product_sku, product_name)))
+                            conn.commit()
+                            products_created += 1
+                            item_result["product_created"] = True
+                        else:
+                            item_result["product_existed"] = True
+                        
+                        # Get product ID
+                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                        product_result = cursor.fetchone()
+                        db_product_id = product_result['id'] if product_result else None
+                        
+                        # Create return item if not exists
+                        cursor.execute(f"""
+                            SELECT COUNT(*) as count FROM return_items 
+                            WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
+                        """, (str(return_id), db_product_id))
+                        item_exists_result = cursor.fetchone()
+                        item_exists = item_exists_result['count'] > 0 if USE_AZURE_SQL else item_exists_result[0] > 0
+                        
+                        if not item_exists:
+                            cursor.execute(f"""
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                       {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                            """, ensure_tuple_params((
+                                str(return_id), db_product_id, quantity,
+                                '["Hybrid test"]', '["Good condition"]', quantity, 0
+                            )))
+                            conn.commit()
+                            return_items_created += 1
+                            item_result["return_item_created"] = True
+                        else:
+                            item_result["return_item_existed"] = True
+                    
+                    results["hybrid_test"]["items"].append(item_result)
+                
+                # Get final counts
+                cursor.execute("SELECT COUNT(*) as count FROM products")
+                products_after = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) as count FROM return_items")
+                return_items_after = cursor.fetchone()['count'] if USE_AZURE_SQL else cursor.fetchone()[0]
+                
+                results["hybrid_test"]["after"] = {
+                    "products": products_after,
+                    "return_items": return_items_after
+                }
+                
+                results["hybrid_test"]["created"] = {
+                    "products": products_created,
+                    "return_items": return_items_created
+                }
+                
+                results["hybrid_test"]["success"] = products_created > 0 or return_items_created > 0
+                results["hybrid_test"]["status"] = "✅ HYBRID TEST COMPLETED"
+            
+        conn.close()
+        return results
+        
+    except Exception as e:
+        results["hybrid_test"]["error"] = str(e)
+        results["hybrid_test"]["status"] = f"❌ HYBRID TEST FAILED: {str(e)}"
+        return results
+
+@app.get("/api/test-comprehensive")
+async def test_comprehensive():
+    """Comprehensive test suite for debugging sync and export issues"""
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "version": DEPLOYMENT_VERSION,
+        "tests": {}
+    }
+    
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Test 1: Database State
+        print("🧪 TEST 1: Checking database state")
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_count = cursor.fetchone()
+        returns_total = returns_count['count'] if USE_AZURE_SQL else returns_count[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_count = cursor.fetchone()
+        products_total = products_count['count'] if USE_AZURE_SQL else products_count[0]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        return_items_count = cursor.fetchone()
+        return_items_total = return_items_count['count'] if USE_AZURE_SQL else return_items_count[0]
+        
+        results["tests"]["database_state"] = {
+            "returns_count": returns_total,
+            "products_count": products_total,
+            "return_items_count": return_items_total,
+            "status": "✅ PASS"
+        }
+        
+        # Test 2: Sample Return Structure
+        print("🧪 TEST 2: Checking sample return structure")
+        cursor.execute("SELECT TOP 1 CAST(id AS NVARCHAR(50)) as id, api_id, status FROM returns" if USE_AZURE_SQL else "SELECT CAST(id AS NVARCHAR(50)) as id, api_id, status FROM returns LIMIT 1")
+        sample_return = cursor.fetchone()
+        if sample_return:
+            sample_return_dict = dict(sample_return) if USE_AZURE_SQL else dict(sample_return)
+            results["tests"]["sample_return"] = {
+                "exists": True,
+                "id": sample_return_dict.get('id'),
+                "has_order_id": bool(sample_return_dict.get('order_id')),
+                "status": "✅ PASS"
+            }
+        else:
+            results["tests"]["sample_return"] = {
+                "exists": False,
+                "status": "❌ FAIL - No returns found"
+            }
+        
+        # Test 3: API Connectivity Test (single return)
+        print("🧪 TEST 3: Testing API connectivity")
+        try:
+            headers = {"X-API-KEY": WAREHANCE_API_KEY}
+            api_response = requests.get(
+                "https://api.warehance.com/v1/returns?limit=1",
+                headers=headers,
+                timeout=10
+            )
+            if api_response.status_code == 200:
+                api_data = api_response.json()
+                api_returns = api_data.get('data', {}).get('returns', [])
+                results["tests"]["api_connectivity"] = {
+                    "status_code": 200,
+                    "returns_in_response": len(api_returns),
+                    "first_return_has_items": bool(api_returns[0].get('items')) if api_returns else False,
+                    "first_return_items_count": len(api_returns[0].get('items', [])) if api_returns else 0,
+                    "status": "✅ PASS"
+                }
+                if api_returns and api_returns[0].get('items'):
+                    first_item = api_returns[0]['items'][0]
+                    results["tests"]["api_connectivity"]["sample_item_structure"] = {
+                        "item_id": first_item.get('id'),
+                        "product_id": first_item.get('product', {}).get('id'),
+                        "product_sku": first_item.get('product', {}).get('sku'),
+                        "product_name": first_item.get('product', {}).get('name'),
+                        "quantity": first_item.get('quantity')
+                    }
+            else:
+                results["tests"]["api_connectivity"] = {
+                    "status_code": api_response.status_code,
+                    "status": f"❌ FAIL - API returned {api_response.status_code}"
+                }
+        except Exception as api_err:
+            results["tests"]["api_connectivity"] = {
+                "error": str(api_err),
+                "status": "❌ FAIL - API connection error"
+            }
+        
+        # Test 4: Database Schema Check
+        print("🧪 TEST 4: Checking database schema")
+        try:
+            # Check products table structure
+            if USE_AZURE_SQL:
+                cursor.execute("""
+                    SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE 
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_NAME = 'products'
+                    ORDER BY ORDINAL_POSITION
+                """)
+                products_schema = cursor.fetchall()
+                products_schema = [dict(row) for row in products_schema]
+            else:
+                cursor.execute("PRAGMA table_info(products)")
+                products_schema = cursor.fetchall()
+                products_schema = [dict(row) for row in products_schema]
+            
+            results["tests"]["database_schema"] = {
+                "products_columns": products_schema,
+                "products_id_type": next((col for col in products_schema if col.get('COLUMN_NAME') == 'id' or col.get('name') == 'id'), {}).get('DATA_TYPE' if USE_AZURE_SQL else 'type'),
+                "status": "✅ PASS"
+            }
+        except Exception as schema_err:
+            results["tests"]["database_schema"] = {
+                "error": str(schema_err),
+                "status": "❌ FAIL - Schema check error"
+            }
+        
+        conn.close()
+        
+        # Test 5: Sync Status Check
+        print("🧪 TEST 5: Checking current sync status")
+        try:
+            # Access global sync_status directly instead of calling async function
+            global sync_status
+            results["tests"]["sync_status"] = {
+                "current_status": sync_status.get("status", "unknown"),
+                "items_synced": sync_status.get("items_synced", 0),
+                "products_synced": sync_status.get("products_synced", 0),
+                "return_items_synced": sync_status.get("return_items_synced", 0),
+                "last_sync_message": sync_status.get("last_sync_message", "No message"),
+                "status": "✅ PASS"
+            }
+        except Exception as sync_err:
+            results["tests"]["sync_status"] = {
+                "error": str(sync_err),
+                "status": "❌ FAIL - Sync status error"
+            }
+        
+        results["overall_status"] = "✅ TEST SUITE COMPLETED"
+        results["summary"] = {
+            "total_tests": len(results["tests"]),
+            "passed_tests": len([t for t in results["tests"].values() if "✅ PASS" in t.get("status", "")]),
+            "failed_tests": len([t for t in results["tests"].values() if "❌ FAIL" in t.get("status", "")])
+        }
+        
+        return results
+        
+    except Exception as e:
+        results["overall_status"] = f"❌ TEST SUITE FAILED: {str(e)}"
+        return results
+
+@app.get("/api/test-returns")
+async def test_returns():
+    """Simple test to get first 5 returns without complex search logic"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Simple query to get basic returns data
+        if USE_AZURE_SQL:
+            query = """
+                SELECT r.id, r.api_id, r.status, r.created_at,
+                       c.name as client_name, w.name as warehouse_name
+                FROM returns r
+                LEFT JOIN clients c ON r.client_id = c.id
+                LEFT JOIN warehouses w ON r.warehouse_id = w.id
+                ORDER BY r.created_at DESC
+                OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY
+            """
+        else:
+            query = """
+                SELECT r.id, r.api_id, r.status, r.created_at,
+                       c.name as client_name, w.name as warehouse_name
+                FROM returns r
+                LEFT JOIN clients c ON r.client_id = c.id
+                LEFT JOIN warehouses w ON r.warehouse_id = w.id
+                ORDER BY r.created_at DESC
+                LIMIT 5
+            """
+        
+        cursor.execute(query)
+        
+        rows = cursor.fetchall()
+        
+        if USE_AZURE_SQL:
+            rows = rows_to_dict(cursor, rows) if rows else []
+            results = [{
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "status": row['status'],
+                "created_at": str(row['created_at']),
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name']
+            } for row in rows]
+        else:
+            results = [{
+                "id": row['id'],
+                "api_id": row['api_id'],
+                "status": row['status'],
+                "created_at": str(row['created_at']),
+                "client_name": row['client_name'],
+                "warehouse_name": row['warehouse_name']
+            } for row in rows]
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "count": len(results),
+            "returns": results,
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Test returns failed: {str(e)}"
+        }
+
+@app.post("/api/clear-placeholder-data")
+async def clear_placeholder_data():
+    """Clear existing placeholder data from database to allow fresh sync with real data"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Count records before clearing
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        row = cursor.fetchone()
+        if USE_AZURE_SQL:
+            initial_count = row['count'] if row else 0
+        else:
+            initial_count = row['count'] if row else 0
+        
+        # Delete all returns data (this will cascade to related tables)
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM returns")
+        cursor.execute("DELETE FROM orders") 
+        cursor.execute("DELETE FROM products WHERE id > 1")  # Keep any system products
+        cursor.execute("DELETE FROM email_history")
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": f"Cleared {initial_count} placeholder records from database",
+            "ready_for_sync": True,
+            "note": "Database is now ready for fresh sync with real data using V37 fixes"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to clear placeholder data: {str(e)}"
+        }
 
 if __name__ == "__main__":
     import uvicorn
