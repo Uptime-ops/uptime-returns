@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.65-CRITICAL-FIX-UNDEFINED-ACTUAL_PRODUCT_ID-VARIABLE"
+DEPLOYMENT_VERSION = "V87.66-CRITICAL-FIX-PARAMETER-COUNT-MISMATCHES-IN-INSERT-STATEMENTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2845,8 +2845,8 @@ async def run_sync():
                                     # SQLite version - can use explicit IDs
                                     cursor.execute("""
                                         INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, (product_id, product_sku, product_name))
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (product_id, product_sku, product_name, datetime.now().isoformat(), datetime.now().isoformat()))
                                     sync_status["products_synced"] += 1
                             except Exception as prod_err:
                                 print(f"Product INSERT error for ID {product_id}: {prod_err}")
@@ -2956,7 +2956,7 @@ async def run_sync():
                                         return_reasons, condition_on_arrival,
                                         quantity_received, quantity_rejected,
                                         created_at, updated_at
-                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                 """, ensure_tuple_params((
                                     return_id,
                                     product_id if product_id > 0 else None,
@@ -2964,7 +2964,9 @@ async def run_sync():
                                     json.dumps(item.get('return_reasons', [])),
                                     json.dumps(item.get('condition_on_arrival', [])),
                                     item.get('quantity_received', 0),
-                                    item.get('quantity_rejected', 0)
+                                    item.get('quantity_rejected', 0),
+                                    datetime.now().isoformat(),  # created_at
+                                    datetime.now().isoformat()   # updated_at
                                 )))
                                 sync_status["return_items_synced"] += 1
                         except Exception as item_err:
