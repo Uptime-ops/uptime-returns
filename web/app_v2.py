@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.72-SPEED-BOOST-WITH-CORRECT-WAREHANCE-API-BATCH-LIMITS"
+DEPLOYMENT_VERSION = "V87.73-CRITICAL-FIX-OLD-SYNC-FUNCTION-RETURN-ITEMS-STRUCTURE-MISMATCH"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2212,10 +2212,44 @@ async def sync_returns_with_product_data():
                         print(f"    Product {product_id} insert failed: {e}")
                         # Continue anyway - product might already exist
 
-                    # Now insert return_item
+                    # Now insert return_item with full structure to match CSV export expectations
                     try:
-                        return_item_insert_sql = f"INSERT INTO return_items (return_id, product_id, quantity) VALUES ({placeholder}, {placeholder}, {placeholder})"
-                        cursor.execute(return_item_insert_sql, (return_id, product_id, quantity))
+                        if USE_AZURE_SQL:
+                            cursor.execute(f"""
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                       condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                       {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                            """, ensure_tuple_params((
+                                str(return_id),  # Convert to string for NVARCHAR field
+                                product_id,
+                                quantity,
+                                '["Original order item"]',  # Default return reason
+                                '["Unknown"]',  # Default condition
+                                quantity,  # Assume all received
+                                0,  # None rejected initially
+                                convert_date_for_sql(datetime.now().isoformat()),  # created_at
+                                convert_date_for_sql(datetime.now().isoformat())   # updated_at
+                            )))
+                        else:
+                            cursor.execute(f"""
+                                INSERT OR REPLACE INTO return_items (
+                                    return_id, product_id, quantity,
+                                    return_reasons, condition_on_arrival,
+                                    quantity_received, quantity_rejected,
+                                    created_at, updated_at
+                                ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                            """, ensure_tuple_params((
+                                return_id,
+                                product_id,
+                                quantity,
+                                '["Original order item"]',  # Default return reason
+                                '["Unknown"]',  # Default condition
+                                quantity,  # Assume all received
+                                0,  # None rejected initially
+                                datetime.now().isoformat(),  # created_at
+                                datetime.now().isoformat()   # updated_at
+                            )))
                         return_items_created += 1
                         print(f"    Return item created successfully for return {return_id}!")
                     except Exception as e:
