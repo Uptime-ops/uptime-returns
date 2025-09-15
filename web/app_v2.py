@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.41-STRING-BASED-APPROACH-FOR-LARGE-RETURN-IDS"
+DEPLOYMENT_VERSION = "V87.42-CAST-DATABASE-RETURN-ID-COLUMN-TO-NVARCHAR"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1200,7 +1200,7 @@ async def search_returns_test():
                            p.sku, p.name as product_name
                     FROM return_items ri
                     LEFT JOIN products p ON ri.product_id = p.id
-                    WHERE ri.return_id = {placeholder}
+                    WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
                 """, (return_id,))
             except Exception as e:
                 print(f"Error fetching return items for return_id {return_id}: {e}")
@@ -1285,7 +1285,7 @@ async def get_return_detail(return_id: str):
                p.sku, p.name as product_name
         FROM return_items ri
         LEFT JOIN products p ON ri.product_id = p.id
-        WHERE ri.return_id = {placeholder}
+        WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
     """, (return_id,))
     
     return_items = cursor.fetchall()
@@ -1475,7 +1475,7 @@ async def export_returns_csv(request: Request):
                        ri.return_reasons, ri.condition_on_arrival
                 FROM return_items ri
                 LEFT JOIN products p ON CAST(ri.product_id AS NVARCHAR(50)) = CAST(p.id AS NVARCHAR(50))
-                WHERE ri.return_id = {placeholder}
+                WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
             """, (str(return_id),))
             items = cursor.fetchall()
             print(f"=== CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items ===")
@@ -2621,7 +2621,7 @@ async def run_sync():
                                             # Create return item
                                             cursor.execute(f"""
                                                 SELECT COUNT(*) as count FROM return_items 
-                                                WHERE return_id = {placeholder} AND product_id = {placeholder}
+                                                WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
                                             """, (str(return_id), db_product_id))
                                             item_exists = cursor.fetchone()
                                             
@@ -3170,7 +3170,7 @@ async def run_sync():
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
                                     SELECT COUNT(*) as count FROM return_items 
-                                    WHERE return_id = {placeholder} AND product_id = {placeholder}
+                                    WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
                                 """, (str(return_id), actual_product_id))
                                 result = cursor.fetchone()
                                 exists = result['count'] > 0 if USE_AZURE_SQL else result[0] > 0
@@ -3403,7 +3403,7 @@ async def run_sync():
                                         placeholder = get_param_placeholder()
                                         cursor.execute(f"""
                                             SELECT COUNT(*) as count FROM return_items 
-                                            WHERE return_id = {placeholder} AND product_id = {placeholder}
+                                            WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
                                         """, (return_id, actual_product_id))
                                         item_result = cursor.fetchone()
                                         if USE_AZURE_SQL:
@@ -3547,7 +3547,7 @@ async def send_returns_email(request_data: dict):
         cursor.execute(f"""
             SELECT COUNT(ri.id) 
             FROM return_items ri 
-            JOIN returns r ON ri.return_id = r.id 
+            JOIN returns r ON CAST(ri.return_id AS NVARCHAR(50)) = CAST(r.id AS NVARCHAR(50)) 
             {where_clause}
         """, params)
         row = cursor.fetchone()
@@ -3557,7 +3557,7 @@ async def send_returns_email(request_data: dict):
         cursor.execute(f"""
             SELECT ri.return_reasons, COUNT(*) as count
             FROM return_items ri
-            JOIN returns r ON ri.return_id = r.id
+            JOIN returns r ON CAST(ri.return_id AS NVARCHAR(50)) = CAST(r.id AS NVARCHAR(50))
             {where_clause} AND ri.return_reasons IS NOT NULL
             GROUP BY ri.return_reasons
             ORDER BY count DESC
@@ -4988,7 +4988,7 @@ async def test_hybrid_sync():
                         # Create return item if not exists
                         cursor.execute(f"""
                             SELECT COUNT(*) as count FROM return_items 
-                            WHERE return_id = {placeholder} AND product_id = {placeholder}
+                            WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
                         """, (str(return_id), db_product_id))
                         item_exists_result = cursor.fetchone()
                         item_exists = item_exists_result['count'] > 0 if USE_AZURE_SQL else item_exists_result[0] > 0
