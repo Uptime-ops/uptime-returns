@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.43-CAST-ALL-ID-COLUMNS-TO-NVARCHAR-COMPLETE-FIX"
+DEPLOYMENT_VERSION = "V87.44-FIX-GET-RETURN-DETAIL-SELECT-STAR-INT-OVERFLOW"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1258,10 +1258,15 @@ async def get_return_detail(return_id: str):
     # Get return details with all fields
     placeholder = get_param_placeholder()
     cursor.execute(f"""
-        SELECT r.*, c.name as client_name, w.name as warehouse_name, o.order_number
+        SELECT CAST(r.id AS NVARCHAR(50)) as id, r.api_id, r.paid_by, r.created_at, r.updated_at, 
+               r.status, r.tracking_number, r.processed, r.label_pdf_url, r.rma_slip_url, 
+               r.label_voided, CAST(r.client_id AS NVARCHAR(50)) as client_id, 
+               CAST(r.warehouse_id AS NVARCHAR(50)) as warehouse_id, 
+               CAST(r.order_id AS NVARCHAR(50)) as order_id, r.return_integration_id, 
+               r.last_synced_at, c.name as client_name, w.name as warehouse_name, o.order_number
         FROM returns r
-        LEFT JOIN clients c ON r.client_id = c.id
-        LEFT JOIN warehouses w ON r.warehouse_id = w.id
+        LEFT JOIN clients c ON CAST(r.client_id AS NVARCHAR(50)) = CAST(c.id AS NVARCHAR(50))
+        LEFT JOIN warehouses w ON CAST(r.warehouse_id AS NVARCHAR(50)) = CAST(w.id AS NVARCHAR(50))
         LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
         WHERE CAST(r.id AS NVARCHAR(50)) = {placeholder}
     """, (return_id,))
@@ -5077,7 +5082,7 @@ async def test_comprehensive():
         
         # Test 2: Sample Return Structure
         print("🧪 TEST 2: Checking sample return structure")
-        cursor.execute("SELECT TOP 1 * FROM returns" if USE_AZURE_SQL else "SELECT * FROM returns LIMIT 1")
+        cursor.execute("SELECT TOP 1 CAST(id AS NVARCHAR(50)) as id, api_id, status FROM returns" if USE_AZURE_SQL else "SELECT CAST(id AS NVARCHAR(50)) as id, api_id, status FROM returns LIMIT 1")
         sample_return = cursor.fetchone()
         if sample_return:
             sample_return_dict = dict(sample_return) if USE_AZURE_SQL else dict(sample_return)
