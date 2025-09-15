@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.54-CURSOR-AI-SQL-SYNTAX-FIXES"
+DEPLOYMENT_VERSION = "V87.55-DEBUG-RETURN-ITEMS-AND-FIX-CSV-OVERFLOW"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2878,6 +2878,59 @@ async def sql_diagnostics():
             "exception_type": str(type(e)),
             "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite"
         }
+
+@app.get("/api/debug/return-items-check")
+async def debug_return_items():
+    """Check what return_items actually exist in the database"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check return_items count
+        cursor.execute("SELECT COUNT(*) as total_count FROM return_items")
+        result = cursor.fetchone()
+        total_count = result['total_count'] if USE_AZURE_SQL else result[0]
+
+        # Get sample return_items with product info
+        cursor.execute("""
+            SELECT TOP 10
+                CAST(ri.id AS NVARCHAR(50)) as item_id,
+                CAST(ri.return_id AS NVARCHAR(50)) as return_id,
+                CAST(ri.product_id AS NVARCHAR(50)) as product_id,
+                ri.quantity,
+                p.name as product_name,
+                p.sku as product_sku
+            FROM return_items ri
+            LEFT JOIN products p ON CAST(ri.product_id AS NVARCHAR(50)) = CAST(p.id AS NVARCHAR(50))
+            ORDER BY ri.id
+        """)
+        items = cursor.fetchall()
+
+        # Convert to dict format for Azure SQL
+        if USE_AZURE_SQL:
+            items = rows_to_dict(cursor, items) if items else []
+
+        # Check which return IDs have return_items
+        cursor.execute("""
+            SELECT CAST(return_id AS NVARCHAR(50)) as return_id, COUNT(*) as item_count
+            FROM return_items
+            GROUP BY return_id
+            ORDER BY item_count DESC
+        """)
+        return_counts = cursor.fetchall()
+        if USE_AZURE_SQL:
+            return_counts = rows_to_dict(cursor, return_counts) if return_counts else []
+
+        conn.close()
+
+        return {
+            "total_return_items": total_count,
+            "sample_items": items,
+            "returns_with_items": return_counts
+        }
+
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
 
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
