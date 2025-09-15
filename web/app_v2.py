@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.63-PERFORMANCE-BOOST-BATCH-SIZE-100-MATCH-LOCAL-SPEED"
+DEPLOYMENT_VERSION = "V87.65-CRITICAL-FIX-UNDEFINED-ACTUAL_PRODUCT_ID-VARIABLE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2401,7 +2401,7 @@ async def run_sync():
         
         while True:
             try:
-                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
+                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}&include_items=true"
                 log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
                 response = http_session.get(url, headers=headers)
                 
@@ -2719,28 +2719,55 @@ async def run_sync():
                     print(f"✅ SYNC TRACE: Return {return_id}: Using embedded items data ({len(items_data)} items)")
                     print(f"🔍 SYNC TRACE: First item structure: {items_data[0] if items_data else 'No items'}")
                 else:
-                    print(f"⚠️ SYNC TRACE: Return {return_id}: No embedded items, trying separate API call")
-                    # Make separate API call to fetch return items
+                    print(f"⚠️ SYNC TRACE: Return {return_id}: No embedded items, trying individual return API call")
+                    # Make individual return API call which should include items data
                     try:
-                        print(f"🔄 SYNC TRACE: Return {return_id}: Fetching return items via separate API call")
-                        items_response = requests.get(
-                            f"https://api.warehance.com/v1/returns/{return_id}/items",
+                        print(f"🔄 SYNC TRACE: Return {return_id}: Fetching individual return with items data")
+                        individual_response = requests.get(
+                            f"https://api.warehance.com/v1/returns/{return_id}",
                             headers=headers,
                             timeout=10
                         )
                         
-                        if items_response.status_code == 200:
-                            items_api_data = items_response.json()
-                            print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
-                            if items_api_data.get("status") == "success":
-                                items_data = items_api_data.get("data", [])
-                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                        if individual_response.status_code == 200:
+                            individual_data = individual_response.json()
+                            if individual_data.get("status") == "success":
+                                individual_return_data = individual_data.get("data", {})
+                                items_data = individual_return_data.get('items', [])
+                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
                             else:
-                                print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                                print(f"❌ SYNC TRACE: Return {return_id}: Individual API returned non-success status")
+                                items_data = []
                         else:
-                            print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
-                    except Exception as items_err:
-                        print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
+                            print(f"❌ SYNC TRACE: Return {return_id}: Individual API call failed with status {individual_response.status_code}")
+                            items_data = []
+                    except Exception as individual_err:
+                        print(f"💥 SYNC TRACE: Return {return_id}: Error with individual API call: {individual_err}")
+                        items_data = []
+                    
+                    # Fallback: Try separate items API call if individual return didn't work
+                    if not items_data:
+                        print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
+                        try:
+                            items_response = requests.get(
+                                f"https://api.warehance.com/v1/returns/{return_id}/items",
+                                headers=headers,
+                                timeout=10
+                            )
+                            
+                            if items_response.status_code == 200:
+                                items_api_data = items_response.json()
+                                print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
+                                if items_api_data.get("status") == "success":
+                                    items_data = items_api_data.get("data", [])
+                                    print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                                else:
+                                    print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                            else:
+                                print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
+                        except Exception as items_err:
+                            print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
+                            items_data = []
                 
                 # Process return items if we have them
                 if items_data:
@@ -2767,7 +2794,8 @@ async def run_sync():
                             cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
                             existing = cursor.fetchone()
                             if existing:
-                                product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
+                                actual_product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
+                                print(f"✅ SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
                             else:
                                 # Create a placeholder product
                                 placeholder = get_param_placeholder()
@@ -2775,15 +2803,21 @@ async def run_sync():
                                     cursor.execute(f"""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
                                         VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((actual_product_id, product_sku, product_name or 'Unknown Product')))
+                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
                                 else:
                                     cursor.execute(f"""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
                                         VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, ensure_tuple_params((actual_product_id, product_sku, product_name or 'Unknown Product')))
-                                product_id = cursor.lastrowid
-                                # CRITICAL FIX: Set actual_product_id so return_items can be created
-                                actual_product_id = product_id
+                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
+                                # Get the newly created product ID
+                                if USE_AZURE_SQL:
+                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                    new_product = cursor.fetchone()
+                                    actual_product_id = new_product['id'] if new_product else None
+                                else:
+                                    actual_product_id = cursor.lastrowid
+                                sync_status["products_synced"] += 1
+                                print(f"✅ SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
                         elif product_id > 0:
                             # Ensure product exists - simplified approach
                             try:
@@ -2815,6 +2849,8 @@ async def run_sync():
                                     sync_status["products_synced"] += 1
                             except Exception as prod_err:
                                 print(f"Product INSERT error for ID {product_id}: {prod_err}")
+                                # 🚨 CRITICAL FIX: Set actual_product_id to None on error to prevent undefined variable
+                                actual_product_id = None
                                 # Continue processing even if product insert fails
                         elif product_id == 0 and not product_sku:
                             print(f"✅ SYNC TRACE: Taking path 2: product_id=0 AND no SKU - creating placeholder")
@@ -2851,15 +2887,26 @@ async def run_sync():
                                 actual_product_id = None
                         else:
                             print(f"✅ SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
-                            # Product ID > 0, so product should exist or have been created above
-                            # actual_product_id should already be set correctly in the Azure SQL path
-                            # For SQLite, we can use the API product_id directly  
-                            if not USE_AZURE_SQL:
+                            # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
+                            if USE_AZURE_SQL:
+                                # Look up the product by SKU to get the actual database ID
+                                try:
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                    existing_product = cursor.fetchone()
+                                    if existing_product:
+                                        actual_product_id = existing_product['id']
+                                        print(f"🎯 SYNC TRACE: Azure SQL path - found product by SKU: {product_sku}, DB ID: {actual_product_id}")
+                                    else:
+                                        print(f"⚠️ SYNC TRACE: Azure SQL path - product not found for SKU: {product_sku}")
+                                        actual_product_id = None
+                                except Exception as lookup_err:
+                                    print(f"⚠️ SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
+                                    actual_product_id = None
+                            else:
+                                # For SQLite, we can use the API product_id directly
                                 actual_product_id = product_id
                                 print(f"🎯 SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
-                            else:
-                                print(f"🎯 SYNC TRACE: Azure SQL path - actual_product_id should be set from above logic")
-                            # For Azure SQL, actual_product_id is already set correctly above
                         
                         # Store return item with proper error handling
                         print(f"🎯 SYNC TRACE: Preparing to create return_item - return_id={return_id}, actual_product_id={actual_product_id}")
