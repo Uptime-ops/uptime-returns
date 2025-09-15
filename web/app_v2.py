@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.48-DEBUG-WHY-NO-RETURN-ITEMS-CREATED"
+DEPLOYMENT_VERSION = "V87.49-ENHANCED-DEBUG-AND-MERGE-FIXES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2492,9 +2492,9 @@ async def sync_returns_with_product_data():
                 print(f"Return {return_id}: Items array exists but no product data")
                 continue
                 
-            print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing...")
+            print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing {len(items)} items...")
             returns_with_data += 1
-            
+
             # Process return items with real data
             for item in items:
                 product_info = item.get('product', {})
@@ -2509,36 +2509,25 @@ async def sync_returns_with_product_data():
                     
                     # First ensure product exists in products table
                     placeholder = get_param_placeholder()
-                    product_merge_sql = f"""
-                    MERGE products AS target
-                    USING (SELECT {placeholder} as id, {placeholder} as sku, {placeholder} as name) AS source
-                    ON target.id = source.id
-                    WHEN NOT MATCHED THEN
-                        INSERT (id, sku, name) VALUES (source.id, source.sku, source.name);
-                    """
-                    
+
+                    # Use simple INSERT with error handling instead of MERGE
                     try:
-                        cursor.execute(product_merge_sql, (product_id, sku, name))
-                        print(f"    Product {product_id} ensured in products table")
+                        product_insert_sql = f"INSERT INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
+                        cursor.execute(product_insert_sql, (product_id, sku, name))
+                        print(f"    Product {product_id} inserted successfully")
                     except Exception as e:
-                        print(f"    Error inserting product {product_id}: {e}")
-                        continue
-                    
+                        print(f"    Product {product_id} insert failed (probably exists): {e}")
+                        # Continue anyway - product might already exist
+
                     # Now insert return_item
-                    return_item_merge_sql = f"""
-                    MERGE return_items AS target
-                    USING (SELECT {placeholder} as id, {placeholder} as return_id, {placeholder} as product_id, {placeholder} as quantity) AS source
-                    ON target.id = source.id
-                    WHEN NOT MATCHED THEN
-                        INSERT (id, return_id, product_id, quantity) VALUES (source.id, source.return_id, source.product_id, source.quantity);
-                    """
-                    
                     try:
-                        cursor.execute(return_item_merge_sql, (item_id, return_id, product_id, quantity))
+                        return_item_insert_sql = f"INSERT INTO return_items (id, return_id, product_id, quantity) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})"
+                        cursor.execute(return_item_insert_sql, (item_id, return_id, product_id, quantity))
                         return_items_created += 1
-                        print(f"    Return item {item_id} created successfully")
+                        print(f"    Return item {item_id} created successfully!")
                     except Exception as e:
-                        print(f"    Error inserting return_item {item_id}: {e}")
+                        print(f"    CRITICAL: Return item {item_id} insert failed: {e}")
+                        # This is the critical failure - return_items not being created
         
         # Commit all changes
         conn.commit()
