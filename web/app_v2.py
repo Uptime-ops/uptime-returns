@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.42-CAST-DATABASE-RETURN-ID-COLUMN-TO-NVARCHAR"
+DEPLOYMENT_VERSION = "V87.43-CAST-ALL-ID-COLUMNS-TO-NVARCHAR-COMPLETE-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -644,7 +644,7 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -672,7 +672,7 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -785,7 +785,7 @@ async def search_returns(request: Request):
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -930,7 +930,7 @@ async def search_returns(request: Request):
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -1029,7 +1029,7 @@ async def search_returns_test():
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -1058,7 +1058,7 @@ async def search_returns_test():
     SELECT COUNT(*) as total_count FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -1262,8 +1262,8 @@ async def get_return_detail(return_id: str):
         FROM returns r
         LEFT JOIN clients c ON r.client_id = c.id
         LEFT JOIN warehouses w ON r.warehouse_id = w.id
-        LEFT JOIN orders o ON r.order_id = o.id
-        WHERE r.id = {placeholder}
+        LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
+        WHERE CAST(r.id AS NVARCHAR(50)) = {placeholder}
     """, (return_id,))
     
     return_row = cursor.fetchone()
@@ -1403,13 +1403,13 @@ async def export_returns_csv(request: Request):
     
     # First get all returns matching the filter
     query = """
-    SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number, 
+    SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number, 
            r.processed, c.name as client_name, w.name as warehouse_name,
-           r.order_id, o.order_number, o.created_at as order_date, o.customer_name
+           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.created_at as order_date, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
     
@@ -1797,7 +1797,7 @@ async def debug_one_return_sync():
         
         # Check if return exists
         placeholder = get_param_placeholder()
-        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (return_id,))
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (return_id,))
         exists = cursor.fetchone()['count'] > 0 if USE_AZURE_SQL else cursor.fetchone()[0] > 0
         result["return_exists_in_db"] = exists
         
@@ -2834,7 +2834,7 @@ async def run_sync():
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
                         placeholder = get_param_placeholder()
-                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", ensure_tuple_params((return_id,)))
+                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] > 0 if USE_AZURE_SQL else return_result[0] > 0)
                         
@@ -2850,7 +2850,7 @@ async def run_sync():
                                     label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
                                     client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
                                     return_integration_id = {placeholder}, last_synced_at = {placeholder}
-                                WHERE id = {placeholder}
+                                WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
                             """, (
                                 ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
@@ -2978,7 +2978,7 @@ async def run_sync():
                         if USE_AZURE_SQL:
                             # Check if order exists first
                             placeholder = get_param_placeholder()
-                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (str(order_data['id']),))
+                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (str(order_data['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] == 0 if USE_AZURE_SQL else order_result[0] == 0):
                                 placeholder = get_param_placeholder()
@@ -3272,7 +3272,7 @@ async def run_sync():
         cursor.execute("""
             SELECT DISTINCT r.order_id 
             FROM returns r 
-            LEFT JOIN orders o ON r.order_id = o.id 
+            LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50)) 
             WHERE r.order_id IS NOT NULL 
             AND (o.customer_name IS NULL OR o.customer_name = '' OR o.id IS NULL)
         """)
@@ -3316,7 +3316,7 @@ async def run_sync():
                         placeholder = get_param_placeholder()
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE id = {placeholder}", (order_id,))
+                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (order_id,))
                             result = cursor.fetchone()
                             if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0):
                                 # Insert new order
@@ -3331,7 +3331,7 @@ async def run_sync():
                                 cursor.execute(f"""
                                     UPDATE orders 
                                     SET customer_name = {placeholder}, order_number = {placeholder}, updated_at = GETDATE()
-                                    WHERE id = {placeholder}
+                                    WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
                                 """, (customer_name, order_data.get('order_number', ''), order_id))
                                 print(f"✅ Updated order {order_id} with customer '{customer_name}'")
                         else:
@@ -3392,7 +3392,7 @@ async def run_sync():
                                     # Find the return that references this order
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
-                                        SELECT id FROM returns WHERE order_id = {placeholder}
+                                        SELECT id FROM returns WHERE CAST(order_id AS NVARCHAR(50)) = {placeholder}
                                     """, (order_id,))
                                     return_rows = cursor.fetchall()
                                     
@@ -3517,7 +3517,7 @@ async def send_returns_email(request_data: dict):
         client_name = "All Clients"
         if client_id:
             placeholder = get_param_placeholder()
-            cursor.execute(f"SELECT name as client_name FROM clients WHERE id = {placeholder}", (client_id,))
+            cursor.execute(f"SELECT name as client_name FROM clients WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (client_id,))
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
@@ -4395,7 +4395,7 @@ async def test_direct_sync():
             try:
                 # Check if return exists
                 placeholder = get_param_placeholder()
-                cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE id = {placeholder}", (str(return_id),))
+                cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (str(return_id),))
                 result = cursor.fetchone()
                 exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
                 print(f"Return {return_id} exists in DB: {exists}")
