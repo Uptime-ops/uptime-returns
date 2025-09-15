@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.57-ENABLE-IDENTITY-INSERT-FOR-PRODUCTS"
+DEPLOYMENT_VERSION = "V87.58-MAJOR-CLEANUP-REMOVE-1750-LINES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -267,13 +267,6 @@ else:
         DATABASE_PATH = '/home/warehance_returns.db'
     else:
         DATABASE_PATH = '../warehance_returns.db'
-    
-    def get_db_connection():
-        """Get SQLite connection"""
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
-
 from fastapi import FastAPI, Response, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
