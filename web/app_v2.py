@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.53-SQL-PERMISSIONS-AND-TABLE-DIAGNOSTICS"
+DEPLOYMENT_VERSION = "V87.54-CURSOR-AI-SQL-SYNTAX-FIXES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2581,12 +2581,12 @@ async def sync_returns_with_product_data():
 
                     # Now insert return_item
                     try:
-                        return_item_insert_sql = f"INSERT INTO return_items (id, return_id, product_id, quantity) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})"
-                        cursor.execute(return_item_insert_sql, (item_id, return_id, product_id, quantity))
+                        return_item_insert_sql = f"INSERT INTO return_items (return_id, product_id, quantity) VALUES ({placeholder}, {placeholder}, {placeholder})"
+                        cursor.execute(return_item_insert_sql, (return_id, product_id, quantity))
                         return_items_created += 1
-                        print(f"    Return item {item_id} created successfully!")
+                        print(f"    Return item created successfully for return {return_id}!")
                     except Exception as e:
-                        print(f"    CRITICAL: Return item {item_id} insert failed: {e}")
+                        print(f"    CRITICAL: Return item insert failed for return {return_id}: {e}")
                         # This is the critical failure - return_items not being created
         
         # Commit all changes
@@ -2776,12 +2776,12 @@ async def sql_diagnostics():
 
         # 1. Check current database and user
         try:
-            cursor.execute("SELECT DB_NAME() as current_database, USER_NAME() as current_user, SUSER_NAME() as login_name")
+            cursor.execute("SELECT DB_NAME() as current_database, SUSER_NAME() as current_user, SUSER_NAME() as login_name")
             result = cursor.fetchone()
             diagnostics["database_info"] = {
-                "database": result[0] if result else "unknown",
-                "user": result[1] if result else "unknown",
-                "login": result[2] if result else "unknown"
+                "database": result['current_database'] if result else "unknown",
+                "user": result['current_user'] if result else "unknown",
+                "login": result['login_name'] if result else "unknown"
             }
         except Exception as e:
             diagnostics["database_info"] = {"error": str(e)}
@@ -2796,7 +2796,7 @@ async def sql_diagnostics():
                 FROM sys.database_permissions dp
                 LEFT JOIN sys.objects o ON dp.major_id = o.object_id
                 LEFT JOIN sys.database_principals s ON dp.grantee_principal_id = s.principal_id
-                WHERE s.name = USER_NAME()
+                WHERE s.name = SUSER_NAME()
             """)
             permissions = []
             for row in cursor.fetchall():
@@ -2837,13 +2837,13 @@ async def sql_diagnostics():
                     WHERE TABLE_NAME = '{table_name}' AND TABLE_SCHEMA = 'dbo'
                 """)
                 result = cursor.fetchone()
-                exists = result[0] > 0 if result else False
+                exists = result['exists_check'] > 0 if result else False
                 diagnostics[f"{table_name}_table_exists"] = exists
 
                 if exists:
                     cursor.execute(f"SELECT COUNT(*) as row_count FROM {table_name}")
                     result = cursor.fetchone()
-                    diagnostics[f"{table_name}_row_count"] = result[0] if result else 0
+                    diagnostics[f"{table_name}_row_count"] = result['row_count'] if result else 0
             except Exception as e:
                 diagnostics[f"{table_name}_check_error"] = str(e)
 
@@ -2960,7 +2960,7 @@ async def run_sync():
                     WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
                 """)
                 result = cursor.fetchone()
-                current_type = result[0] if result else "unknown"
+                current_type = result['data_type'] if result else "unknown"
                 
                 if current_type == "int":
                     print(f"🔧 SYNC DEBUG: products.id is {current_type}, running migration to BIGINT...")
@@ -2983,7 +2983,7 @@ async def run_sync():
                         WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
                     """)
                     new_result = cursor.fetchone()
-                    new_type = new_result[0] if new_result else "unknown"
+                    new_type = new_result['data_type'] if new_result else "unknown"
                     print(f"✅ SYNC DEBUG: products.id type after migration: {new_type}")
                 else:
                     print(f"✅ SYNC DEBUG: products.id already {current_type}, migration not needed")
@@ -4022,7 +4022,7 @@ async def send_returns_email(request_data: dict):
             {format_limit_clause(1)}
         """, params)
         result = cursor.fetchone()
-        top_reason = result[0] if result else "N/A"
+        top_reason = result['return_reasons'] if result else "N/A"
         
         # Generate CSV export
         export_params = {'client_id': client_id} if client_id else {}
@@ -4648,7 +4648,7 @@ async def diagnose_azure_sql():
         
         try:
             # Get current user
-            cursor.execute("SELECT USER_NAME() as user_name")
+            cursor.execute("SELECT SUSER_NAME() as user_name")
             result = cursor.fetchone()
             diagnostics["current_user"] = result['user_name'] if result else "No result"
         except Exception as e:
@@ -4973,7 +4973,7 @@ async def clear_test_data_and_sync_real():
                                 # Get product ID
                                 cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
                                 product_result = cursor.fetchone()
-                                db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+                                db_product_id = product_result['id'] if product_result else None
                                 
                                 # Create return item
                                 if USE_AZURE_SQL:
@@ -5078,7 +5078,7 @@ async def create_csv_test_data():
             # Get product ID
             cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
             product_result = cursor.fetchone()
-            db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+            db_product_id = product_result['id'] if product_result else None
             
             # Use an existing return ID from the database to satisfy foreign key constraints
             # We know from logs that return IDs like 1, 2, 3 exist and are small enough
@@ -5189,7 +5189,7 @@ async def direct_populate_from_working_returns():
             # Get product ID
             cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
             product_result = cursor.fetchone()
-            db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+            db_product_id = product_result['id'] if product_result else None
             
             # Create return item
             if USE_AZURE_SQL:
@@ -5301,7 +5301,7 @@ async def manual_populate_test():
                             # Get product ID
                             cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
                             product_result = cursor.fetchone()
-                            db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+                            db_product_id = product_result['id'] if product_result else None
                             
                             # Create return item
                             cursor.execute(f"""
@@ -5441,7 +5441,7 @@ async def test_hybrid_sync():
                         # Get product ID
                         cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
                         product_result = cursor.fetchone()
-                        db_product_id = product_result['id'] if USE_AZURE_SQL else product_result[0]
+                        db_product_id = product_result['id'] if product_result else None
                         
                         # Create return item if not exists
                         cursor.execute(f"""
