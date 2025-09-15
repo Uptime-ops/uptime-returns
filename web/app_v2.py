@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.73-CRITICAL-FIX-OLD-SYNC-FUNCTION-RETURN-ITEMS-STRUCTURE-MISMATCH"
+DEPLOYMENT_VERSION = "V87.74-ENHANCED-SYNC-PROGRESS-VISUALS-WITH-REAL-TIME-COUNTERS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
