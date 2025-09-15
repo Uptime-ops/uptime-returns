@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.51-ENSURE-RETURN-ITEMS-TABLE-EXISTS"
+DEPLOYMENT_VERSION = "V87.52-FINAL-FIX-TABLE-CREATION-PLUS-SIMPLE-INSERTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
