@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.61-FIX-IMPORT-ORDER-HTTP-SESSION-NAMEERROR"
+DEPLOYMENT_VERSION = "V87.62-CRITICAL-FIX-MISSING-COMMIT-PRODUCTS-RETURN-ITEMS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2963,6 +2963,11 @@ async def run_sync():
             log_sync_activity(f"Page completed successfully - advancing to offset {offset}")
             
             # Removed artificial delay per Cursor's performance optimization
+        
+        # 🚀 CRITICAL FIX: Commit all products and return items created during batch processing
+        print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
+        conn.commit()
+        print(f"✅ BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
         
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
