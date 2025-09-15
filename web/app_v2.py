@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.56-CRITICAL-FIX-PRODUCT-ID-INSERTS"
+DEPLOYMENT_VERSION = "V87.57-ENABLE-IDENTITY-INSERT-FOR-PRODUCTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2570,12 +2570,26 @@ async def sync_returns_with_product_data():
                     # First ensure product exists in products table
                     placeholder = get_param_placeholder()
 
-                    # Use simple INSERT with error handling instead of MERGE
+                    # Use simple INSERT with IDENTITY_INSERT for Azure SQL
                     try:
+                        if USE_AZURE_SQL:
+                            # Enable IDENTITY_INSERT for Azure SQL to allow explicit ID values
+                            cursor.execute("SET IDENTITY_INSERT products ON")
+
                         product_insert_sql = f"INSERT INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
                         cursor.execute(product_insert_sql, (product_id, sku, name))
+
+                        if USE_AZURE_SQL:
+                            # Disable IDENTITY_INSERT after INSERT
+                            cursor.execute("SET IDENTITY_INSERT products OFF")
+
                         print(f"    Product {product_id} inserted successfully")
                     except Exception as e:
+                        if USE_AZURE_SQL:
+                            try:
+                                cursor.execute("SET IDENTITY_INSERT products OFF")
+                            except:
+                                pass
                         print(f"    Product {product_id} insert failed (probably exists): {e}")
                         # Continue anyway - product might already exist
 
