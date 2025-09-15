@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.40-CLEAR-TEST-DATA-AND-RUN-REAL-SYNC-2025-01-15"
+DEPLOYMENT_VERSION = "V87.41-STRING-BASED-APPROACH-FOR-LARGE-RETURN-IDS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1465,22 +1465,19 @@ async def export_returns_csv(request: Request):
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
         placeholder = get_param_placeholder()
         try:
-            # Skip if this return_id would cause INT overflow in the database
-            if int(return_id) > 2147483647:  # Max INT value
-                print(f"=== CSV EXPORT: Skipping return {return_id} - would cause INT overflow ===")
-                items = []
-            else:
-                cursor.execute(f"""
-                    SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
-                           COALESCE(p.name, 'Unknown Product') as name, 
-                           ri.quantity as order_quantity,
-                           ri.quantity_received as return_quantity,
-                           ri.return_reasons, ri.condition_on_arrival
-                    FROM return_items ri
-                    LEFT JOIN products p ON TRY_CAST(ri.product_id AS BIGINT) = TRY_CAST(p.id AS BIGINT)
-                    WHERE ri.return_id = {placeholder}
-                """, (str(return_id),))
-                items = cursor.fetchall()
+            # Use string-based comparison to avoid INT overflow completely
+            # Just query directly with string return_id (no conversion needed)
+            cursor.execute(f"""
+                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
+                       COALESCE(p.name, 'Unknown Product') as name, 
+                       ri.quantity as order_quantity,
+                       ri.quantity_received as return_quantity,
+                       ri.return_reasons, ri.condition_on_arrival
+                FROM return_items ri
+                LEFT JOIN products p ON CAST(ri.product_id AS NVARCHAR(50)) = CAST(p.id AS NVARCHAR(50))
+                WHERE ri.return_id = {placeholder}
+            """, (str(return_id),))
+            items = cursor.fetchall()
             print(f"=== CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items ===")
         except Exception as query_error:
             print(f"=== CSV EXPORT ERROR: Query failed for return {return_id}: {query_error} ===")
@@ -4442,18 +4439,18 @@ async def clear_test_data_and_sync_real():
         cursor.execute("DELETE FROM products")
         conn.commit()
         
-        # Get returns with smaller IDs that won't cause overflow
-        print("=== FINDING RETURNS WITH SMALL IDs ===")
-        cursor.execute("SELECT id FROM returns WHERE TRY_CAST(id AS BIGINT) <= 2147483647 ORDER BY created_at DESC")
-        small_id_returns = cursor.fetchall()
+        # Get some returns to work with (ignoring INT constraints since we'll use strings)
+        print("=== FINDING RETURNS TO PROCESS ===")
+        cursor.execute("SELECT TOP 20 id FROM returns ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id FROM returns ORDER BY created_at DESC LIMIT 20")
+        recent_returns = cursor.fetchall()
         
-        if not small_id_returns:
+        if not recent_returns:
             return {
-                "status": "error",
-                "message": "No returns found with IDs small enough for INT columns"
+                "status": "error", 
+                "message": "No returns found in database"
             }
         
-        print(f"=== FOUND {len(small_id_returns)} RETURNS WITH SMALL IDs ===")
+        print(f"=== FOUND {len(recent_returns)} RETURNS TO PROCESS ===")
         
         # Use Warehance API to get real product data for these returns
         api_key = WAREHANCE_API_KEY
@@ -4465,8 +4462,8 @@ async def clear_test_data_and_sync_real():
         products_created = 0
         items_created = 0
         
-        # Process first 10 returns with small IDs
-        for return_row in small_id_returns[:10]:
+        # Process first 10 returns
+        for return_row in recent_returns[:10]:
             return_id = str(return_row[0] if not USE_AZURE_SQL else return_row['id'])
             print(f"=== PROCESSING RETURN {return_id} ===")
             
