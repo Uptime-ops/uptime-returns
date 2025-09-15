@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.50-TABLE-SCHEMA-DEBUG-ENDPOINT"
+DEPLOYMENT_VERSION = "V87.51-ENSURE-RETURN-ITEMS-TABLE-EXISTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2445,7 +2445,67 @@ async def sync_returns_with_product_data():
         
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
+        # CRITICAL: Ensure return_items table exists with correct schema
+        try:
+            if USE_AZURE_SQL:
+                create_return_items_sql = """
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='return_items' AND xtype='U')
+                CREATE TABLE return_items (
+                    id BIGINT PRIMARY KEY,
+                    return_id BIGINT NOT NULL,
+                    product_id BIGINT,
+                    quantity INT DEFAULT 1,
+                    reason NVARCHAR(500),
+                    created_at DATETIME DEFAULT GETDATE()
+                )
+                """
+                cursor.execute(create_return_items_sql)
+                print("Ensured return_items table exists in Azure SQL")
+            else:
+                create_return_items_sql = """
+                CREATE TABLE IF NOT EXISTS return_items (
+                    id INTEGER PRIMARY KEY,
+                    return_id INTEGER NOT NULL,
+                    product_id INTEGER,
+                    quantity INTEGER DEFAULT 1,
+                    reason TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+                cursor.execute(create_return_items_sql)
+                print("Ensured return_items table exists in SQLite")
+        except Exception as e:
+            print(f"Table creation check failed: {e}")
+
+        # Also ensure products table exists
+        try:
+            if USE_AZURE_SQL:
+                create_products_sql = """
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='products' AND xtype='U')
+                CREATE TABLE products (
+                    id BIGINT PRIMARY KEY,
+                    sku NVARCHAR(200),
+                    name NVARCHAR(500),
+                    created_at DATETIME DEFAULT GETDATE()
+                )
+                """
+                cursor.execute(create_products_sql)
+                print("Ensured products table exists in Azure SQL")
+            else:
+                create_products_sql = """
+                CREATE TABLE IF NOT EXISTS products (
+                    id INTEGER PRIMARY KEY,
+                    sku TEXT,
+                    name TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+                cursor.execute(create_products_sql)
+                print("Ensured products table exists in SQLite")
+        except Exception as e:
+            print(f"Products table creation check failed: {e}")
+
         processed_count = 0
         returns_with_data = 0
         return_items_created = 0
