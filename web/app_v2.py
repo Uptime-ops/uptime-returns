@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.66-CRITICAL-FIX-PARAMETER-COUNT-MISMATCHES-IN-INSERT-STATEMENTS"
+DEPLOYMENT_VERSION = "V87.67-CRITICAL-FIX-ALWAYS-USE-INDIVIDUAL-API-CALLS-FOR-ITEMS-DATA"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2401,7 +2401,7 @@ async def run_sync():
         
         while True:
             try:
-                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}&include_items=true"
+                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
                 log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
                 response = http_session.get(url, headers=headers)
                 
@@ -2713,61 +2713,54 @@ async def run_sync():
                 print(f"🔍 SYNC TRACE: - items type = {type(ret.get('items'))}")
                 print(f"🔍 SYNC TRACE: - items length = {len(ret.get('items', [])) if ret.get('items') else 'None'}")
                 
-                # First check if embedded items exist and have complete data
-                if ret.get('items') and len(ret['items']) > 0:
-                    items_data = ret['items']
-                    print(f"✅ SYNC TRACE: Return {return_id}: Using embedded items data ({len(items_data)} items)")
-                    print(f"🔍 SYNC TRACE: First item structure: {items_data[0] if items_data else 'No items'}")
-                else:
-                    print(f"⚠️ SYNC TRACE: Return {return_id}: No embedded items, trying individual return API call")
-                    # Make individual return API call which should include items data
+                # CRITICAL FIX: Always use individual API call for items data since batch API doesn't include items
+                print(f"🔄 SYNC TRACE: Return {return_id}: Fetching individual return with items data")
+                try:
+                    individual_response = requests.get(
+                        f"https://api.warehance.com/v1/returns/{return_id}",
+                        headers=headers,
+                        timeout=10
+                    )
+                    if individual_response.status_code == 200:
+                        individual_data = individual_response.json()
+                        if individual_data.get("status") == "success":
+                            individual_return_data = individual_data.get("data", {})
+                            items_data = individual_return_data.get('items', [])
+                            print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                            if items_data:
+                                print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
+                        else:
+                            print(f"❌ SYNC TRACE: Return {return_id}: Individual API returned non-success status")
+                            items_data = []
+                    else:
+                        print(f"❌ SYNC TRACE: Return {return_id}: Individual API call failed with status {individual_response.status_code}")
+                        items_data = []
+                except Exception as individual_err:
+                    print(f"💥 SYNC TRACE: Return {return_id}: Error with individual API call: {individual_err}")
+                    items_data = []
+                
+                # Fallback: Try separate items API call if individual return didn't work
+                if not items_data:
+                    print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
                     try:
-                        print(f"🔄 SYNC TRACE: Return {return_id}: Fetching individual return with items data")
-                        individual_response = requests.get(
-                            f"https://api.warehance.com/v1/returns/{return_id}",
+                        items_response = requests.get(
+                            f"https://api.warehance.com/v1/returns/{return_id}/items",
                             headers=headers,
                             timeout=10
                         )
-                        
-                        if individual_response.status_code == 200:
-                            individual_data = individual_response.json()
-                            if individual_data.get("status") == "success":
-                                individual_return_data = individual_data.get("data", {})
-                                items_data = individual_return_data.get('items', [])
-                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                        if items_response.status_code == 200:
+                            items_api_data = items_response.json()
+                            print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
+                            if items_api_data.get("status") == "success":
+                                items_data = items_api_data.get("data", [])
+                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
                             else:
-                                print(f"❌ SYNC TRACE: Return {return_id}: Individual API returned non-success status")
-                                items_data = []
+                                print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                         else:
-                            print(f"❌ SYNC TRACE: Return {return_id}: Individual API call failed with status {individual_response.status_code}")
-                            items_data = []
-                    except Exception as individual_err:
-                        print(f"💥 SYNC TRACE: Return {return_id}: Error with individual API call: {individual_err}")
+                            print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
+                    except Exception as items_err:
+                        print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
                         items_data = []
-                    
-                    # Fallback: Try separate items API call if individual return didn't work
-                    if not items_data:
-                        print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
-                        try:
-                            items_response = requests.get(
-                                f"https://api.warehance.com/v1/returns/{return_id}/items",
-                                headers=headers,
-                                timeout=10
-                            )
-                            
-                            if items_response.status_code == 200:
-                                items_api_data = items_response.json()
-                                print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
-                                if items_api_data.get("status") == "success":
-                                    items_data = items_api_data.get("data", [])
-                                    print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
-                                else:
-                                    print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
-                            else:
-                                print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
-                        except Exception as items_err:
-                            print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
-                            items_data = []
                 
                 # Process return items if we have them
                 if items_data:
@@ -3025,33 +3018,49 @@ async def run_sync():
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
         sync_status["last_sync_message"] = "STEP 2: Querying database for returns with order IDs..."
         
-        # Get all returns that have order_ids but missing customer names (like individual endpoint approach)
+        # 🚨 CRITICAL FIX: Get ALL returns with order_ids that need return_items created
+        # Don't limit to missing customer names - we need return_items for ALL older returns
         cursor.execute("""
-            SELECT DISTINCT r.order_id 
-            FROM returns r 
-            LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50)) 
-            WHERE r.order_id IS NOT NULL 
-            AND (o.customer_name IS NULL OR o.customer_name = '' OR o.id IS NULL)
+            SELECT DISTINCT r.order_id, r.id as return_id
+            FROM returns r
+            LEFT JOIN return_items ri ON CAST(r.id AS NVARCHAR(50)) = CAST(ri.return_id AS NVARCHAR(50))
+            WHERE r.order_id IS NOT NULL
+            AND ri.return_id IS NULL
         """)
         order_id_rows = cursor.fetchall()
         if USE_AZURE_SQL:
             order_id_rows = rows_to_dict(cursor, order_id_rows) if order_id_rows else []
         
-        orders_needing_update = [row['order_id'] if USE_AZURE_SQL else row[0] for row in order_id_rows]
-        print(f"📋 Found {len(orders_needing_update)} returns with order IDs needing customer data")
+        # Extract both order_id and return_id from the query results
+        orders_needing_processing = []
+        for row in order_id_rows:
+            if USE_AZURE_SQL:
+                orders_needing_processing.append({
+                    'order_id': row['order_id'],
+                    'return_id': row['return_id']
+                })
+            else:
+                orders_needing_processing.append({
+                    'order_id': row[0],
+                    'return_id': row[1]
+                })
+
+        print(f"📋 Found {len(orders_needing_processing)} returns with order IDs needing return_items created")
         
         # Fetch order details in batches (NO LIMIT - process all orders)
         batch_size = 50  # Fetch 50 orders at a time (increased from 20 for speed)
-        print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_update)} orders (no 500 limit) in batches of {batch_size}")
+        print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_processing)} orders (no 500 limit) in batches of {batch_size}")
         customers_updated = 0
-        for i in range(0, len(orders_needing_update), batch_size):  # Process ALL orders (removed 500 limit)
-            batch = orders_needing_update[i:i+batch_size]
+        for i in range(0, len(orders_needing_processing), batch_size):  # Process ALL orders (removed 500 limit)
+            batch = orders_needing_processing[i:i+batch_size]
             batch_num = (i // batch_size) + 1
-            total_batches = (len(orders_needing_update) + batch_size - 1) // batch_size
+            total_batches = (len(orders_needing_processing) + batch_size - 1) // batch_size
             print(f"📦 Processing batch {batch_num}/{total_batches} ({len(batch)} orders)")
             sync_status["last_sync_message"] = f"Processing batch {batch_num}/{total_batches} - {sync_status['orders_synced']} orders completed"
             
-            for order_id in batch:
+            for order_data in batch:
+                order_id = order_data['order_id']
+                return_id = order_data['return_id']
                 try:
                     order_response = requests.get(
                         f"https://api.warehance.com/v1/orders/{order_id}",
@@ -3146,57 +3155,56 @@ async def run_sync():
                                         print(f"Warning: Product not found in DB for SKU {sku}")
                                         continue
                                     
-                                    # Find the return that references this order
+                                    # 🚨 CRITICAL FIX: Use the return_id we already have from the query
+                                    # No need to query again - we know which return needs this return_item
+
+                                    # Check if return item already exists
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
-                                        SELECT id FROM returns WHERE CAST(order_id AS NVARCHAR(50)) = {placeholder}
-                                    """, (order_id,))
-                                    return_rows = cursor.fetchall()
-                                    
-                                    for return_row in return_rows:
-                                        return_id = return_row[0] if not USE_AZURE_SQL else return_row['id']
-                                        
-                                        # Check if return item already exists
-                                        placeholder = get_param_placeholder()
-                                        cursor.execute(f"""
-                                            SELECT COUNT(*) as count FROM return_items 
-                                            WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
-                                        """, (return_id, actual_product_id))
-                                        item_result = cursor.fetchone()
+                                        SELECT COUNT(*) as count FROM return_items
+                                        WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
+                                    """, (return_id, actual_product_id))
+                                    item_result = cursor.fetchone()
+                                    if USE_AZURE_SQL:
+                                        exists = item_result['count'] > 0 if item_result else False
+                                    else:
+                                        exists = item_result[0] > 0 if item_result else False
+
+                                    if not exists:
+                                        # Create return item from order item
+                                        print(f"🎯 Creating return_item: return_id={return_id}, product_id={actual_product_id}, sku={sku}, qty={display_qty}")
                                         if USE_AZURE_SQL:
-                                            exists = item_result['count'] > 0 if item_result else False
+                                            placeholder = get_param_placeholder()
+                                            cursor.execute(f"""
+                                                INSERT INTO return_items
+                                                (return_id, product_id, quantity, return_reasons,
+                                                 condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params((
+                                                return_id, actual_product_id, display_qty,
+                                                '["Original order item"]',  # Default return reason
+                                                '["Unknown"]',  # Default condition
+                                                display_qty,  # Assume all received
+                                                0  # None rejected initially
+                                            )))
                                         else:
-                                            exists = item_result[0] > 0 if item_result else False
-                                        
-                                        if not exists:
-                                            # Create return item from order item
-                                            if USE_AZURE_SQL:
-                                                placeholder = get_param_placeholder()
-                                                cursor.execute(f"""
-                                                    INSERT INTO return_items 
-                                                    (return_id, product_id, quantity, return_reasons, 
-                                                     condition_on_arrival, quantity_received, quantity_rejected)
-                                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                                                """, ensure_tuple_params((
-                                                    return_id, actual_product_id, display_qty,
-                                                    '["Original order item"]',  # Default return reason
-                                                    '["Unknown"]',  # Default condition
-                                                    display_qty,  # Assume all received
-                                                    0  # None rejected initially
-                                                )))
-                                            else:
-                                                cursor.execute("""
-                                                    INSERT INTO return_items 
-                                                    (return_id, product_id, quantity, return_reasons, 
-                                                     condition_on_arrival, quantity_received, quantity_rejected)
-                                                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                                                """, (
-                                                    return_id, actual_product_id, display_qty,
-                                                    '["Original order item"]',  # Default return reason
-                                                    '["Unknown"]',  # Default condition
-                                                    display_qty,  # Assume all received
-                                                    0  # None rejected initially
-                                                ))
+                                            cursor.execute("""
+                                                INSERT INTO return_items
+                                                (return_id, product_id, quantity, return_reasons,
+                                                 condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                            """, (
+                                                return_id, actual_product_id, display_qty,
+                                                '["Original order item"]',  # Default return reason
+                                                '["Unknown"]',  # Default condition
+                                                display_qty,  # Assume all received
+                                                0,  # None rejected initially
+                                                datetime.now().isoformat(),  # created_at
+                                                datetime.now().isoformat()   # updated_at
+                                            ))
+
+                                        sync_status["return_items_synced"] += 1
+                                        print(f"✅ Created return_item for return {return_id}, product {actual_product_id}")
                                         
                             except Exception as item_error:
                                 print(f"Error processing order item {item.get('id', 'unknown')}: {item_error}")
@@ -3208,7 +3216,7 @@ async def run_sync():
                     print(f"Error fetching order {order_id}: {e}")
             
             # Update progress
-            sync_status["last_sync_message"] = f"Fetched {i+len(batch)} of {min(len(orders_needing_update), 500)} orders..."
+            sync_status["last_sync_message"] = f"Fetched {i+len(batch)} of {len(orders_needing_processing)} orders..."
         
         conn.commit()
         conn.close()
