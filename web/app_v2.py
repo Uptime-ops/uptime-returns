@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.39-FIX-CSV-EXPORT-INT-OVERFLOW-GRACEFUL-SKIP-2025-01-15"
+DEPLOYMENT_VERSION = "V87.40-CLEAR-TEST-DATA-AND-RUN-REAL-SYNC-2025-01-15"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -4425,6 +4425,151 @@ async def test_direct_sync():
         return {
             "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()
+        }
+
+@app.get("/api/clear-test-data-and-sync-real")
+async def clear_test_data_and_sync_real():
+    """Clear all test data and sync real data from Warehance API for returns with smaller IDs"""
+    try:
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Clear all test data
+        print("=== CLEARING TEST DATA ===")
+        cursor.execute("DELETE FROM return_items")
+        cursor.execute("DELETE FROM products")
+        conn.commit()
+        
+        # Get returns with smaller IDs that won't cause overflow
+        print("=== FINDING RETURNS WITH SMALL IDs ===")
+        cursor.execute("SELECT id FROM returns WHERE TRY_CAST(id AS BIGINT) <= 2147483647 ORDER BY created_at DESC")
+        small_id_returns = cursor.fetchall()
+        
+        if not small_id_returns:
+            return {
+                "status": "error",
+                "message": "No returns found with IDs small enough for INT columns"
+            }
+        
+        print(f"=== FOUND {len(small_id_returns)} RETURNS WITH SMALL IDs ===")
+        
+        # Use Warehance API to get real product data for these returns
+        api_key = WAREHANCE_API_KEY
+        headers = {
+            "X-API-KEY": api_key,
+            "accept": "application/json"
+        }
+        
+        products_created = 0
+        items_created = 0
+        
+        # Process first 10 returns with small IDs
+        for return_row in small_id_returns[:10]:
+            return_id = str(return_row[0] if not USE_AZURE_SQL else return_row['id'])
+            print(f"=== PROCESSING RETURN {return_id} ===")
+            
+            try:
+                # Call Warehance API for this return
+                response = requests.get(
+                    f"https://api.warehance.com/v1/returns/{return_id}",
+                    headers=headers,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("status") == "success":
+                        return_data = data.get("data", {})
+                        items = return_data.get('items', [])
+                        
+                        print(f"=== RETURN {return_id}: FOUND {len(items)} ITEMS ===")
+                        
+                        # Process each item
+                        for item in items:
+                            product_data = item.get('product', {})
+                            product_sku = product_data.get('sku', '')
+                            product_name = product_data.get('name', '')
+                            quantity = item.get('quantity', 0)
+                            
+                            if product_name and product_sku:
+                                print(f"=== PROCESSING PRODUCT: {product_name} ===")
+                                
+                                # Create/find product
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                existing = cursor.fetchone()
+                                
+                                if not existing:
+                                    if USE_AZURE_SQL:
+                                        cursor.execute(f"""
+                                            INSERT INTO products (sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        """, ensure_tuple_params((product_sku, product_name)))
+                                    else:
+                                        cursor.execute(f"""
+                                            INSERT INTO products (sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                                        """, ensure_tuple_params((product_sku, product_name)))
+                                    conn.commit()
+                                    products_created += 1
+                                
+                                # Get product ID
+                                cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                product_result = cursor.fetchone()
+                                db_product_id = product_result[0] if not USE_AZURE_SQL else product_result['id']
+                                
+                                # Create return item
+                                if USE_AZURE_SQL:
+                                    cursor.execute(f"""
+                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                               condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                               {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((
+                                        return_id, db_product_id, quantity,
+                                        '["Real Warehance API data"]',
+                                        '["From API"]',
+                                        quantity, 0
+                                    )))
+                                else:
+                                    cursor.execute(f"""
+                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                               condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                               {placeholder}, {placeholder}, datetime('now'), datetime('now'))
+                                    """, ensure_tuple_params((
+                                        return_id, db_product_id, quantity,
+                                        '["Real Warehance API data"]',
+                                        '["From API"]',
+                                        quantity, 0
+                                    )))
+                                conn.commit()
+                                items_created += 1
+                                print(f"=== CREATED RETURN ITEM: {product_name} ===")
+                
+                else:
+                    print(f"=== API ERROR FOR RETURN {return_id}: {response.status_code} ===")
+                    
+            except Exception as api_error:
+                print(f"=== ERROR PROCESSING RETURN {return_id}: {api_error} ===")
+                continue
+        
+        conn.close()
+        
+        return {
+            "status": "success",
+            "message": f"Cleared test data and synced real data successfully",
+            "products_created": products_created,
+            "return_items_created": items_created,
+            "note": "Real product data from Warehance API for returns with small IDs"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Clear and sync failed: {str(e)}"
         }
 
 @app.get("/api/create-csv-test-data")
