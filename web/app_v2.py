@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.49-ENHANCED-DEBUG-AND-MERGE-FIXES"
+DEPLOYMENT_VERSION = "V87.50-TABLE-SCHEMA-DEBUG-ENDPOINT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -2630,6 +2630,79 @@ async def debug_specific_return():
         
         return debug_info
         
+    except Exception as e:
+        return {"error": str(e), "exception_type": str(type(e))}
+
+@app.get("/api/debug/table-schemas")
+async def debug_table_schemas():
+    """Check table schemas to understand why INSERTs are failing"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get return_items table schema
+        if USE_AZURE_SQL:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'return_items'
+                ORDER BY ORDINAL_POSITION
+            """)
+            return_items_columns = []
+            for row in cursor.fetchall():
+                return_items_columns.append({
+                    "column_name": row[0],
+                    "data_type": row[1],
+                    "is_nullable": row[2],
+                    "column_default": row[3]
+                })
+        else:
+            cursor.execute("PRAGMA table_info(return_items)")
+            return_items_columns = cursor.fetchall()
+
+        # Get products table schema
+        if USE_AZURE_SQL:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'products'
+                ORDER BY ORDINAL_POSITION
+            """)
+            products_columns = []
+            for row in cursor.fetchall():
+                products_columns.append({
+                    "column_name": row[0],
+                    "data_type": row[1],
+                    "is_nullable": row[2],
+                    "column_default": row[3]
+                })
+        else:
+            cursor.execute("PRAGMA table_info(products)")
+            products_columns = cursor.fetchall()
+
+        # Check if tables exist and have data
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        result = cursor.fetchone()
+        return_items_count = result['count'] if USE_AZURE_SQL else result[0]
+
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        result = cursor.fetchone()
+        products_count = result['count'] if USE_AZURE_SQL else result[0]
+
+        conn.close()
+
+        return {
+            "database_type": "Azure SQL" if USE_AZURE_SQL else "SQLite",
+            "return_items_table": {
+                "columns": return_items_columns,
+                "row_count": return_items_count
+            },
+            "products_table": {
+                "columns": products_columns,
+                "row_count": products_count
+            }
+        }
+
     except Exception as e:
         return {"error": str(e), "exception_type": str(type(e))}
 
