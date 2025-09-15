@@ -1010,6 +1010,7 @@
                     });
                     
                     const result = await response.json();
+                    console.log('Sync trigger result:', result);
                     
                       // Initialize progress display
                       $('#syncProgressContainer').show();
@@ -1020,6 +1021,7 @@
                       
                       // Initialize sync start time for speed calculation
                       window.syncStartTime = Date.now();
+                      console.log('Sync started, checking status...');
 
                     // Reset counters
                     $('#syncReturnsCount').text('0');
@@ -1044,11 +1046,10 @@
         // Check sync status
         async function checkSyncStatus() {
             try {
+                console.log('Checking sync status...');
                 const response = await fetch('/api/sync/status');
                 const data = await response.json();
-                
-                // Update sync status display
-                updateSyncStatusDisplay(data);
+                console.log('Sync status data:', data);
                 
                 if (data.current_sync && data.current_sync.status === 'running') {
                     // Show enhanced progress display
@@ -1061,8 +1062,14 @@
                     $('#syncItemsCount').text(data.current_sync.return_items_synced || 0);
                     $('#syncOrdersCount').text(data.current_sync.orders_synced || 0);
                     
-                    // Calculate speed and ETA
+                    // Calculate dynamic progress based on actual data
                     const itemsProcessed = data.current_sync.items_synced || 0;
+                    const estimatedTotal = Math.max(500, itemsProcessed * 2); // Dynamic estimate
+                    const progress = Math.min(95, Math.max(5, (itemsProcessed / estimatedTotal) * 100));
+                    $('#syncProgressBar').css('width', progress + '%');
+                    $('#syncProgressPercent').text(Math.round(progress) + '%');
+                    
+                    // Calculate speed and ETA
                     const startTime = window.syncStartTime || Date.now();
                     const elapsedMinutes = (Date.now() - startTime) / 60000;
                     const speed = elapsedMinutes > 0 ? Math.round(itemsProcessed / elapsedMinutes) : 0;
@@ -1081,12 +1088,6 @@
                     // Update current operation and progress
                     const message = data.last_sync_message || 'Syncing...';
                     $('#syncCurrentOperation').text(formatSyncMessage(message));
-
-                    // Calculate dynamic progress based on actual data
-                    const estimatedTotal = Math.max(500, data.current_sync.items_synced * 2); // Dynamic estimate
-                    const progress = Math.min(95, Math.max(5, (data.current_sync.items_synced / estimatedTotal) * 100));
-                    $('#syncProgressBar').css('width', progress + '%');
-                    $('#syncProgressPercent').text(Math.round(progress) + '%');
 
                     setTimeout(checkSyncStatus, 2000); // Check more frequently during sync
                     } else if (data.current_sync && data.current_sync.status === 'completed') {
@@ -1111,14 +1112,18 @@
                     // Not running - hide progress and show status
                     $('#syncProgressContainer').hide();
                     $('#syncStatusContainer').show();
+                    updateSyncStatusDisplay(data);
                 }
                 
-                } catch (error) {
-                    console.error('Error checking sync status:', error);
-                    // Show error state in progress display
-                    $('#syncCurrentOperation').text('⚠️ Connection error - retrying...');
-                    $('#syncProgressBar').removeClass('progress-bar-animated').addClass('bg-warning');
-                }
+            } catch (error) {
+                console.error('Error checking sync status:', error);
+                // Show error state in progress display
+                $('#syncCurrentOperation').text('⚠️ Connection error - retrying...');
+                $('#syncProgressBar').removeClass('progress-bar-animated').addClass('bg-warning');
+                
+                // Retry after a delay
+                setTimeout(checkSyncStatus, 5000);
+            }
         }
         
         function formatSyncMessage(message) {
@@ -1160,9 +1165,7 @@
         function updateSyncStatusDisplay(data) {
             const syncDisplay = $('#syncStatusDisplay');
             
-            if (data.current_sync && data.current_sync.status === 'running') {
-                return; // Already handled above
-            }
+            // Don't return early - let the main logic handle running syncs
             
             if (data.last_sync) {
                 const lastSyncDate = new Date(data.last_sync);

@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.74-ENHANCED-SYNC-PROGRESS-VISUALS-WITH-REAL-TIME-COUNTERS"
+DEPLOYMENT_VERSION = "V87.77-CRITICAL-FIX-SYNC-VISUALS-VARIABLE-SCOPE-AND-ERROR-HANDLING"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1650,10 +1650,13 @@ async def trigger_sync():
     """Trigger a sync with Warehance API"""
     global sync_status
     
+    print(f"=== SYNC TRIGGER: is_running={sync_status['is_running']} ===")
+    
     if sync_status["is_running"]:
         return {"message": "Sync already in progress", "status": "running"}
     
     # Start sync in background
+    print("=== SYNC TRIGGER: Starting background sync task ===")
     asyncio.create_task(run_sync())
     
     return {"message": "Sync started", "status": "started"}
@@ -1984,6 +1987,7 @@ async def get_sync_status():
     global sync_status
     
     try:
+        print(f"=== SYNC STATUS API: is_running={sync_status['is_running']}, items_synced={sync_status['items_synced']} ===")
         # Get last sync from database
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2742,16 +2746,28 @@ async def run_sync():
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                """, ensure_tuple_params((str(order_data['id']), order_data.get('order_number', ''), customer_name)))
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                """, ensure_tuple_params((
+                                    str(order_data['id']), 
+                                    order_data.get('order_number', ''), 
+                                    customer_name,
+                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
+                                )))
                                 sync_status["orders_synced"] += 1
                                 print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
                                 INSERT OR IGNORE INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, ensure_tuple_params((str(order_data['id']), order_data.get('order_number', ''), customer_name)))
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                            """, ensure_tuple_params((
+                                str(order_data['id']), 
+                                order_data.get('order_number', ''), 
+                                customer_name,
+                                convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                datetime.now().isoformat()  # Updated at current time
+                            )))
                             sync_status["orders_synced"] += 1
                     except Exception as e:
                         import traceback
@@ -3121,8 +3137,14 @@ async def run_sync():
                                 # Insert new order
                                 cursor.execute(f"""
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                """, (order_id, order_data.get('order_number', ''), customer_name))
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                """, ensure_tuple_params((
+                                    order_id, 
+                                    order_data.get('order_number', ''), 
+                                    customer_name,
+                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
+                                )))
                                 sync_status["orders_synced"] += 1
                                 print(f"✅ Inserted order {order_id} with customer '{customer_name}'")
                             else:
@@ -3136,8 +3158,14 @@ async def run_sync():
                         else:
                             cursor.execute(f"""
                                 INSERT OR REPLACE INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (order_id, order_data.get('order_number', ''), customer_name))
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                            """, ensure_tuple_params((
+                                order_id, 
+                                order_data.get('order_number', ''), 
+                                customer_name,
+                                convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                datetime.now().isoformat()  # Updated at current time
+                            )))
                             sync_status["orders_synced"] += 1
                             print(f"✅ Inserted/updated order {order_id} with customer '{customer_name}'")
                         
@@ -3616,24 +3644,32 @@ async def get_settings():
     if USE_AZURE_SQL:
         settings_rows = rows_to_dict(cursor, settings_rows) if settings_rows else []
     
-    # Convert to dictionary
-    settings = {}
+    # Convert to array of objects for frontend compatibility
+    settings = []
     for row in settings_rows:
         try:
             # Try to parse as JSON for complex values
-            settings[row['key']] = json.loads(row['value'])
+            value = json.loads(row['value'])
         except (json.JSONDecodeError, TypeError):
             # If not JSON, use as string
-            settings[row['key']] = row['value']
+            value = row['value']
+        
+        settings.append({
+            'key': row['key'],
+            'value': value
+        })
     
     # Add current EMAIL_CONFIG if available
     if EMAIL_CONFIG:
-        settings['smtp_server'] = EMAIL_CONFIG.get('SMTP_SERVER', '')
-        settings['smtp_port'] = EMAIL_CONFIG.get('SMTP_PORT', 587)
-        settings['use_tls'] = EMAIL_CONFIG.get('USE_TLS', True)
-        settings['auth_email'] = EMAIL_CONFIG.get('AUTH_EMAIL', '')
-        settings['sender_email'] = EMAIL_CONFIG.get('SENDER_EMAIL', '')
-        settings['sender_name'] = EMAIL_CONFIG.get('SENDER_NAME', '')
+        email_settings = [
+            {'key': 'smtp_server', 'value': EMAIL_CONFIG.get('SMTP_SERVER', '')},
+            {'key': 'smtp_port', 'value': EMAIL_CONFIG.get('SMTP_PORT', 587)},
+            {'key': 'use_tls', 'value': EMAIL_CONFIG.get('USE_TLS', True)},
+            {'key': 'auth_email', 'value': EMAIL_CONFIG.get('AUTH_EMAIL', '')},
+            {'key': 'sender_email', 'value': EMAIL_CONFIG.get('SENDER_EMAIL', '')},
+            {'key': 'sender_name', 'value': EMAIL_CONFIG.get('SENDER_NAME', '')}
+        ]
+        settings.extend(email_settings)
     
     conn.close()
     

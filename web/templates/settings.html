@@ -493,6 +493,8 @@
         
         function loadAllSettings() {
             $.get('/api/settings', function(data) {
+                console.log('Loaded settings:', data); // Debug logging
+                
                 // Populate all fields with settings
                 data.forEach(setting => {
                     const element = $('#' + setting.key);
@@ -502,24 +504,44 @@
                         } else {
                             element.val(setting.value);
                         }
+                        console.log('Set field', setting.key, 'to', setting.value); // Debug logging
+                    } else {
+                        console.log('Field not found:', setting.key); // Debug logging
                     }
                 });
                 
                 // Check email configuration status
                 checkEmailStatus();
+            }).fail(function(xhr, status, error) {
+                console.error('Failed to load settings:', error);
+                showAlert('Failed to load settings: ' + error, 'error');
             });
         }
         
         function checkEmailStatus() {
+            // Check SMTP status
             const hasAuthPassword = $('#smtp_auth_password').val() !== '';
             const hasAuthEmail = $('#smtp_auth_email').val() !== '';
             const hasSenderEmail = $('#smtp_sender_email').val() !== '';
-            const statusIndicator = $('#emailStatus');
+            const smtpStatusIndicator = $('#emailStatus');
             
             if (hasAuthPassword && hasAuthEmail && hasSenderEmail) {
-                statusIndicator.removeClass('status-not-configured').addClass('status-configured');
+                smtpStatusIndicator.removeClass('status-not-configured').addClass('status-configured');
             } else {
-                statusIndicator.removeClass('status-configured').addClass('status-not-configured');
+                smtpStatusIndicator.removeClass('status-configured').addClass('status-not-configured');
+            }
+            
+            // Check OAuth status
+            const hasOAuthTenant = $('#oauth_tenant_id').val() !== '';
+            const hasOAuthClient = $('#oauth_client_id').val() !== '';
+            const hasOAuthSecret = $('#oauth_client_secret').val() !== '';
+            const hasOAuthSender = $('#oauth_sender_email').val() !== '';
+            const oauthStatusIndicator = $('#oauthStatus');
+            
+            if (hasOAuthTenant && hasOAuthClient && hasOAuthSecret && hasOAuthSender) {
+                oauthStatusIndicator.removeClass('status-not-configured').addClass('status-configured');
+            } else {
+                oauthStatusIndicator.removeClass('status-configured').addClass('status-not-configured');
             }
         }
         
@@ -594,17 +616,21 @@
         }
         
         function saveSettings(settings, successMessage) {
+            console.log('Saving settings:', settings); // Debug logging
+            
             $.ajax({
                 url: '/api/settings',
                 method: 'POST',
                 contentType: 'application/json',
                 data: JSON.stringify(settings),
-                success: function() {
+                success: function(response) {
+                    console.log('Settings saved successfully:', response); // Debug logging
                     showAlert(successMessage, 'success');
                     checkEmailStatus();
                 },
                 error: function(xhr) {
-                    showAlert('Error saving settings: ' + xhr.responseJSON.detail, 'error');
+                    console.error('Error saving settings:', xhr.responseJSON); // Debug logging
+                    showAlert('Error saving settings: ' + (xhr.responseJSON?.detail || 'Unknown error'), 'error');
                 }
             });
         }
