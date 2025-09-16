@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.104-EMERGENCY-FIX-INDENTATION-ERROR-EMPTY-IF-BLOCKS"
+DEPLOYMENT_VERSION = "V87.105-EXTEND-TIMEOUT-60S-FOR-AZURE-SQL-SYNC-STATUS-API"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
