@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.118-DEBUG-ORDER-RETURN-MAPPING-VERIFICATION"
+DEPLOYMENT_VERSION = "V87.119-FIX-504-GATEWAY-TIMEOUT-PERIODIC-COMMITS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2713,6 +2713,15 @@ async def run_sync():
                     if sync_status["items_synced"] % 5 == 0:
                         sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} (estimated {estimated_total_returns} total) - ({sync_status['progress_percentage']}%)"
                         print(f"ULTRA-FAST PROGRESS: {sync_status['progress_percentage']}% complete ({sync_status['items_synced']}/{sync_status['total_items']})")
+
+                    # TIMEOUT FIX: Commit every 100 returns to prevent 504 gateway timeouts
+                    if sync_status["items_synced"] % 100 == 0:
+                        try:
+                            conn.commit()
+                            print(f"🚀 TIMEOUT FIX: Committed batch at {sync_status['items_synced']} returns to prevent timeout")
+                            sync_status["last_sync_message"] = f"Committed batch at {sync_status['items_synced']} returns"
+                        except Exception as commit_err:
+                            print(f"⚠️ Warning: Batch commit failed at {sync_status['items_synced']} returns: {commit_err}")
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
