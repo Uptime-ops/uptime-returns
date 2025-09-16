@@ -1012,11 +1012,13 @@
                     const result = await response.json();
                     console.log('Sync trigger result:', result);
                     
-                      // Initialize progress display
+                      // Initialize progress display immediately
+                      console.log('SHOWING progress bar immediately...');
                       $('#syncProgressContainer').show();
                       $('#syncStatusContainer').hide();
+                      console.log('Progress bar should now be visible');
                       $('#syncProgressBar').css('width', '2%').addClass('progress-bar-animated');
-                      $('#syncCurrentOperation').text('🚀 Starting sync...');
+                      $('#syncCurrentOperation').text('Starting sync...');
                       $('#syncProgressPercent').text('0%');
                       
                       // Initialize sync start time for speed calculation
