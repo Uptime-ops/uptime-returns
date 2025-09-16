@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.117-FIX-ORDER-CREATED-AT-USE-API-TIMESTAMP"
+DEPLOYMENT_VERSION = "V87.118-DEBUG-ORDER-RETURN-MAPPING-VERIFICATION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -576,6 +576,57 @@ async def debug_orders_table():
         }
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch orders table data"}
+
+@app.get("/api/debug/order-return-mapping")
+async def debug_order_return_mapping():
+    """Debug order ID mapping between returns and orders tables"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get sample returns with their order IDs
+        cursor.execute("""
+            SELECT TOP 5 r.id as return_id, r.order_id, o.id as orders_table_id,
+                   o.order_number, o.customer_name, r.created_at as return_created
+            FROM returns r
+            LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
+            WHERE r.order_id IS NOT NULL
+            ORDER BY r.created_at DESC
+        """ if USE_AZURE_SQL else """
+            SELECT r.id as return_id, r.order_id, o.id as orders_table_id,
+                   o.order_number, o.customer_name, r.created_at as return_created
+            FROM returns r
+            LEFT JOIN orders o ON r.order_id = o.id
+            WHERE r.order_id IS NOT NULL
+            ORDER BY r.created_at DESC
+            LIMIT 5
+        """)
+
+        results = cursor.fetchall()
+
+        if USE_AZURE_SQL:
+            mapping_list = []
+            for row in results:
+                mapping_list.append({
+                    "return_id": row['return_id'],
+                    "return_order_id": str(row['order_id']),
+                    "orders_table_id": str(row['orders_table_id']) if row['orders_table_id'] else None,
+                    "order_number": row['order_number'],
+                    "customer_name": row['customer_name'],
+                    "ids_match": str(row['order_id']) == str(row['orders_table_id']) if row['orders_table_id'] else False
+                })
+        else:
+            mapping_list = [dict(row) for row in results]
+
+        conn.close()
+
+        return {
+            "message": "Order ID mapping verification between returns and orders tables",
+            "mappings": mapping_list,
+            "note": "Checks if return.order_id matches orders.id and has correct customer data"
+        }
+    except Exception as e:
+        return {"error": str(e), "message": "Failed to fetch order mapping data"}
 
 @app.get("/favicon.ico")
 async def favicon():
