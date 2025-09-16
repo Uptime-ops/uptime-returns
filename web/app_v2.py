@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.105-EXTEND-TIMEOUT-60S-FOR-AZURE-SQL-SYNC-STATUS-API"
+DEPLOYMENT_VERSION = "V87.107-ULTRA-FAST-PROGRESS-BAR-INSTANT-PERCENTAGE-TRACKING"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -374,13 +374,21 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
-# Global sync status
+# Global sync status - IN-MEMORY ONLY for ultra-fast progress bar
 sync_status = {
     "is_running": False,
     "last_sync": None,
-    "last_sync_status": None,
-    "last_sync_message": None,
-    "items_synced": 0
+    "last_sync_status": "completed",
+    "last_sync_message": "Ready",
+    "items_synced": 0,
+    "products_synced": 0,
+    "return_items_synced": 0,
+    "orders_synced": 0,
+    "total_items": 0,
+    "progress_percentage": 0,
+    "current_operation": "Ready",
+    "start_time": None,
+    "estimated_completion": None
 }
 
 # Log buffer to capture sync activity for debugging
@@ -2007,48 +2015,27 @@ async def initialize_database():
 
 @app.get("/api/sync/status")
 async def get_sync_status():
-    """Get current sync status"""
+    """Ultra-fast in-memory sync status - NO database queries"""
     global sync_status
 
-    try:
-        # Simplified sync status - no database query to avoid timeouts
-        # Just return the in-memory sync status
+    # INSTANT response from memory only - no timeouts possible
+    current_status = "running" if sync_status["is_running"] else "completed"
 
-        current_sync_status = "running" if sync_status["is_running"] else "completed"
-        # print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
-
-        return {
-            "current_sync": {
-                "status": current_sync_status,
-                "items_synced": sync_status["items_synced"],
-                "products_synced": sync_status.get("products_synced", 0),
-                "return_items_synced": sync_status.get("return_items_synced", 0),
-                "orders_synced": sync_status.get("orders_synced", 0)
-            },
-            "last_sync": sync_status["last_sync"],
-            "last_sync_status": sync_status["last_sync_status"],
-            "last_sync_message": sync_status["last_sync_message"],
-            "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - MERGE statements + parameterized queries",
-            "identity_insert_fixed": "YES - Removed IDENTITY_INSERT, using MERGE"
-        }
-    except Exception as e:
-        print(f"Error in sync status: {str(e)}")
-        return {
-            "current_sync": {
-                "status": "error",
-                "items_synced": 0,
-                "products_synced": 0,
-                "return_items_synced": 0,
-                "orders_synced": 0
-            },
-            "last_sync": None,
-            "last_sync_status": "error",
-            "last_sync_message": str(e),
-            "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - MERGE statements + parameterized queries",
-            "identity_insert_fixed": "YES - Removed IDENTITY_INSERT, using MERGE"
-        }
+    return {
+        "current_sync": {
+            "status": current_status,
+            "items_synced": sync_status["items_synced"],
+            "total_items": sync_status["total_items"],
+            "progress_percentage": sync_status["progress_percentage"],
+            "products_synced": sync_status["products_synced"],
+            "return_items_synced": sync_status["return_items_synced"],
+            "orders_synced": sync_status["orders_synced"],
+            "current_operation": sync_status["current_operation"]
+        },
+        "last_sync_message": sync_status["last_sync_message"],
+        "is_running": sync_status["is_running"],
+        "deployment_version": DEPLOYMENT_VERSION
+    }
 
 @app.post("/api/sync/target-returns-with-data")
 async def sync_returns_with_product_data():
@@ -2468,6 +2455,7 @@ async def run_sync():
         # STEP 5: Fetch ALL returns from API with pagination
         # print("=== SYNC DEBUG: Starting API fetch phase...")
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
+        sync_status["current_operation"] = "Fetching returns from API"
         # print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
         # Start from recent returns (last 200) to get returns with new order/items data
@@ -2476,6 +2464,11 @@ async def run_sync():
         limit = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 200)
         max_returns_to_process = 500  # 🚀 SPEED: Increased limit to process more returns (was 200)
         total_fetched = 0
+
+        # ULTRA-FAST PROGRESS: Set total_items immediately for instant progress calculation
+        sync_status["total_items"] = max_returns_to_process
+        sync_status["progress_percentage"] = 0
+        print(f"ULTRA-FAST PROGRESS: Set total_items={max_returns_to_process} for instant progress tracking")
 
         while True:
             try:
@@ -2533,11 +2526,18 @@ async def run_sync():
 
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
+
+                    # ULTRA-FAST PROGRESS: Calculate percentage instantly on every item
+                    if sync_status["total_items"] > 0:
+                        sync_status["progress_percentage"] = int((sync_status["items_synced"] / sync_status["total_items"]) * 100)
+
+                    sync_status["current_operation"] = f"Processing return {return_id}"
                     sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process}"
 
                     # Update progress every 5 returns for better frontend responsiveness
                     if sync_status["items_synced"] % 5 == 0:
-                        sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process}"
+                        sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process} ({sync_status['progress_percentage']}%)"
+                        print(f"ULTRA-FAST PROGRESS: {sync_status['progress_percentage']}% complete ({sync_status['items_synced']}/{sync_status['total_items']})")
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
@@ -3436,8 +3436,17 @@ async def run_sync():
 
     finally:
         sync_status["is_running"] = False
+
+        # ULTRA-FAST PROGRESS: Set completion status for instant API response
+        if sync_status["last_sync_status"] == "completed":
+            sync_status["progress_percentage"] = 100
+            sync_status["current_operation"] = "Sync completed"
+        else:
+            sync_status["current_operation"] = "Sync stopped"
+
         print(f"SYNC COMPLETED: Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
         print(f"SYNC COMPLETED: Products: {sync_status.get('products_synced', 0)}, Return Items: {sync_status.get('return_items_synced', 0)}, Orders: {sync_status.get('orders_synced', 0)}")
+        print(f"ULTRA-FAST PROGRESS: Final progress = {sync_status['progress_percentage']}% - {sync_status['current_operation']}")
 
 @app.post("/api/returns/send-email")
 async def send_returns_email(request_data: dict):
