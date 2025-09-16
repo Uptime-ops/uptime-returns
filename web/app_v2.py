@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.98-CRITICAL-DISABLE-ALL-SYNC-LOGGING-FIX-PROGRESS-BAR"
+DEPLOYMENT_VERSION = "V87.99-EMERGENCY-FIX-INDENTATION-ERROR-BREAKING-APP-STARTUP"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2162,7 +2162,7 @@ async def sync_returns_with_product_data():
 
             # Skip if no items array or empty
             if not items or items is None:
-                # DISABLED - print(f"Return {return_id}: No items array")
+                pass  # DISABLED - print(f"Return {return_id}: No items array")
                 continue
 
             # Check if any item has real product data
@@ -2173,10 +2173,10 @@ async def sync_returns_with_product_data():
                     break
 
             if not has_real_data:
-                # DISABLED - print(f"Return {return_id}: Items array exists but no product data")
+                pass  # DISABLED - print(f"Return {return_id}: Items array exists but no product data")
                 continue
 
-            # DISABLED - print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing {len(items)} items...")
+            pass  # DISABLED - print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing {len(items)} items...")
             returns_with_data += 1
 
             # Process return items with real data
@@ -2528,7 +2528,7 @@ async def run_sync():
                     has_items = bool(ret.get('items'))
                     items_count = len(ret.get('items', [])) if ret.get('items') else 0
 
-                    # DISABLED - print(f"Return {return_id}: order={has_order}, items={has_items} (count: {items_count})")
+                    pass  # DISABLED - print(f"Return {return_id}: order={has_order}, items={has_items} (count: {items_count})")
                     log_sync_activity(f"Processing return {return_id} from {client_name}: order={has_order}, items={items_count}")
 
                     # Increment progress counter at start of each return processing
@@ -2743,14 +2743,14 @@ async def run_sync():
                             order_api_data = order_response.json()
                             if order_api_data.get("status") == "success":
                                 order_data = order_api_data.get("data", {})
-                                # DISABLED - print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
+                                pass  # DISABLED - print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
                                 # print(f"ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')}")
                             else:
-                                # DISABLED - print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
+                                pass  # DISABLED - print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
                         else:
-                            # DISABLED - print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
+                            pass  # DISABLED - print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
                     except Exception as order_err:
-                        # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
+                        pass  # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
 
                 # Insert order data if we have it
                 if order_data:
@@ -2813,7 +2813,7 @@ async def run_sync():
                     if items_data:
                         print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
                 elif error:
-                    # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: {error}")
+                    pass  # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: {error}")
                     # Fallback: Try separate items API call if individual return didn't work
                     # print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
                     try:
@@ -2829,9 +2829,9 @@ async def run_sync():
                                 items_data = items_api_data.get("data", [])
                                 print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
                             else:
-                                # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                                pass  # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                         else:
-                            # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
+                            pass  # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
                     except Exception as items_err:
                         print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
                         items_data = []
