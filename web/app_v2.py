@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.103-FIX-PROGRESS-UPDATE-FREQUENCY-FRONTEND-BACKEND-TIMING"
+DEPLOYMENT_VERSION = "V87.104-EMERGENCY-FIX-INDENTATION-ERROR-EMPTY-IF-BLOCKS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2810,7 +2810,7 @@ async def run_sync():
                 if items_data:
                     # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
                     if items_data:
-                        # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
+                        pass  # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
                 elif error:
                     pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: {error}")
                     # Fallback: Try separate items API call if individual return didn't work
@@ -3010,9 +3010,9 @@ async def run_sync():
                                     sync_status["return_items_synced"] += 1
                                     # DISABLED TRACE - print(f"SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                 elif not actual_product_id:
-                                    # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - no valid product ID (actual_product_id={actual_product_id})")
+                                    pass  # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - no valid product ID")
                                 else:
-                                    # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - already exists (return_id={return_id}, product_id={actual_product_id})")
+                                    pass  # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - already exists")
                             else:
                                 # SQLite - use INSERT OR REPLACE
                                 placeholder = get_param_placeholder()
