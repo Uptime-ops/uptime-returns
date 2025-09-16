@@ -8,12 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.90-CLEANED-UP-VERBOSE-LOGGING-FOR-BETTER-READABILITY"
+DEPLOYMENT_VERSION = "V87.94-OPTIMIZED-PROGRESS-LOGGING-AND-FRONTEND-TIMEOUT-HANDLING"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
-print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
-print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
-print("=== THIS IS THE NEW APP_V2.PY FILE ===")
+print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
+print(f"DEPLOYMENT TIME: {DEPLOYMENT_TIME}")
+print("THIS IS THE NEW APP_V2.PY FILE")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,7 +55,7 @@ USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or
 # (Function definition moved after imports to avoid NameError)
 
 # Debug database configuration
-print(f"=== DATABASE CONFIGURATION ===")
+print("DATABASE CONFIGURATION")
 print(f"DATABASE_URL exists: {bool(DATABASE_URL)}")
 print(f"USE_AZURE_SQL: {USE_AZURE_SQL}")
 print(f"IS_AZURE: {IS_AZURE}")
@@ -116,7 +116,7 @@ if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
     
     # First, list all available ODBC drivers for diagnostics
-    print("=== ODBC Driver Diagnostics ===")
+    print("ODBC Driver Diagnostics")
     try:
         available_drivers = pyodbc.drivers()
         print(f"Available ODBC drivers: {available_drivers}")
@@ -124,7 +124,7 @@ if USE_AZURE_SQL:
             print("WARNING: No ODBC drivers detected! This may be a configuration issue.")
     except Exception as e:
         print(f"ERROR listing drivers: {e}")
-    print("================================")
+    print("ODBC Driver Diagnostics Complete")
     
     def get_db_connection():
         """Get Azure SQL connection with comprehensive fallback"""
@@ -465,10 +465,10 @@ async def favicon():
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
     try:
-        print("=== DASHBOARD STATS DEBUG: Starting ===")
+        print("DASHBOARD STATS: Starting")
         conn = get_db_connection()
         if not conn:
-            print("=== DASHBOARD STATS DEBUG: No database connection ===")
+            print("DASHBOARD STATS: No database connection")
             return {"stats": {}, "error": "No database connection"}
             
         if not USE_AZURE_SQL:
@@ -480,58 +480,58 @@ async def get_dashboard_stats():
         
         # Test basic query with detailed error handling
         try:
-            print("=== DASHBOARD STATS DEBUG: Testing basic COUNT query ===")
+            print("DASHBOARD STATS: Testing basic COUNT query")
             cursor.execute("SELECT COUNT(*) as count FROM returns")
             row = cursor.fetchone()
-            print(f"=== DASHBOARD STATS DEBUG: Row returned: {row}, type: {type(row)} ===")
+            print(f"DASHBOARD STATS: Row returned: {row}, type: {type(row)}")
             stats['total_returns'] = row['count'] if row else 0
-            print(f"=== DASHBOARD STATS DEBUG: total_returns = {stats['total_returns']} ===")
+            print(f"DASHBOARD STATS: total_returns = {stats['total_returns']}")
         except Exception as count_error:
-            print(f"=== DASHBOARD STATS DEBUG: COUNT query failed: {count_error} ===")
+            print(f"DASHBOARD STATS: COUNT query failed: {count_error}")
             stats['total_returns'] = 0
             stats['count_error'] = str(count_error)
         
         try:
-            print("=== DASHBOARD STATS DEBUG: Testing processed = 0 query ===")
+            print("DASHBOARD STATS: Testing processed = 0 query")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
             row = cursor.fetchone()
             stats['pending_returns'] = row['count'] if row else 0
-            print(f"=== DASHBOARD STATS DEBUG: pending_returns = {stats['pending_returns']} ===")
+            print(f"DASHBOARD STATS: pending_returns = {stats['pending_returns']}")
         except Exception as pending_error:
-            print(f"=== DASHBOARD STATS DEBUG: processed = 0 query failed: {pending_error} ===")
+            print(f"DASHBOARD STATS: processed = 0 query failed: {pending_error}")
             stats['pending_returns'] = 0
             stats['pending_error'] = str(pending_error)
         
         try:
-            print("=== DASHBOARD STATS DEBUG: Testing processed = 1 query ===")
+            print("DASHBOARD STATS: Testing processed = 1 query")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
             row = cursor.fetchone()
             stats['processed_returns'] = row['count'] if row else 0
-            print(f"=== DASHBOARD STATS DEBUG: processed_returns = {stats['processed_returns']} ===")
+            print(f"DASHBOARD STATS: processed_returns = {stats['processed_returns']}")
         except Exception as processed_error:
-            print(f"=== DASHBOARD STATS DEBUG: processed = 1 query failed: {processed_error} ===")
+            print(f"DASHBOARD STATS: processed = 1 query failed: {processed_error}")
             stats['processed_returns'] = 0
             stats['processed_error'] = str(processed_error)
     
         try:
-            print("=== DASHBOARD STATS DEBUG: Testing client_id query ===")
+            print("DASHBOARD STATS: Testing client_id query")
             cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
             row = cursor.fetchone()
             stats['total_clients'] = row['count'] if row else 0
-            print(f"=== DASHBOARD STATS DEBUG: total_clients = {stats['total_clients']} ===")
+            print(f"DASHBOARD STATS: total_clients = {stats['total_clients']}")
         except Exception as client_error:
-            print(f"=== DASHBOARD STATS DEBUG: client_id query failed: {client_error} ===")
+            print(f"DASHBOARD STATS: client_id query failed: {client_error}")
             stats['total_clients'] = 0
             stats['client_error'] = str(client_error)
         
         try:
-            print("=== DASHBOARD STATS DEBUG: Testing warehouse_id query ===")
+            print("DASHBOARD STATS: Testing warehouse_id query")
             cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
             row = cursor.fetchone()
             stats['total_warehouses'] = row['count'] if row else 0
-            print(f"=== DASHBOARD STATS DEBUG: total_warehouses = {stats['total_warehouses']} ===")
+            print(f"DASHBOARD STATS: total_warehouses = {stats['total_warehouses']}")
         except Exception as warehouse_error:
-            print(f"=== DASHBOARD STATS DEBUG: warehouse_id query failed: {warehouse_error} ===")
+            print(f"DASHBOARD STATS: warehouse_id query failed: {warehouse_error}")
             stats['total_warehouses'] = 0
             stats['warehouse_error'] = str(warehouse_error)
     
@@ -603,11 +603,11 @@ async def get_dashboard_stats():
             stats['total_returned_quantity'] = 0
     
         conn.close()
-        print(f"=== DASHBOARD STATS DEBUG: Returning stats: {stats} ===")
+        print(f"DASHBOARD STATS: Returning stats: {stats}")
         return {"stats": stats}
         
     except Exception as e:
-        print(f"=== DASHBOARD STATS ERROR: {str(e)} ===")
+        print(f"DASHBOARD STATS ERROR: {str(e)}")
         import traceback
         traceback.print_exc()
         if 'conn' in locals():
@@ -1434,18 +1434,18 @@ async def get_return_detail(return_id: str):
 @app.post("/api/returns/export/csv")
 async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
-    print("=== CSV EXPORT: Starting export process ===")
+    print("CSV EXPORT: Starting export process")
     # Parse the request body as JSON
     try:
         filter_params = await request.json()
-        print(f"=== CSV EXPORT: Filter params: {filter_params} ===")
+        print(f"CSV EXPORT: Filter params: {filter_params}")
     except Exception as e:
         print(f"JSON parsing error in export_returns_csv: {e}")
         filter_params = {}
     
-    print("=== CSV EXPORT: Getting database connection ===")
+    print("CSV EXPORT: Getting database connection")
     conn = get_db_connection()
-    print("=== CSV EXPORT: Database connection successful ===")
+    print("CSV EXPORT: Database connection successful")
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -1527,9 +1527,9 @@ async def export_returns_csv(request: Request):
                 WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
             """, (str(return_id),))
             items = cursor.fetchall()
-            print(f"=== CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items ===")
+            print(f"CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items")
         except Exception as query_error:
-            print(f"=== CSV EXPORT ERROR: Query failed for return {return_id}: {query_error} ===")
+            print(f"CSV EXPORT ERROR: Query failed for return {return_id}: {query_error}")
             items = []  # Continue with empty items instead of crashing
         
         # Convert items to dict for Azure SQL
@@ -1652,7 +1652,7 @@ async def trigger_sync():
     """Trigger a sync with Warehance API"""
     global sync_status
     
-    print(f"=== SYNC TRIGGER: is_running={sync_status['is_running']} ===")
+    print(f"SYNC TRIGGER: is_running={sync_status['is_running']}")
     
     # Check if API key is configured
     if not WAREHANCE_API_KEY:
@@ -1669,15 +1669,15 @@ async def trigger_sync():
     sync_status["orders_synced"] = 0
     sync_status["last_sync_status"] = "running"
     sync_status["last_sync_message"] = "Starting sync..."
-    print(f"=== SYNC TRIGGER: Set is_running=True immediately ===")
+    print(f"SYNC TRIGGER: Set is_running=True immediately")
     
     # Start sync in background
-    print("=== SYNC TRIGGER: Starting background sync task ===")
+    print("SYNC TRIGGER: Starting background sync task")
     try:
         task = asyncio.create_task(run_sync())
-        print(f"=== SYNC TRIGGER: Task created successfully: {task} ===")
+        print(f"SYNC TRIGGER: Task created successfully")
     except Exception as e:
-        print(f"=== SYNC TRIGGER ERROR: Failed to create task: {e} ===")
+        print(f"SYNC TRIGGER ERROR: Failed to create task: {e}")
         sync_status["is_running"] = False
         sync_status["last_sync_status"] = "error"
         sync_status["last_sync_message"] = f"Failed to start sync: {str(e)}"
@@ -2032,32 +2032,8 @@ async def get_sync_status():
     global sync_status
     
     try:
-        # print(f"=== SYNC STATUS API: is_running={sync_status['is_running']}, items_synced={sync_status['items_synced']} ===")
-        # Get last sync from database
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Check if last_synced_at column exists - skip for now to avoid errors
-        try:
-            # For now, just return NULL to avoid column issues
-            cursor.execute("SELECT NULL as last_sync")
-        except Exception as e:
-            print(f"Sync status query error: {e}")
-            cursor.execute("SELECT NULL as last_sync")
-        result = cursor.fetchone()
-        
-        # Handle both SQLite and Azure SQL
-        last_sync_value = None
-        if result:
-            if USE_AZURE_SQL:
-                last_sync_value = result.get('last_sync') if hasattr(result, 'get') else None
-            else:
-                last_sync_value = result[0] if result else None
-        
-        if last_sync_value:
-            sync_status["last_sync"] = last_sync_value
-    
-        conn.close()
+        # Simplified sync status - no database query to avoid timeouts
+        # Just return the in-memory sync status
         
         current_sync_status = "running" if sync_status["is_running"] else "completed"
         # print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
@@ -2079,8 +2055,6 @@ async def get_sync_status():
         }
     except Exception as e:
         print(f"Error in sync status: {str(e)}")
-        if 'conn' in locals():
-            conn.close()
         return {
             "current_sync": {
                 "status": "error", 
@@ -2350,7 +2324,7 @@ def convert_date_for_sql(date_string):
         return None
     
     try:
-        print(f"=== DATE CONVERSION: Converting '{date_string}' ===")
+        # print(f"DATE CONVERSION: Converting '{date_string}'")
         # Parse the date string and convert to ISO format that SQL Server accepts
         from datetime import datetime
         # Handle multiple possible formats from API
@@ -2372,32 +2346,32 @@ def convert_date_for_sql(date_string):
                 dt = datetime.strptime(date_string, fmt)
                 # Return in SQL Server compatible format
                 result = dt.strftime('%Y-%m-%d %H:%M:%S')
-                print(f"=== DATE CONVERSION: Successfully converted '{date_string}' to '{result}' using format '{fmt}' ===")
+                # print(f"DATE CONVERSION: Successfully converted '{date_string}' to '{result}' using format '{fmt}'")
                 return result
             except ValueError:
                 continue
         
         # If no format matches, return None to avoid SQL errors
-        print(f"=== DATE CONVERSION ERROR: No format matched for '{date_string}' ===")
+        print(f"DATE CONVERSION ERROR: No format matched for '{date_string}'")
         return None
     except Exception as e:
         # If all else fails, return None to avoid SQL errors
-        print(f"=== DATE CONVERSION ERROR: Exception converting '{date_string}': {e} ===")
+        print(f"DATE CONVERSION ERROR: Exception converting '{date_string}': {e}")
         return None
 
 async def run_sync():
     """Run the actual sync process"""
     global sync_status
     
-    print("=== RUN_SYNC: Starting sync process ===")
+    print("RUN_SYNC: Starting sync process")
     # Sync status already initialized in trigger_sync to prevent race conditions
-    print(f"=== RUN_SYNC: Status already set, is_running={sync_status['is_running']} ===")
+    print(f"RUN_SYNC: Status already set, is_running={sync_status['is_running']}")
     
     try:
         # print("=== RUN_SYNC: Checking API key and database connection ===")
         api_key = os.getenv('WAREHANCE_API_KEY')
         if not api_key:
-            print("=== RUN_SYNC ERROR: WAREHANCE_API_KEY not found ===")
+            print("RUN_SYNC ERROR: WAREHANCE_API_KEY not found")
             sync_status["last_sync_status"] = "error"
             sync_status["last_sync_message"] = "WAREHANCE_API_KEY not configured"
             return
@@ -2406,7 +2380,7 @@ async def run_sync():
         
         # Initialize database tables if using Azure SQL
         if USE_AZURE_SQL:
-            print("=== RUN_SYNC: Initializing Azure SQL database ===")
+            print("RUN_SYNC: Initializing Azure SQL database")
             init_result = await initialize_database()
             print(f"Database initialization result: {init_result}")
             if init_result.get("status") == "error":
@@ -2424,11 +2398,11 @@ async def run_sync():
         sync_status["last_sync_message"] = f"STEP 1: Starting sync with API key: {api_key[:15]}..."
         
         # Test database connection early with detailed logging
-        print("=== SYNC DEBUG: Testing database connection...")
+        print("SYNC DEBUG: Testing database connection")
         sync_status["last_sync_message"] = "STEP 2: Testing database connection..."
         
         # CRITICAL: Ensure database schema is migrated before sync
-        print("=== SYNC DEBUG: Ensuring database schema is migrated (INT -> BIGINT)...")
+        print("SYNC DEBUG: Ensuring database schema is migrated (INT -> BIGINT)")
         sync_status["last_sync_message"] = "STEP 2.1: Running database migration..."
         try:
             conn = get_db_connection()
@@ -2482,8 +2456,8 @@ async def run_sync():
         
         sync_status["last_sync_message"] = "STEP 2.2: Database migration completed, continuing sync..."
         
-        print(f"=== SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
-        print(f"=== SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
+        print(f"SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
+        print(f"SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
         
         # 🚀 CURSOR PERFORMANCE FIX: Removed inefficient individual API calls (1,000+ calls)
         # Now using efficient batch API processing below (10 batch calls instead)
@@ -2494,22 +2468,22 @@ async def run_sync():
         if not conn:
             raise Exception("STEP 2 FAILED: Failed to establish database connection")
             
-        print("=== SYNC DEBUG: Database connection established, creating cursor...")
+        print("SYNC DEBUG: Database connection established, creating cursor")
         cursor = conn.cursor()
         sync_status["last_sync_message"] = "STEP 3: Database cursor created..."
         
         # Test basic database operation
         try:
-            print("=== SYNC DEBUG: Testing basic database query...")
+            print("SYNC DEBUG: Testing basic database query")
             if USE_AZURE_SQL:
                 cursor.execute("SELECT 1 as test")
             else:
                 cursor.execute("SELECT 1")
             test_result = cursor.fetchone()
-            print(f"=== SYNC DEBUG: Database test query successful: {test_result}")
+            print(f"SYNC DEBUG: Database test query successful: {test_result}")
             sync_status["last_sync_message"] = "STEP 4: Database connection confirmed"
         except Exception as db_test_error:
-            print(f"=== SYNC DEBUG: Database test query failed: {db_test_error}")
+            print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
         
         # STEP 5: Fetch ALL returns from API with pagination
@@ -2581,6 +2555,11 @@ async def run_sync():
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
                     sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']}) - order:{has_order}, items:{items_count}"
+                    
+                    # Update progress every 25 returns for better frontend feedback without spam
+                    if sync_status["items_synced"] % 25 == 0:
+                        print(f"SYNC PROGRESS: {sync_status['items_synced']} returns processed, {sync_status.get('return_items_synced', 0)} items created")
+                        sync_status["last_sync_message"] = f"Progress: {sync_status['items_synced']} returns processed, {sync_status.get('return_items_synced', 0)} items created"
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
                         try:
@@ -2786,7 +2765,7 @@ async def run_sync():
                             if order_api_data.get("status") == "success":
                                 order_data = order_api_data.get("data", {})
                                 print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
-                                print(f"=== ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')} ===")
+                                # print(f"ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')}")
                             else:
                                 print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
                         else:
@@ -2802,7 +2781,7 @@ async def run_sync():
                         first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
                         last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
                         customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
-                        print(f"=== ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}' ===")
+                        # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
                         
                         if USE_AZURE_SQL:
                             # Check if order exists first
@@ -3479,8 +3458,8 @@ async def run_sync():
     
     finally:
         sync_status["is_running"] = False
-        print(f"=== SYNC COMPLETED: Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']} ===")
-        print(f"=== SYNC COMPLETED: Products: {sync_status.get('products_synced', 0)}, Return Items: {sync_status.get('return_items_synced', 0)}, Orders: {sync_status.get('orders_synced', 0)} ===")
+        print(f"SYNC COMPLETED: Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
+        print(f"SYNC COMPLETED: Products: {sync_status.get('products_synced', 0)}, Return Items: {sync_status.get('return_items_synced', 0)}, Orders: {sync_status.get('orders_synced', 0)}")
 
 @app.post("/api/returns/send-email")
 async def send_returns_email(request_data: dict):

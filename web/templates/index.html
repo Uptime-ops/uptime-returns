@@ -1033,8 +1033,8 @@
                     const toast = new bootstrap.Toast($('#syncToast')[0]);
                     toast.show();
 
-                    // Check sync status immediately and periodically
-                    checkSyncStatus();
+                    // Check sync status after a short delay to allow backend to start
+                    setTimeout(checkSyncStatus, 1000);
                     
                 } catch (error) {
                     console.error('Error triggering sync:', error);
@@ -1047,7 +1047,18 @@
         async function checkSyncStatus() {
             try {
                 console.log('Checking sync status...');
-                const response = await fetch('/api/sync/status');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
+                const response = await fetch('/api/sync/status', {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
                 console.log('Sync status data:', data);
                 console.log('Current sync object:', data.current_sync);
