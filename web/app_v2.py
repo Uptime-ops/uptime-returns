@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.113-ORDER-DATE-COLUMN-FIX-CURSOR-SOLUTION"
+DEPLOYMENT_VERSION = "V87.114-REMOVE-RETURNS-LIMIT-PROCESS-ALL-AVAILABLE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2503,17 +2503,16 @@ async def run_sync():
         sync_status["current_operation"] = "Fetching returns from API"
         # print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
-        # Start from recent returns (last 200) to get returns with new order/items data
-        # API was updated last week, so focus on recent returns
+        # Process ALL available returns from Warehance API (no limit)
         offset = 0  # Start from most recent
-        limit = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 200)
-        max_returns_to_process = 500  # 🚀 SPEED: Increased limit to process more returns (was 200)
+        limit = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API
         total_fetched = 0
+        estimated_total_returns = 1000  # Rough estimate for progress tracking
 
-        # ULTRA-FAST PROGRESS: Set total_items immediately for instant progress calculation
-        sync_status["total_items"] = max_returns_to_process
+        # ULTRA-FAST PROGRESS: Set estimated total for progress calculation
+        sync_status["total_items"] = estimated_total_returns
         sync_status["progress_percentage"] = 0
-        print(f"ULTRA-FAST PROGRESS: Set total_items={max_returns_to_process} for instant progress tracking")
+        print(f"ULTRA-FAST PROGRESS: Set total_items={estimated_total_returns} for instant progress tracking (will process ALL available returns)")
 
         while True:
             try:
@@ -2577,11 +2576,11 @@ async def run_sync():
                         sync_status["progress_percentage"] = int((sync_status["items_synced"] / sync_status["total_items"]) * 100)
 
                     sync_status["current_operation"] = f"Processing return {return_id}"
-                    sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process}"
+                    sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} (estimated {estimated_total_returns} total)"
 
                     # Update progress every 5 returns for better frontend responsiveness
                     if sync_status["items_synced"] % 5 == 0:
-                        sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process} ({sync_status['progress_percentage']}%)"
+                        sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} (estimated {estimated_total_returns} total) - ({sync_status['progress_percentage']}%)"
                         print(f"ULTRA-FAST PROGRESS: {sync_status['progress_percentage']}% complete ({sync_status['items_synced']}/{sync_status['total_items']})")
                     # First ensure client and warehouse exist - with overflow protection
                     if ret.get('client'):
@@ -3115,8 +3114,9 @@ async def run_sync():
 
                 # Check if we've fetched enough recent returns or reached limit
                 total_count = data['data'].get('total_count', 0)
-                if total_fetched >= max_returns_to_process or len(returns_batch) < limit:
-                    print(f"Stopping sync: processed {total_fetched} recent returns (limit: {max_returns_to_process})")
+                # Stop when no more returns available (natural end of data)
+                if len(returns_batch) < limit:
+                    print(f"Stopping sync: processed {total_fetched} returns - reached end of available data")
                     print(f"🔢 COLLECTED {len(all_order_ids)} unique order IDs from {total_fetched} returns")
                     if len(all_order_ids) > 0:
                         sample_ids = list(all_order_ids)[:5]
