@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.108-EMERGENCY-FIX-504-GATEWAY-TIMEOUT-STARTUP-ISSUE"
+DEPLOYMENT_VERSION = "V87.109-CRITICAL-FIX-ORDER-DATE-INCONSISTENCY-CURSOR-ANALYSIS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2768,6 +2768,13 @@ async def run_sync():
                         first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
                         last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
                         customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
+
+                        # CURSOR ANALYSIS FIX: Debug order date field usage
+                        order_date_field = order_data.get('order_date')
+                        created_at_field = order_data.get('created_at')
+                        using_field = order_date_field or created_at_field
+                        print(f"ORDER DATE DEBUG: Order {order_data['id']} - order_date: {order_date_field}, created_at: {created_at_field}, using: {'order_date' if order_date_field else 'created_at'}")
+
                         # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
 
                         if USE_AZURE_SQL:
@@ -2784,7 +2791,7 @@ async def run_sync():
                                     str(order_data['id']),
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
                                     convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
                                 )))
                                 sync_status["orders_synced"] += 1
@@ -2798,7 +2805,7 @@ async def run_sync():
                                 str(order_data['id']),
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
                                 datetime.now().isoformat()  # Updated at current time
                             )))
                             sync_status["orders_synced"] += 1
@@ -3260,7 +3267,7 @@ async def run_sync():
                                     order_id,
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
                                     convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
                                 )))
                                 sync_status["orders_synced"] += 1
@@ -3275,7 +3282,7 @@ async def run_sync():
                                 """, ensure_tuple_params((
                                     customer_name,
                                     order_data.get('order_number', ''),
-                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
                                     convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
                                     order_id
                                 )))
@@ -3288,7 +3295,7 @@ async def run_sync():
                                 order_id,
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
                                 datetime.now().isoformat()  # Updated at current time
                             )))
                             sync_status["orders_synced"] += 1
