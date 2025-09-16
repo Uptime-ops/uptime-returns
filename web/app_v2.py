@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.85-ROLLBACK-TO-STABLE-V87.82-AFTER-DEPLOYMENT-FAILURES"
+DEPLOYMENT_VERSION = "V87.86-FIXED-DEPLOYMENT-FAILURE-API-KEY-VALIDATION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -43,7 +43,9 @@ AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY')
 if not WAREHANCE_API_KEY:
-    raise ValueError("WAREHANCE_API_KEY environment variable must be set. Please configure it in Azure App Service Application Settings.")
+    print("⚠️  WARNING: WAREHANCE_API_KEY environment variable not set. Sync functionality will be disabled.")
+    print("   Please configure WAREHANCE_API_KEY in Azure App Service Application Settings.")
+    WAREHANCE_API_KEY = None
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL', '')
@@ -1651,6 +1653,10 @@ async def trigger_sync():
     global sync_status
     
     print(f"=== SYNC TRIGGER: is_running={sync_status['is_running']} ===")
+    
+    # Check if API key is configured
+    if not WAREHANCE_API_KEY:
+        return {"message": "WAREHANCE_API_KEY not configured. Please set it in Azure App Service Application Settings.", "status": "error"}
     
     if sync_status["is_running"]:
         return {"message": "Sync already in progress", "status": "running"}
