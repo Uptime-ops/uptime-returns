@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.96-FIXED-SYNTAX-ERRORS-AND-REDUCED-DASHBOARD-VERBOSITY"
+DEPLOYMENT_VERSION = "V87.97-EMERGENCY-FIX-LOG-FORMATTING-CORRUPTION-BROWSER-CRASH"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -388,20 +388,10 @@ sync_log_buffer = []
 MAX_LOG_ENTRIES = 200
 
 def log_sync_activity(message):
-    """Log sync activity to buffer and print to console"""
-    import datetime
-    timestamp = datetime.datetime.now().isoformat()
-    log_entry = f"{timestamp} - {message}"
-    print(log_entry)  # Still print to console
-
-    # Add to buffer
-    sync_log_buffer.append(log_entry)
-
-    # Keep only recent entries
-    if len(sync_log_buffer) > MAX_LOG_ENTRIES:
-        sync_log_buffer.pop(0)
-
-    return log_entry
+    """DISABLED - Log sync activity function causing formatting corruption"""
+    # EMERGENCY FIX: This function was causing log corruption with line breaks
+    # and browser crashes due to concurrent logging issues
+    pass
 
 # Helper functions for database row conversion
 def row_to_dict(cursor, row):
@@ -2543,7 +2533,7 @@ async def run_sync():
 
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
-                    sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']}) - order:{has_order}, items:{items_count}"
+                    sync_status["last_sync_message"] = f"Processing return #{sync_status['items_synced']} of {max_returns_to_process}"
 
                     # Update progress every 25 returns for better frontend feedback without spam
                     if sync_status["items_synced"] % 25 == 0:
