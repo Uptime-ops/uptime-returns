@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.81-EMAIL-SHARE-FUNCTIONALITY-COMPLETE-ORDER-DATE-FIXES-AND-SCHEMA-VERIFIED"
+DEPLOYMENT_VERSION = "V87.82-CRITICAL-FIX-EMAIL-SHARE-SCHEMA-DATA-TYPES-AND-CONSTRAINTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1929,25 +1929,30 @@ async def initialize_database():
             'email_shares': """
                 CREATE TABLE email_shares (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    client_id NVARCHAR(50),
-                    date_range_start DATETIME,
-                    date_range_end DATETIME,
+                    client_id BIGINT NOT NULL,
+                    share_date DATETIME DEFAULT GETDATE(),
+                    date_range_start DATE NOT NULL,
+                    date_range_end DATE NOT NULL,
                     recipient_email NVARCHAR(255),
                     subject NVARCHAR(500),
                     total_returns_shared INT DEFAULT 0,
                     share_status NVARCHAR(50) DEFAULT 'pending',
+                    sent_at DATETIME,
                     notes NVARCHAR(MAX),
-                    created_by NVARCHAR(100),
                     created_at DATETIME DEFAULT GETDATE(),
-                    sent_at DATETIME
+                    created_by NVARCHAR(100),
+                    FOREIGN KEY (client_id) REFERENCES clients(id)
                 )
             """,
             'email_share_items': """
                 CREATE TABLE email_share_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
-                    email_share_id INT,
-                    return_id NVARCHAR(50),
-                    created_at DATETIME DEFAULT GETDATE()
+                    email_share_id INT NOT NULL,
+                    return_id BIGINT NOT NULL,
+                    created_at DATETIME DEFAULT GETDATE(),
+                    FOREIGN KEY (email_share_id) REFERENCES email_shares(id) ON DELETE CASCADE,
+                    FOREIGN KEY (return_id) REFERENCES returns(id),
+                    UNIQUE(email_share_id, return_id)
                 )
             """,
             'sync_logs': """
