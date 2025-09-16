@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.115-DEBUG-ORDERS-TABLE-ID-MISMATCH-INVESTIGATION"
+DEPLOYMENT_VERSION = "V87.116-FIX-ORDER-DATE-COLUMN-NAME-TYPO"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -498,6 +498,47 @@ async def debug_order_dates():
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch order dates"}
 
+@app.post("/api/debug/fix-order-date-column")
+async def fix_order_date_column():
+    """Fix the oreder_date typo to order_date"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL"}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Check if oreder_date exists and order_date doesn't
+        cursor.execute("""
+            SELECT COUNT(*) as oreder_count
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'oreder_date'
+        """)
+        oreder_exists = cursor.fetchone()['oreder_count'] > 0
+
+        cursor.execute("""
+            SELECT COUNT(*) as order_count
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'order_date'
+        """)
+        order_exists = cursor.fetchone()['order_count'] > 0
+
+        if oreder_exists and not order_exists:
+            # Rename the column
+            cursor.execute("EXEC sp_rename 'orders.oreder_date', 'order_date', 'COLUMN'")
+            conn.commit()
+            conn.close()
+            return {"status": "success", "message": "Renamed oreder_date to order_date"}
+        elif order_exists:
+            conn.close()
+            return {"status": "already_fixed", "message": "order_date column already exists"}
+        else:
+            conn.close()
+            return {"status": "not_needed", "message": "Neither column found"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/debug/orders-table")
 async def debug_orders_table():
     """Debug endpoint to check orders table data for ID/order_number mismatch"""
@@ -505,8 +546,12 @@ async def debug_orders_table():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Get sample orders to check ID vs order_number relationship
-        cursor.execute("SELECT TOP 10 id, order_number, customer_name, created_at FROM orders ORDER BY id DESC" if USE_AZURE_SQL else "SELECT id, order_number, customer_name, created_at FROM orders ORDER BY id DESC LIMIT 10")
+        # Get sample orders to check ID vs order_number relationship - check both possible column names
+        try:
+            cursor.execute("SELECT TOP 10 id, order_number, customer_name, created_at, order_date FROM orders ORDER BY id DESC" if USE_AZURE_SQL else "SELECT id, order_number, customer_name, created_at, order_date FROM orders ORDER BY id DESC LIMIT 10")
+        except:
+            # Fallback to oreder_date if order_date doesn't exist
+            cursor.execute("SELECT TOP 10 id, order_number, customer_name, created_at, oreder_date as order_date FROM orders ORDER BY id DESC" if USE_AZURE_SQL else "SELECT id, order_number, customer_name, created_at, oreder_date as order_date FROM orders ORDER BY id DESC LIMIT 10")
         orders = cursor.fetchall()
 
         if USE_AZURE_SQL:
@@ -1518,7 +1563,8 @@ async def export_returns_csv(request: Request):
     query = """
     SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number,
            r.processed, c.name as client_name, w.name as warehouse_name,
-           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.order_date, o.customer_name
+           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number,
+           COALESCE(o.order_date, o.oreder_date) as order_date, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
