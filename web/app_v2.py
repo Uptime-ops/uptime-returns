@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.116-FIX-ORDER-DATE-COLUMN-NAME-TYPO"
+DEPLOYMENT_VERSION = "V87.117-FIX-ORDER-CREATED-AT-USE-API-TIMESTAMP"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2917,7 +2917,7 @@ async def run_sync():
                                     order_data.get('order_number', ''),
                                     customer_name,
                                     convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                    convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                                     convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
@@ -2932,7 +2932,7 @@ async def run_sync():
                                 order_data.get('order_number', ''),
                                 customer_name,
                                 convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                datetime.now().isoformat(),  # created_at = current timestamp
+                                convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                                 datetime.now().isoformat()   # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
@@ -3279,7 +3279,7 @@ async def run_sync():
                             order_data.get('order_number', ''),
                             customer_name,
                             convert_date_for_sql(order_data.get('order_date')),  # CURSOR FIX: Store actual order date from API
-                            convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                            convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                             convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                         )))
                         orders_fetched += 1
@@ -3410,7 +3410,7 @@ async def run_sync():
                                     order_data.get('order_number', ''),
                                     customer_name,
                                     convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                    convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                                     convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
@@ -3439,7 +3439,7 @@ async def run_sync():
                                 order_data.get('order_number', ''),
                                 customer_name,
                                 convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                datetime.now().isoformat(),  # created_at = current timestamp
+                                convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                                 datetime.now().isoformat()   # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
