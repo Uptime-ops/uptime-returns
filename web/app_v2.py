@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.77-CRITICAL-FIX-SYNC-VISUALS-VARIABLE-SCOPE-AND-ERROR-HANDLING"
+DEPLOYMENT_VERSION = "V87.81-EMAIL-SHARE-FUNCTIONALITY-COMPLETE-ORDER-DATE-FIXES-AND-SCHEMA-VERIFIED"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1657,7 +1657,12 @@ async def trigger_sync():
     
     # Start sync in background
     print("=== SYNC TRIGGER: Starting background sync task ===")
-    asyncio.create_task(run_sync())
+    try:
+        task = asyncio.create_task(run_sync())
+        print(f"=== SYNC TRIGGER: Task created successfully: {task} ===")
+    except Exception as e:
+        print(f"=== SYNC TRIGGER ERROR: Failed to create task: {e} ===")
+        return {"message": f"Failed to start sync: {str(e)}", "status": "error"}
     
     return {"message": "Sync started", "status": "started"}
 
@@ -1921,11 +1926,27 @@ async def initialize_database():
                     status NVARCHAR(50)
                 )
             """,
+            'email_shares': """
+                CREATE TABLE email_shares (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    client_id NVARCHAR(50),
+                    date_range_start DATETIME,
+                    date_range_end DATETIME,
+                    recipient_email NVARCHAR(255),
+                    subject NVARCHAR(500),
+                    total_returns_shared INT DEFAULT 0,
+                    share_status NVARCHAR(50) DEFAULT 'pending',
+                    notes NVARCHAR(MAX),
+                    created_by NVARCHAR(100),
+                    created_at DATETIME DEFAULT GETDATE(),
+                    sent_at DATETIME
+                )
+            """,
             'email_share_items': """
                 CREATE TABLE email_share_items (
                     id INT IDENTITY(1,1) PRIMARY KEY,
+                    email_share_id INT,
                     return_id NVARCHAR(50),
-                    share_id INT,
                     created_at DATETIME DEFAULT GETDATE()
                 )
             """,
@@ -2014,9 +2035,12 @@ async def get_sync_status():
     
         conn.close()
         
+        current_sync_status = "running" if sync_status["is_running"] else "completed"
+        print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
+        
         return {
             "current_sync": {
-                "status": "running" if sync_status["is_running"] else "completed",
+                "status": current_sync_status,
                 "items_synced": sync_status["items_synced"],
                 "products_synced": sync_status.get("products_synced", 0),
                 "return_items_synced": sync_status.get("return_items_synced", 0),
@@ -2302,12 +2326,15 @@ def convert_date_for_sql(date_string):
         return None
     
     try:
+        print(f"=== DATE CONVERSION: Converting '{date_string}' ===")
         # Parse the date string and convert to ISO format that SQL Server accepts
         from datetime import datetime
         # Handle multiple possible formats from API
         formats = [
             '%Y-%m-%dT%H:%M:%S.%fZ',     # ISO with microseconds
             '%Y-%m-%dT%H:%M:%SZ',        # ISO without microseconds
+            '%Y-%m-%dT%H:%M:%S%z',       # ISO with timezone offset (Warehance API format)
+            '%Y-%m-%dT%H:%M:%S.%f%z',    # ISO with microseconds and timezone
             '%Y-%m-%d %H:%M:%S',         # SQL format
             '%Y-%m-%dT%H:%M:%S.%f',      # ISO without Z
             '%Y-%m-%d',                  # Date only
@@ -2320,29 +2347,46 @@ def convert_date_for_sql(date_string):
             try:
                 dt = datetime.strptime(date_string, fmt)
                 # Return in SQL Server compatible format
-                return dt.strftime('%Y-%m-%d %H:%M:%S')
+                result = dt.strftime('%Y-%m-%d %H:%M:%S')
+                print(f"=== DATE CONVERSION: Successfully converted '{date_string}' to '{result}' using format '{fmt}' ===")
+                return result
             except ValueError:
                 continue
         
         # If no format matches, return None to avoid SQL errors
+        print(f"=== DATE CONVERSION ERROR: No format matched for '{date_string}' ===")
         return None
-    except Exception:
+    except Exception as e:
         # If all else fails, return None to avoid SQL errors
+        print(f"=== DATE CONVERSION ERROR: Exception converting '{date_string}': {e} ===")
         return None
 
 async def run_sync():
     """Run the actual sync process"""
     global sync_status
     
+    print("=== RUN_SYNC: Starting sync process ===")
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
     sync_status["products_synced"] = 0
     sync_status["return_items_synced"] = 0
     sync_status["orders_synced"] = 0
+    print(f"=== RUN_SYNC: Set is_running=True, status={sync_status} ===")
     
     try:
+        print("=== RUN_SYNC: Checking API key and database connection ===")
+        api_key = os.getenv('WAREHANCE_API_KEY')
+        if not api_key:
+            print("=== RUN_SYNC ERROR: WAREHANCE_API_KEY not found ===")
+            sync_status["last_sync_status"] = "error"
+            sync_status["last_sync_message"] = "WAREHANCE_API_KEY not configured"
+            return
+        
+        print(f"=== RUN_SYNC: API key found, length={len(api_key)} ===")
+        
         # Initialize database tables if using Azure SQL
         if USE_AZURE_SQL:
+            print("=== RUN_SYNC: Initializing Azure SQL database ===")
             init_result = await initialize_database()
             print(f"Database initialization result: {init_result}")
             if init_result.get("status") == "error":
@@ -2475,6 +2519,7 @@ async def run_sync():
                 
                 data = response.json()
                 print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
+                print(f"API Response data length: {len(data.get('data', [])) if data.get('data') else 0}")
                 
                 # Check for API error response
                 if data.get('status') == 'error':
@@ -2721,6 +2766,7 @@ async def run_sync():
                             if order_api_data.get("status") == "success":
                                 order_data = order_api_data.get("data", {})
                                 print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
+                                print(f"=== ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')} ===")
                             else:
                                 print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
                         else:
@@ -2736,6 +2782,7 @@ async def run_sync():
                         first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
                         last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
                         customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
+                        print(f"=== ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}' ===")
                         
                         if USE_AZURE_SQL:
                             # Check if order exists first
@@ -3148,12 +3195,19 @@ async def run_sync():
                                 sync_status["orders_synced"] += 1
                                 print(f"✅ Inserted order {order_id} with customer '{customer_name}'")
                             else:
-                                # Update existing order
+                                # Update existing order with correct order date
                                 cursor.execute(f"""
                                     UPDATE orders 
-                                    SET customer_name = {placeholder}, order_number = {placeholder}, updated_at = GETDATE()
+                                    SET customer_name = {placeholder}, order_number = {placeholder}, 
+                                        created_at = {placeholder}, updated_at = {placeholder}
                                     WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
-                                """, (customer_name, order_data.get('order_number', ''), order_id))
+                                """, ensure_tuple_params((
+                                    customer_name, 
+                                    order_data.get('order_number', ''), 
+                                    convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
+                                    order_id
+                                )))
                                 print(f"✅ Updated order {order_id} with customer '{customer_name}'")
                         else:
                             cursor.execute(f"""
@@ -3320,7 +3374,8 @@ async def run_sync():
     
     finally:
         sync_status["is_running"] = False
-        print(f"Sync completed. Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
+        print(f"=== SYNC COMPLETED: Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']} ===")
+        print(f"=== SYNC COMPLETED: Products: {sync_status.get('products_synced', 0)}, Return Items: {sync_status.get('return_items_synced', 0)}, Orders: {sync_status.get('orders_synced', 0)} ===")
 
 @app.post("/api/returns/send-email")
 async def send_returns_email(request_data: dict):
@@ -4181,6 +4236,193 @@ async def trigger_sync_get():
 
 
 
+
+
+# Email Share Endpoints
+@app.post("/api/email-shares/create")
+async def create_email_share(request: Request):
+    """Create a new email share record"""
+    try:
+        # Parse request body
+        data = await request.json()
+        client_id = data.get('client_id')
+        date_range_start = data.get('date_range_start')
+        date_range_end = data.get('date_range_end')
+        recipient_email = data.get('recipient_email')
+        subject = data.get('subject')
+        notes = data.get('notes')
+        return_ids = data.get('return_ids')
+        
+        if not all([client_id, date_range_start, date_range_end, recipient_email]):
+            return {"error": "Missing required fields: client_id, date_range_start, date_range_end, recipient_email"}
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Build query to get returns to share
+        placeholder = get_param_placeholder()
+        query = f"""
+            SELECT r.id, r.created_at
+            FROM returns r
+            WHERE r.client_id = {placeholder}
+            AND CAST(r.created_at AS DATE) >= {placeholder}
+            AND CAST(r.created_at AS DATE) <= {placeholder}
+        """
+        params = [client_id, date_range_start, date_range_end]
+        
+        # If specific return IDs provided, filter by those
+        if return_ids and len(return_ids) > 0:
+            placeholders = ','.join([placeholder] * len(return_ids))
+            query += f" AND r.id IN ({placeholders})"
+            params.extend(return_ids)
+        
+        # Exclude already shared returns
+        query += f"""
+            AND r.id NOT IN (
+                SELECT DISTINCT esi.return_id 
+                FROM email_share_items esi
+                JOIN email_shares es ON esi.email_share_id = es.id
+                WHERE es.client_id = {placeholder}
+                AND es.share_status = 'sent'
+            )
+        """
+        params.append(client_id)
+        
+        cursor.execute(query, params)
+        returns_to_share = cursor.fetchall()
+        
+        if USE_AZURE_SQL:
+            returns_to_share = rows_to_dict(cursor, returns_to_share)
+        
+        if not returns_to_share:
+            conn.close()
+            return {"error": "No unshared returns found for the specified criteria"}
+        
+        # Create email share record
+        placeholder = get_param_placeholder()
+        cursor.execute(f"""
+            INSERT INTO email_shares (client_id, date_range_start, date_range_end, recipient_email, subject, total_returns_shared, share_status, notes, created_by, created_at)
+            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+        """, ensure_tuple_params((
+            client_id,
+            date_range_start,
+            date_range_end,
+            recipient_email,
+            subject or f"Returns Report - {date_range_start} to {date_range_end}",
+            len(returns_to_share),
+            "pending",
+            notes,
+            "system",
+            datetime.now().isoformat()
+        )))
+        
+        # Get the email share ID
+        if USE_AZURE_SQL:
+            cursor.execute("SELECT @@IDENTITY as id")
+            email_share_id = cursor.fetchone()['id']
+        else:
+            email_share_id = cursor.lastrowid
+        
+        # Add share items
+        for return_obj in returns_to_share:
+            return_id = return_obj['id'] if USE_AZURE_SQL else return_obj[0]
+            placeholder = get_param_placeholder()
+            cursor.execute(f"""
+                INSERT INTO email_share_items (email_share_id, return_id, created_at)
+                VALUES ({placeholder}, {placeholder}, {placeholder})
+            """, ensure_tuple_params((
+                email_share_id,
+                return_id,
+                datetime.now().isoformat()
+            )))
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            "id": email_share_id,
+            "client_id": client_id,
+            "total_returns_shared": len(returns_to_share),
+            "recipient_email": recipient_email,
+            "status": "pending"
+        }
+        
+    except Exception as e:
+        print(f"Error creating email share: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/email-shares/history")
+async def get_email_share_history(client_id: Optional[int] = None, limit: int = 50):
+    """Get email share history"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Build query
+        placeholder = get_param_placeholder()
+        query = f"""
+            SELECT es.id, es.client_id, c.name as client_name, es.date_range_start, es.date_range_end,
+                   es.recipient_email, es.subject, es.total_returns_shared, es.share_status,
+                   es.sent_at, es.created_at, es.notes
+            FROM email_shares es
+            LEFT JOIN clients c ON es.client_id = c.id
+            WHERE 1=1
+        """
+        params = []
+        
+        if client_id:
+            query += f" AND es.client_id = {placeholder}"
+            params.append(client_id)
+        
+        query += f" ORDER BY es.created_at DESC LIMIT {placeholder}"
+        params.append(limit)
+        
+        cursor.execute(query, params)
+        shares = cursor.fetchall()
+        
+        if USE_AZURE_SQL:
+            shares = rows_to_dict(cursor, shares)
+        
+        result = []
+        for share in shares:
+            if USE_AZURE_SQL:
+                result.append({
+                    "id": share['id'],
+                    "client_id": share['client_id'],
+                    "client_name": share['client_name'],
+                    "date_range_start": share['date_range_start'].isoformat() if share['date_range_start'] else None,
+                    "date_range_end": share['date_range_end'].isoformat() if share['date_range_end'] else None,
+                    "recipient_email": share['recipient_email'],
+                    "subject": share['subject'],
+                    "total_returns_shared": share['total_returns_shared'],
+                    "share_status": share['share_status'],
+                    "sent_at": share['sent_at'].isoformat() if share['sent_at'] else None,
+                    "created_at": share['created_at'].isoformat() if share['created_at'] else None,
+                    "notes": share['notes']
+                })
+            else:
+                result.append({
+                    "id": share[0],
+                    "client_id": share[1],
+                    "client_name": share[2],
+                    "date_range_start": share[3],
+                    "date_range_end": share[4],
+                    "recipient_email": share[5],
+                    "subject": share[6],
+                    "total_returns_shared": share[7],
+                    "share_status": share[8],
+                    "sent_at": share[9],
+                    "created_at": share[10],
+                    "notes": share[11]
+                })
+        
+        conn.close()
+        return result
+        
+    except Exception as e:
+        print(f"Error getting email share history: {e}")
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":

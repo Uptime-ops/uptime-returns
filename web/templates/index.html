@@ -1050,6 +1050,8 @@
                 const response = await fetch('/api/sync/status');
                 const data = await response.json();
                 console.log('Sync status data:', data);
+                console.log('Current sync object:', data.current_sync);
+                console.log('Current sync status:', data.current_sync ? data.current_sync.status : 'undefined');
                 
                 if (data.current_sync && data.current_sync.status === 'running') {
                     // Show enhanced progress display
