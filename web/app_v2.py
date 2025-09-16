@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.110-DEBUG-ORDER-API-FIELDS-INVESTIGATION"
+DEPLOYMENT_VERSION = "V87.111-ORDER-DATE-DATABASE-VERIFICATION-ENDPOINT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -463,6 +463,39 @@ async def health_check():
         "app_started": True,
         "message": "Emergency fix for 504 timeout - app startup successful"
     }
+
+@app.get("/api/debug/order-dates")
+async def debug_order_dates():
+    """Debug endpoint to check order dates in database"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get sample of order dates to verify they're diverse
+        cursor.execute("SELECT TOP 10 id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
+        orders = cursor.fetchall()
+
+        if USE_AZURE_SQL:
+            orders_list = []
+            for order in orders:
+                orders_list.append({
+                    "id": order['id'],
+                    "order_number": order['order_number'],
+                    "created_at": str(order['created_at']),
+                    "updated_at": str(order['updated_at'])
+                })
+        else:
+            orders_list = [dict(row) for row in orders]
+
+        conn.close()
+
+        return {
+            "message": "Order dates debug - created_at column contains order_date from API",
+            "sample_orders": orders_list,
+            "note": "created_at column contains the actual order_date from API, not creation timestamp"
+        }
+    except Exception as e:
+        return {"error": str(e), "message": "Failed to fetch order dates"}
 
 @app.get("/favicon.ico")
 async def favicon():
