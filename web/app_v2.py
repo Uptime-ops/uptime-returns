@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.99-EMERGENCY-FIX-INDENTATION-ERROR-BREAKING-APP-STARTUP"
+DEPLOYMENT_VERSION = "V87.100-CRITICAL-FIX-UTF8-EMOJI-ENCODING-BREAKING-DEPLOYMENT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -43,7 +43,7 @@ AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY')
 if not WAREHANCE_API_KEY:
-    print("⚠️  WARNING: WAREHANCE_API_KEY environment variable not set. Sync functionality will be disabled.")
+    print("WARNING:  WARNING: WAREHANCE_API_KEY environment variable not set. Sync functionality will be disabled.")
     print("   Please configure WAREHANCE_API_KEY in Azure App Service Application Settings.")
     WAREHANCE_API_KEY = None
 
@@ -1824,9 +1824,9 @@ async def initialize_database():
                 print("Adding missing customer_name column to orders table...")
                 cursor.execute("ALTER TABLE orders ADD customer_name NVARCHAR(255)")
                 conn.commit()
-                print("✅ Added customer_name column to orders table")
+                print("SUCCESS: Added customer_name column to orders table")
             else:
-                print("✅ customer_name column already exists in orders table")
+                print("SUCCESS: customer_name column already exists in orders table")
         except Exception as alter_err:
             print(f"Error checking/adding customer_name column: {alter_err}")
 
@@ -2408,9 +2408,9 @@ async def run_sync():
                     for migration in migrations:
                         try:
                             cursor.execute(migration)
-                            print(f"✅ SYNC DEBUG: Migration executed: {migration}")
+                            print(f"SUCCESS: SYNC DEBUG: Migration executed: {migration}")
                         except Exception as mig_err:
-                            print(f"⚠️ SYNC DEBUG: Migration warning: {migration} - {mig_err}")
+                            print(f"WARNING: SYNC DEBUG: Migration warning: {migration} - {mig_err}")
                             migration_success = False
 
                     # Batch commit all migrations at once
@@ -2425,13 +2425,13 @@ async def run_sync():
                     """)
                     new_result = cursor.fetchone()
                     new_type = new_result['data_type'] if new_result else "unknown"
-                    print(f"✅ SYNC DEBUG: products.id type after migration: {new_type}")
+                    print(f"SUCCESS: SYNC DEBUG: products.id type after migration: {new_type}")
                 else:
-                    print(f"✅ SYNC DEBUG: products.id already {current_type}, migration not needed")
+                    print(f"SUCCESS: SYNC DEBUG: products.id already {current_type}, migration not needed")
 
             conn.close()
         except Exception as schema_err:
-            print(f"⚠️ SYNC DEBUG: Schema migration error (continuing): {schema_err}")
+            print(f"WARNING: SYNC DEBUG: Schema migration error (continuing): {schema_err}")
 
         sync_status["last_sync_message"] = "STEP 2.2: Database migration completed, continuing sync..."
 
@@ -2743,7 +2743,7 @@ async def run_sync():
                             order_api_data = order_response.json()
                             if order_api_data.get("status") == "success":
                                 order_data = order_api_data.get("data", {})
-                                pass  # DISABLED - print(f"✅ Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
+                                pass  # DISABLED - print(f"SUCCESS: Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
                                 # print(f"ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')}")
                             else:
                                 pass  # DISABLED - print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
@@ -2809,7 +2809,7 @@ async def run_sync():
                 return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
 
                 if items_data:
-                    # print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                    # print(f"SUCCESS: SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
                     if items_data:
                         print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
                 elif error:
@@ -2827,7 +2827,7 @@ async def run_sync():
                             # print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
                             if items_api_data.get("status") == "success":
                                 items_data = items_api_data.get("data", [])
-                                print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                                print(f"SUCCESS: SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
                             else:
                                 pass  # DISABLED - print(f"❌ SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                         else:
@@ -2854,7 +2854,7 @@ async def run_sync():
                         # Previous logic skipped products with large API IDs (like 231185187982)
                         print(f"🎯 SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
                         if product_sku:
-                            print(f"✅ SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
+                            print(f"SUCCESS: SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
                             # Original logic for products with SKU but no ID
                             # Try to find existing product by SKU
                             placeholder = get_param_placeholder()
@@ -2862,7 +2862,7 @@ async def run_sync():
                             existing = cursor.fetchone()
                             if existing:
                                 actual_product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
-                                print(f"✅ SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
+                                print(f"SUCCESS: SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
                             else:
                                 # Create a placeholder product
                                 placeholder = get_param_placeholder()
@@ -2885,7 +2885,7 @@ async def run_sync():
                                 else:
                                     actual_product_id = cursor.lastrowid
                                 sync_status["products_synced"] += 1
-                                print(f"✅ SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
+                                print(f"SUCCESS: SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
                         elif product_id > 0:
                             # Ensure product exists - simplified approach
                             try:
@@ -2921,7 +2921,7 @@ async def run_sync():
                                 actual_product_id = None
                                 # Continue processing even if product insert fails
                         elif product_id == 0 and not product_sku:
-                            print(f"✅ SYNC TRACE: Taking path 2: product_id=0 AND no SKU - creating placeholder")
+                            print(f"SUCCESS: SYNC TRACE: Taking path 2: product_id=0 AND no SKU - creating placeholder")
                             # Handle case where both product_id and product_sku are missing/empty
                             # Create a placeholder product for the return item
                             try:
@@ -2954,7 +2954,7 @@ async def run_sync():
                                 print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
                                 actual_product_id = None
                         else:
-                            print(f"✅ SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
+                            print(f"SUCCESS: SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
                             # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
                             if USE_AZURE_SQL:
                                 # Look up the product by SKU to get the actual database ID
@@ -2966,10 +2966,10 @@ async def run_sync():
                                         actual_product_id = existing_product['id']
                                         print(f"🎯 SYNC TRACE: Azure SQL path - found product by SKU: {product_sku}, DB ID: {actual_product_id}")
                                     else:
-                                        print(f"⚠️ SYNC TRACE: Azure SQL path - product not found for SKU: {product_sku}")
+                                        print(f"WARNING: SYNC TRACE: Azure SQL path - product not found for SKU: {product_sku}")
                                         actual_product_id = None
                                 except Exception as lookup_err:
-                                    print(f"⚠️ SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
+                                    print(f"WARNING: SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
                                     actual_product_id = None
                             else:
                             # For SQLite, we can use the API product_id directly
@@ -3009,11 +3009,11 @@ async def run_sync():
                                         convert_date_for_sql(datetime.now().isoformat())   # updated_at
                                     )))
                                     sync_status["return_items_synced"] += 1
-                                    print(f"✅ SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
+                                    print(f"SUCCESS: SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                 elif not actual_product_id:
-                                    print(f"⚠️ SYNC TRACE: Skipping return item - no valid product ID (actual_product_id={actual_product_id})")
+                                    print(f"WARNING: SYNC TRACE: Skipping return item - no valid product ID (actual_product_id={actual_product_id})")
                                 else:
-                                    print(f"⚠️ SYNC TRACE: Skipping return item - already exists (return_id={return_id}, product_id={actual_product_id})")
+                                    print(f"WARNING: SYNC TRACE: Skipping return item - already exists (return_id={return_id}, product_id={actual_product_id})")
                             else:
                                 # SQLite - use INSERT OR REPLACE
                                 placeholder = get_param_placeholder()
@@ -3040,13 +3040,13 @@ async def run_sync():
                             print(f"Return item INSERT error for return {return_id}, product {product_id}: {item_err}")
                             # Continue processing other items
 
-                    print(f"✅ SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
+                    print(f"SUCCESS: SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
                     log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
                 else:
-                    print(f"⚠️ SYNC TRACE: No items found for return {return_id} - items_data is empty")
-                    print(f"⚠️ SYNC TRACE: Return {return_id} items field from API: {ret.get('items')}")
+                    print(f"WARNING: SYNC TRACE: No items found for return {return_id} - items_data is empty")
+                    print(f"WARNING: SYNC TRACE: Return {return_id} items field from API: {ret.get('items')}")
                     log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
-                    print(f"⚠️ SYNC TRACE: Successfully processed return {return_id} (no items)")
+                    print(f"WARNING: SYNC TRACE: Successfully processed return {return_id} (no items)")
 
                 total_fetched += len(returns_batch)
 
@@ -3086,7 +3086,7 @@ async def run_sync():
         # 🚀 CRITICAL FIX: Commit all products and return items created during batch processing
         print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
         conn.commit()
-        print(f"✅ BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
+        print(f"SUCCESS: BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
 
         # STEP 1.5: Fetch orders from API to populate orders table
         print("🔄 STEP 1.5: Fetching orders from API to populate orders table...")
@@ -3166,12 +3166,12 @@ async def run_sync():
             if len(orders_data) < batch_size:
                 break
 
-        print(f"✅ ORDERS SYNC: Fetched {orders_fetched} new orders from API")
+        print(f"SUCCESS: ORDERS SYNC: Fetched {orders_fetched} new orders from API")
         sync_status["orders_synced"] = orders_fetched
 
         # Commit orders to database
         conn.commit()
-        print(f"✅ ORDERS COMMIT: Successfully committed {orders_fetched} orders")
+        print(f"SUCCESS: ORDERS COMMIT: Successfully committed {orders_fetched} orders")
 
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
@@ -3256,7 +3256,7 @@ async def run_sync():
                                     convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
                                 )))
                                 sync_status["orders_synced"] += 1
-                                print(f"✅ Inserted order {order_id} with customer '{customer_name}'")
+                                print(f"SUCCESS: Inserted order {order_id} with customer '{customer_name}'")
                             else:
                                 # Update existing order with correct order date
                                 cursor.execute(f"""
@@ -3271,7 +3271,7 @@ async def run_sync():
                                     convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
                                     order_id
                                 )))
-                                print(f"✅ Updated order {order_id} with customer '{customer_name}'")
+                                print(f"SUCCESS: Updated order {order_id} with customer '{customer_name}'")
                         else:
                             cursor.execute(f"""
                                 INSERT OR REPLACE INTO orders (id, order_number, customer_name, created_at, updated_at)
@@ -3284,7 +3284,7 @@ async def run_sync():
                                 datetime.now().isoformat()  # Updated at current time
                             )))
                             sync_status["orders_synced"] += 1
-                            print(f"✅ Inserted/updated order {order_id} with customer '{customer_name}'")
+                            print(f"SUCCESS: Inserted/updated order {order_id} with customer '{customer_name}'")
 
                         if customer_name:
                             customers_updated += 1
@@ -3382,7 +3382,7 @@ async def run_sync():
                                                 ))
 
                                         sync_status["return_items_synced"] += 1
-                                        print(f"✅ Created return_item for return {return_id}, product {actual_product_id}")
+                                        print(f"SUCCESS: Created return_item for return {return_id}, product {actual_product_id}")
 
                             except Exception as item_error:
                                 print(f"Error processing order item {item.get('id', 'unknown')}: {item_error}")
