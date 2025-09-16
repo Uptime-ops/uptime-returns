@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.107-ULTRA-FAST-PROGRESS-BAR-INSTANT-PERCENTAGE-TRACKING"
+DEPLOYMENT_VERSION = "V87.108-EMERGENCY-FIX-504-GATEWAY-TIMEOUT-STARTUP-ISSUE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -374,7 +374,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
-# Global sync status - IN-MEMORY ONLY for ultra-fast progress bar
+# Global sync status - EMERGENCY FIX: Simplified for Azure startup
 sync_status = {
     "is_running": False,
     "last_sync": None,
@@ -386,9 +386,7 @@ sync_status = {
     "orders_synced": 0,
     "total_items": 0,
     "progress_percentage": 0,
-    "current_operation": "Ready",
-    "start_time": None,
-    "estimated_completion": None
+    "current_operation": "Ready"
 }
 
 # Log buffer to capture sync activity for debugging
@@ -454,6 +452,17 @@ async def root():
 
     # If no template found, return error with debug info
     return {"error": "Template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
+
+@app.get("/health")
+async def health_check():
+    """Emergency health check for 504 Gateway Timeout diagnosis"""
+    return {
+        "status": "healthy",
+        "version": DEPLOYMENT_VERSION,
+        "sync_status_initialized": bool(sync_status),
+        "app_started": True,
+        "message": "Emergency fix for 504 timeout - app startup successful"
+    }
 
 @app.get("/favicon.ico")
 async def favicon():
