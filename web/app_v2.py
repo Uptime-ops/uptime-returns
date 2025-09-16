@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.86-FIXED-DEPLOYMENT-FAILURE-API-KEY-VALIDATION"
+DEPLOYMENT_VERSION = "V87.90-CLEANED-UP-VERBOSE-LOGGING-FOR-BETTER-READABILITY"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
@@ -1661,6 +1661,16 @@ async def trigger_sync():
     if sync_status["is_running"]:
         return {"message": "Sync already in progress", "status": "running"}
     
+    # Initialize sync status immediately to prevent race conditions
+    sync_status["is_running"] = True
+    sync_status["items_synced"] = 0
+    sync_status["products_synced"] = 0
+    sync_status["return_items_synced"] = 0
+    sync_status["orders_synced"] = 0
+    sync_status["last_sync_status"] = "running"
+    sync_status["last_sync_message"] = "Starting sync..."
+    print(f"=== SYNC TRIGGER: Set is_running=True immediately ===")
+    
     # Start sync in background
     print("=== SYNC TRIGGER: Starting background sync task ===")
     try:
@@ -1668,6 +1678,9 @@ async def trigger_sync():
         print(f"=== SYNC TRIGGER: Task created successfully: {task} ===")
     except Exception as e:
         print(f"=== SYNC TRIGGER ERROR: Failed to create task: {e} ===")
+        sync_status["is_running"] = False
+        sync_status["last_sync_status"] = "error"
+        sync_status["last_sync_message"] = f"Failed to start sync: {str(e)}"
         return {"message": f"Failed to start sync: {str(e)}", "status": "error"}
     
     return {"message": "Sync started", "status": "started"}
@@ -2019,7 +2032,7 @@ async def get_sync_status():
     global sync_status
     
     try:
-        print(f"=== SYNC STATUS API: is_running={sync_status['is_running']}, items_synced={sync_status['items_synced']} ===")
+        # print(f"=== SYNC STATUS API: is_running={sync_status['is_running']}, items_synced={sync_status['items_synced']} ===")
         # Get last sync from database
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2047,7 +2060,7 @@ async def get_sync_status():
         conn.close()
         
         current_sync_status = "running" if sync_status["is_running"] else "completed"
-        print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
+        # print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
         
         return {
             "current_sync": {
@@ -2377,15 +2390,11 @@ async def run_sync():
     global sync_status
     
     print("=== RUN_SYNC: Starting sync process ===")
-    sync_status["is_running"] = True
-    sync_status["items_synced"] = 0
-    sync_status["products_synced"] = 0
-    sync_status["return_items_synced"] = 0
-    sync_status["orders_synced"] = 0
-    print(f"=== RUN_SYNC: Set is_running=True, status={sync_status} ===")
+    # Sync status already initialized in trigger_sync to prevent race conditions
+    print(f"=== RUN_SYNC: Status already set, is_running={sync_status['is_running']} ===")
     
     try:
-        print("=== RUN_SYNC: Checking API key and database connection ===")
+        # print("=== RUN_SYNC: Checking API key and database connection ===")
         api_key = os.getenv('WAREHANCE_API_KEY')
         if not api_key:
             print("=== RUN_SYNC ERROR: WAREHANCE_API_KEY not found ===")
@@ -2393,7 +2402,7 @@ async def run_sync():
             sync_status["last_sync_message"] = "WAREHANCE_API_KEY not configured"
             return
         
-        print(f"=== RUN_SYNC: API key found, length={len(api_key)} ===")
+        # print(f"=== RUN_SYNC: API key found, length={len(api_key)} ===")
         
         # Initialize database tables if using Azure SQL
         if USE_AZURE_SQL:
@@ -2411,7 +2420,7 @@ async def run_sync():
             "accept": "application/json"
         }
         
-        print(f"=== SYNC DEBUG: Starting sync with API key: {api_key[:15]}...")
+        # print(f"=== SYNC DEBUG: Starting sync with API key: {api_key[:15]}...")
         sync_status["last_sync_message"] = f"STEP 1: Starting sync with API key: {api_key[:15]}..."
         
         # Test database connection early with detailed logging
@@ -2504,9 +2513,9 @@ async def run_sync():
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
         
         # STEP 5: Fetch ALL returns from API with pagination
-        print("=== SYNC DEBUG: Starting API fetch phase...")
+        # print("=== SYNC DEBUG: Starting API fetch phase...")
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
-        print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
+        # print("=== SYNC DEBUG: Starting to fetch returns from Warehance API...")
         all_order_ids = set()  # Collect unique order IDs
         # Start from recent returns (last 200) to get returns with new order/items data
         # API was updated last week, so focus on recent returns
@@ -2842,13 +2851,13 @@ async def run_sync():
                 return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
                 
                 if items_data:
-                    print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                    # print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
                     if items_data:
                         print(f"🔍 SYNC TRACE: First item structure: {items_data[0]}")
                 elif error:
                     print(f"❌ SYNC TRACE: Return {return_id}: {error}")
                     # Fallback: Try separate items API call if individual return didn't work
-                    print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
+                    # print(f"🔄 SYNC TRACE: Return {return_id}: Fallback to separate items API call")
                     try:
                         items_response = http_session.get(
                             f"https://api.warehance.com/v1/returns/{return_id}/items",
@@ -2857,7 +2866,7 @@ async def run_sync():
                         )
                         if items_response.status_code == 200:
                             items_api_data = items_response.json()
-                            print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
+                            # print(f"🔍 SYNC TRACE: Items API response: {items_api_data}")
                             if items_api_data.get("status") == "success":
                                 items_data = items_api_data.get("data", [])
                                 print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
@@ -3120,6 +3129,91 @@ async def run_sync():
         print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
         conn.commit()
         print(f"✅ BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
+        
+        # STEP 1.5: Fetch orders from API to populate orders table
+        print("🔄 STEP 1.5: Fetching orders from API to populate orders table...")
+        sync_status["last_sync_message"] = "STEP 1.5: Fetching orders from API..."
+        
+        # Fetch orders in batches
+        offset = 0
+        batch_size = 100  # Warehance API limit
+        orders_fetched = 0
+        
+        while True:
+            url = f"https://api.warehance.com/v1/orders?limit={batch_size}&offset={offset}"
+            print(f"Fetching orders: offset={offset}, limit={batch_size}")
+            response = http_session.get(url, headers=headers)
+            
+            if response.status_code != 200:
+                print(f"Orders API error: {response.status_code}")
+                break
+                
+            data = response.json()
+            orders_data = data.get('data', {}).get('orders', [])
+            
+            if not orders_data:
+                print("No more orders to fetch")
+                break
+                
+            print(f"Processing {len(orders_data)} orders...")
+            
+            for order_data in orders_data:
+                order_id = str(order_data['id'])
+                # Extract customer name from ship_to_address
+                ship_to = order_data.get('ship_to_address', {})
+                customer_name = f"{ship_to.get('first_name', '')} {ship_to.get('last_name', '')}".strip()
+                
+                # Check if order already exists
+                cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}", (order_id,))
+                result = cursor.fetchone()
+                if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0):
+                    # Insert new order with correct date
+                    try:
+                        cursor.execute(f"""
+                            INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
+                            VALUES ({get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()})
+                        """, ensure_tuple_params((
+                            order_id,
+                            order_data.get('order_number', ''),
+                            customer_name,
+                            convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
+                            convert_date_for_sql(datetime.now().isoformat())
+                        )))
+                        orders_fetched += 1
+                    except Exception as e:
+                        print(f"❌ Error inserting order {order_id}: {e}")
+                        continue
+                else:
+                    # Update existing order with correct date
+                    try:
+                        cursor.execute(f"""
+                            UPDATE orders 
+                            SET customer_name = {get_param_placeholder()}, order_number = {get_param_placeholder()}, 
+                                created_at = {get_param_placeholder()}, updated_at = {get_param_placeholder()}
+                            WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}
+                        """, ensure_tuple_params((
+                            customer_name,
+                            order_data.get('order_number', ''),
+                            convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
+                            convert_date_for_sql(datetime.now().isoformat()),
+                            order_id
+                        )))
+                    except Exception as e:
+                        print(f"❌ Error updating order {order_id}: {e}")
+                        continue
+            
+            offset += batch_size
+            
+            # Break if we got fewer orders than requested (end of data)
+            if len(orders_data) < batch_size:
+                break
+        
+        print(f"✅ ORDERS SYNC: Fetched {orders_fetched} new orders from API")
+        sync_status["orders_synced"] = orders_fetched
+        
+        # Commit orders to database
+        conn.commit()
+        print(f"✅ ORDERS COMMIT: Successfully committed {orders_fetched} orders")
         
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
