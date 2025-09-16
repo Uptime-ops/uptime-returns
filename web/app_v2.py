@@ -2982,10 +2982,26 @@ async def run_sync():
                                 )))
                                 sync_status["orders_synced"] += 1
                                 print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
+                            else:
+                                # Update existing order with correct order date
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
+                                    UPDATE orders
+                                    SET customer_name = {placeholder}, order_number = {placeholder},
+                                        order_date = {placeholder}, updated_at = {placeholder}
+                                    WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
+                                """, ensure_tuple_params((
+                                    customer_name,
+                                    order_data.get('order_number', ''),
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
+                                    str(order_data['id'])
+                                )))
+                                print(f"Updated order {order_data['id']} with customer '{customer_name}'")
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
-                                INSERT OR IGNORE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                INSERT OR REPLACE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
                                 VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
                                 str(order_data['id']),
@@ -3347,7 +3363,7 @@ async def run_sync():
                         print(f"❌ Error inserting order {order_id}: {e}")
                         continue
                 else:
-                    # Update existing order with correct date
+                    # Update existing order with correct order date
                     try:
                         cursor.execute(f"""
                             UPDATE orders
@@ -3357,10 +3373,11 @@ async def run_sync():
                         """, ensure_tuple_params((
                             customer_name,
                             order_data.get('order_number', ''),
-                            convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
-                            convert_date_for_sql(datetime.now().isoformat()),
+                            convert_date_for_sql(order_data.get('order_date')),  # FIXED: Use actual order date from API
+                            convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
                             order_id
                         )))
+                        print(f"✅ Updated order {order_id} with customer '{customer_name}'")
                     except Exception as e:
                         print(f"❌ Error updating order {order_id}: {e}")
                         continue
