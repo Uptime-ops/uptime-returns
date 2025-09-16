@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.112-INFINITE-ORDERS-LOOP-FIX-PLUS-DEBUG-ENDPOINT"
+DEPLOYMENT_VERSION = "V87.113-ORDER-DATE-COLUMN-FIX-CURSOR-SOLUTION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -472,7 +472,7 @@ async def debug_order_dates():
         cursor = conn.cursor()
 
         # Get sample of order dates to verify they're diverse
-        cursor.execute("SELECT TOP 10 id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
+        cursor.execute("SELECT TOP 10 id, order_number, order_date, created_at, updated_at FROM orders ORDER BY order_date DESC" if USE_AZURE_SQL else "SELECT id, order_number, order_date, created_at, updated_at FROM orders ORDER BY order_date DESC LIMIT 10")
         orders = cursor.fetchall()
 
         if USE_AZURE_SQL:
@@ -481,6 +481,7 @@ async def debug_order_dates():
                 orders_list.append({
                     "id": order['id'],
                     "order_number": order['order_number'],
+                    "order_date": str(order['order_date']) if order['order_date'] else None,
                     "created_at": str(order['created_at']),
                     "updated_at": str(order['updated_at'])
                 })
@@ -490,9 +491,9 @@ async def debug_order_dates():
         conn.close()
 
         return {
-            "message": "Order dates debug - created_at column contains order_date from API",
+            "message": "Order dates debug - showing order_date vs created_at columns",
             "sample_orders": orders_list,
-            "note": "created_at column contains the actual order_date from API, not creation timestamp"
+            "note": "order_date = actual order date from API, created_at = record creation timestamp"
         }
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch order dates"}
@@ -1483,7 +1484,7 @@ async def export_returns_csv(request: Request):
     query = """
     SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number,
            r.processed, c.name as client_name, w.name as warehouse_name,
-           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.created_at as order_date, o.customer_name
+           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.order_date, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -1769,6 +1770,8 @@ async def migrate_database():
             ("returns", "order_id", "INT"),
             ("returns", "return_integration_id", "NVARCHAR(100)"),
             ("returns", "last_synced_at", "DATETIME"),
+            # CURSOR FIX: Add order_date column to orders table
+            ("orders", "order_date", "DATETIME"),
         ]
 
         for table_name, column_name, column_type in migrations:
@@ -2828,28 +2831,30 @@ async def run_sync():
                             if (order_result['count'] == 0 if USE_AZURE_SQL else order_result[0] == 0):
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                    INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                 """, ensure_tuple_params((
                                     str(order_data['id']),
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
-                                    convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                                    convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
                                 print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
                         else:
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
-                                INSERT OR IGNORE INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                INSERT OR IGNORE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
                                 str(order_data['id']),
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
-                                datetime.now().isoformat()  # Updated at current time
+                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                datetime.now().isoformat(),  # created_at = current timestamp
+                                datetime.now().isoformat()   # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
                     except Exception as e:
@@ -3187,14 +3192,15 @@ async def run_sync():
                     # Insert new order with correct date
                     try:
                         cursor.execute(f"""
-                            INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
-                            VALUES ({get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()})
+                            INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                            VALUES ({get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()})
                         """, ensure_tuple_params((
                             order_id,
                             order_data.get('order_number', ''),
                             customer_name,
-                            convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
-                            convert_date_for_sql(datetime.now().isoformat())
+                            convert_date_for_sql(order_data.get('order_date')),  # CURSOR FIX: Store actual order date from API
+                            convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                            convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                         )))
                         orders_fetched += 1
                     except Exception as e:
@@ -3206,7 +3212,7 @@ async def run_sync():
                         cursor.execute(f"""
                             UPDATE orders
                             SET customer_name = {get_param_placeholder()}, order_number = {get_param_placeholder()},
-                                created_at = {get_param_placeholder()}, updated_at = {get_param_placeholder()}
+                                order_date = {get_param_placeholder()}, updated_at = {get_param_placeholder()}
                             WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}
                         """, ensure_tuple_params((
                             customer_name,
@@ -3317,14 +3323,15 @@ async def run_sync():
                             if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0):
                                 # Insert new order
                                 cursor.execute(f"""
-                                    INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                    INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                 """, ensure_tuple_params((
                                     order_id,
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
-                                    convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
+                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                    convert_date_for_sql(datetime.now().isoformat()),   # created_at = current timestamp
+                                    convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
                                 print(f"SUCCESS: Inserted order {order_id} with customer '{customer_name}'")
@@ -3333,7 +3340,7 @@ async def run_sync():
                                 cursor.execute(f"""
                                     UPDATE orders
                                     SET customer_name = {placeholder}, order_number = {placeholder},
-                                        created_at = {placeholder}, updated_at = {placeholder}
+                                        order_date = {placeholder}, updated_at = {placeholder}
                                     WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
                                 """, ensure_tuple_params((
                                     customer_name,
@@ -3345,14 +3352,15 @@ async def run_sync():
                                 print(f"SUCCESS: Updated order {order_id} with customer '{customer_name}'")
                         else:
                             cursor.execute(f"""
-                                INSERT OR REPLACE INTO orders (id, order_number, customer_name, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                INSERT OR REPLACE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
                                 order_id,
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
-                                datetime.now().isoformat()  # Updated at current time
+                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                datetime.now().isoformat(),  # created_at = current timestamp
+                                datetime.now().isoformat()   # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
                             print(f"SUCCESS: Inserted/updated order {order_id} with customer '{customer_name}'")
