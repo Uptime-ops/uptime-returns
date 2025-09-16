@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.100-CRITICAL-FIX-UTF8-EMOJI-ENCODING-BREAKING-DEPLOYMENT"
+DEPLOYMENT_VERSION = "V87.101-FINAL-FIX-REMAINING-LOG-FRAGMENTATION-AND-PROGRESS-BAR"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2491,8 +2491,8 @@ async def run_sync():
                     break
 
                 data = response.json()
-                print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
-                print(f"API Response data length: {len(data.get('data', [])) if data.get('data') else 0}")
+                # FINAL DISABLE - print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
+                # FINAL DISABLE - print(f"API Response data length: {len(data.get('data', [])) if data.get('data') else 0}")
 
                 # Check for API error response
                 if data.get('status') == 'error':
