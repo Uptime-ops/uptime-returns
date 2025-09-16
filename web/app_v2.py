@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.111-ORDER-DATE-DATABASE-VERIFICATION-ENDPOINT"
+DEPLOYMENT_VERSION = "V87.112-INFINITE-ORDERS-LOOP-FIX-PLUS-DEBUG-ENDPOINT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -3154,6 +3154,7 @@ async def run_sync():
         offset = 0
         batch_size = 100  # Warehance API limit
         orders_fetched = 0
+        max_orders_to_fetch = 5000  # INFINITE LOOP PROTECTION: Safety limit to prevent runaway fetching
 
         while True:
             url = f"https://api.warehance.com/v1/orders?limit={batch_size}&offset={offset}"
@@ -3220,8 +3221,20 @@ async def run_sync():
 
             offset += batch_size
 
-            # Break if we got fewer orders than requested (end of data)
+            # INFINITE LOOP PROTECTION: Multiple break conditions
+            # 1. Break if we got fewer orders than requested (end of data)
             if len(orders_data) < batch_size:
+                print(f"ORDERS PAGINATION: End of data reached - got {len(orders_data)} orders (less than {batch_size})")
+                break
+
+            # 2. Break if we've fetched too many orders (safety limit)
+            if offset >= max_orders_to_fetch:
+                print(f"ORDERS PAGINATION: Safety limit reached - fetched {offset} orders, stopping to prevent infinite loop")
+                break
+
+            # 3. Break if we've been fetching for too long (time limit)
+            if orders_fetched > 2000:  # Reasonable limit for order count
+                print(f"ORDERS PAGINATION: Reasonable limit reached - fetched {orders_fetched} orders, stopping")
                 break
 
         print(f"SUCCESS: ORDERS SYNC: Fetched {orders_fetched} new orders from API")
