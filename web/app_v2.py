@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.94-OPTIMIZED-PROGRESS-LOGGING-AND-FRONTEND-TIMEOUT-HANDLING"
+DEPLOYMENT_VERSION = "V87.96-FIXED-SYNTAX-ERRORS-AND-REDUCED-DASHBOARD-VERBOSITY"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -25,7 +25,7 @@ try:
 except ImportError:
     pyodbc = None  # Will use SQLite if pyodbc not available
     print("pyodbc not available")
-    
+
 # Try pymssql as fallback for Azure SQL
 try:
     import pymssql
@@ -104,17 +104,17 @@ def execute_sql(cursor, sql, params=None):
     """Execute SQL with automatic parameter placeholder conversion"""
     if params is None:
         params = ()
-    
+
     # If using SQLite and SQL contains %s, convert to ?
     if not USE_AZURE_SQL and '%s' in sql:
         sql = sql.replace('%s', '?')
-    
+
     cursor.execute(sql, params)
     return cursor
 
 if USE_AZURE_SQL:
     print(f"Using Azure SQL Database")
-    
+
     # First, list all available ODBC drivers for diagnostics
     print("ODBC Driver Diagnostics")
     try:
@@ -125,15 +125,15 @@ if USE_AZURE_SQL:
     except Exception as e:
         print(f"ERROR listing drivers: {e}")
     print("ODBC Driver Diagnostics Complete")
-    
+
     def get_db_connection():
         """Get Azure SQL connection with comprehensive fallback"""
         import re
         import subprocess
-        
+
         print(f"DATABASE_URL exists: {bool(DATABASE_URL)}")
         print(f"DATABASE_URL starts with: {DATABASE_URL[:50] if DATABASE_URL else 'Empty'}...")
-        
+
         # First try pymssql as it's simpler and doesn't need ODBC drivers
         if pymssql:
             try:
@@ -144,21 +144,21 @@ if USE_AZURE_SQL:
                     if '=' in part:
                         key, value = part.split('=', 1)
                         conn_params[key.strip().upper()] = value.strip()
-                
+
                 # Extract connection parameters
                 server = conn_params.get('SERVER', '').replace('tcp:', '').replace(',1433', '')
                 database = conn_params.get('DATABASE', '') or conn_params.get('INITIAL CATALOG', '') or 'uptime-returns-db'
                 username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
                 password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
-                
+
                 # If database is empty, use a default name
                 if not database:
                     database = 'uptime-returns-db'
                     print(f"No database specified, using default: {database}")
-                
+
                 if server and database and username and password:
                     print(f"Connecting to {server}/{database} as {username}")
-                    
+
                     # Connect using pymssql
                     conn = pymssql.connect(
                         server=server,
@@ -174,14 +174,14 @@ if USE_AZURE_SQL:
                     print(f"pymssql: Missing connection parameters - server:{bool(server)}, db:{bool(database)}, user:{bool(username)}, pwd:{bool(password)}")
             except Exception as e:
                 print(f"pymssql failed: {str(e)[:300]}")
-        
+
         # Try pyodbc with multiple approaches
         if pyodbc:
             try:
                 # List available drivers
                 available_drivers = pyodbc.drivers()
                 print(f"Available ODBC drivers: {available_drivers}")
-                
+
                 # Parse the connection string to get components
                 # Expected format: Server=tcp:server.database.windows.net,1433;Database=dbname;User ID=user;Password=pass
                 conn_params = {}
@@ -189,7 +189,7 @@ if USE_AZURE_SQL:
                     if '=' in part:
                         key, value = part.split('=', 1)
                         conn_params[key.strip().upper()] = value.strip()
-                
+
                 # Extract connection parameters
                 server = conn_params.get('SERVER', '').replace('tcp:', '')
                 if ',' in server:
@@ -197,23 +197,23 @@ if USE_AZURE_SQL:
                 database = conn_params.get('DATABASE', '') or conn_params.get('INITIAL CATALOG', '') or 'uptime-returns-db'
                 username = conn_params.get('USER ID', '') or conn_params.get('USER', '') or conn_params.get('UID', '')
                 password = conn_params.get('PASSWORD', '') or conn_params.get('PWD', '')
-                
+
                 # If database is empty, use a default name
                 if not database:
                     database = 'uptime-returns-db'
                     print(f"No database specified, using default: {database}")
-                
+
                 print(f"Parsed - Server: {server}, Database: {database}, User: {username}")
-                
+
                 # Build list of drivers to try
                 drivers_to_try = []
-                
+
                 # Add detected drivers first
                 if 'ODBC Driver 18 for SQL Server' in available_drivers:
                     drivers_to_try.append('ODBC Driver 18 for SQL Server')
                 if 'ODBC Driver 17 for SQL Server' in available_drivers:
                     drivers_to_try.append('ODBC Driver 17 for SQL Server')
-                
+
                 # Try each driver with properly formatted connection string
                 for driver in drivers_to_try:
                     try:
@@ -227,36 +227,36 @@ if USE_AZURE_SQL:
                             f"TrustServerCertificate=yes;"
                             f"Encrypt=yes"
                         )
-                        
+
                         print(f"Trying driver: {driver}")
                         print(f"Connection string format: DRIVER={{...}};SERVER={server};DATABASE={database};UID={username[:3]}...;PWD=***")
-                        
+
                         conn = pyodbc.connect(test_conn_str, timeout=10)
-                        
+
                         # Configure encoding
                         conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
                         conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
                         conn.setencoding(encoding='utf-8')
-                        
+
                         print(f"SUCCESS: Connected with {driver if driver else 'default driver'}")
                         return conn
-                        
+
                     except Exception as e:
                         error_msg = str(e)[:100]
                         if driver:
                             print(f"Failed with {driver}: {error_msg}")
                         continue
-                
+
                 # If nothing worked, try to get more info
                 try:
                     result = subprocess.run(['odbcinst', '-j'], capture_output=True, text=True, timeout=5)
                     print(f"ODBC config:\n{result.stdout}")
                 except:
                     pass
-                    
+
             except Exception as e:
                 print(f"pyodbc error: {str(e)[:300]}")
-        
+
         # If we get here, nothing worked
         error_msg = "Failed to connect to Azure SQL. "
         if not pyodbc and not pymssql:
@@ -265,7 +265,7 @@ if USE_AZURE_SQL:
             error_msg += "DATABASE_URL environment variable is not set."
         else:
             error_msg += "All connection attempts failed. Check Azure logs for details."
-        
+
         print(f"CRITICAL ERROR: {error_msg}")
         raise Exception(error_msg)
 else:
@@ -393,14 +393,14 @@ def log_sync_activity(message):
     timestamp = datetime.datetime.now().isoformat()
     log_entry = f"{timestamp} - {message}"
     print(log_entry)  # Still print to console
-    
+
     # Add to buffer
     sync_log_buffer.append(log_entry)
-    
+
     # Keep only recent entries
     if len(sync_log_buffer) > MAX_LOG_ENTRIES:
         sync_log_buffer.pop(0)
-    
+
     return log_entry
 
 # Helper functions for database row conversion
@@ -415,11 +415,11 @@ def rows_to_dict(cursor, rows):
     """Convert multiple database rows to list of dictionaries"""
     if not rows:
         return []
-    
+
     # Try a completely different approach - manual dictionary building
     try:
         columns = [column[0] for column in cursor.description]
-        
+
         result = []
         for row in rows:
             row_dict = {}
@@ -429,9 +429,9 @@ def rows_to_dict(cursor, rows):
                 else:
                     row_dict[col_name] = None
             result.append(row_dict)
-        
+
         return result
-        
+
     except Exception as e:
         # Fallback - return rows as-is if they're already dictionaries
         if rows and isinstance(rows[0], dict):
@@ -449,11 +449,11 @@ async def root():
         "/home/site/wwwroot/web/templates/index.html",  # Azure absolute path
         os.path.join(os.path.dirname(__file__), "templates", "index.html")  # Relative to this file
     ]
-    
+
     for path in possible_paths:
         if os.path.exists(path):
             return FileResponse(path)
-    
+
     # If no template found, return error with debug info
     return {"error": "Template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
 
@@ -465,87 +465,76 @@ async def favicon():
 @app.get("/api/dashboard/stats")
 async def get_dashboard_stats():
     try:
-        print("DASHBOARD STATS: Starting")
+        # print("DASHBOARD STATS: Starting")
         conn = get_db_connection()
         if not conn:
-            print("DASHBOARD STATS: No database connection")
+            # Only log connection errors for dashboard stats
             return {"stats": {}, "error": "No database connection"}
-            
+
         if not USE_AZURE_SQL:
             conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
+
         # Get various statistics
         stats = {}
-        
+
         # Test basic query with detailed error handling
         try:
-            print("DASHBOARD STATS: Testing basic COUNT query")
             cursor.execute("SELECT COUNT(*) as count FROM returns")
             row = cursor.fetchone()
-            print(f"DASHBOARD STATS: Row returned: {row}, type: {type(row)}")
             stats['total_returns'] = row['count'] if row else 0
-            print(f"DASHBOARD STATS: total_returns = {stats['total_returns']}")
         except Exception as count_error:
-            print(f"DASHBOARD STATS: COUNT query failed: {count_error}")
+            print(f"ERROR: Dashboard COUNT query failed: {count_error}")
             stats['total_returns'] = 0
             stats['count_error'] = str(count_error)
-        
+
         try:
-            print("DASHBOARD STATS: Testing processed = 0 query")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
             row = cursor.fetchone()
             stats['pending_returns'] = row['count'] if row else 0
-            print(f"DASHBOARD STATS: pending_returns = {stats['pending_returns']}")
         except Exception as pending_error:
-            print(f"DASHBOARD STATS: processed = 0 query failed: {pending_error}")
+            print(f"ERROR: Dashboard processed = 0 query failed: {pending_error}")
             stats['pending_returns'] = 0
             stats['pending_error'] = str(pending_error)
-        
+
         try:
-            print("DASHBOARD STATS: Testing processed = 1 query")
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
             row = cursor.fetchone()
             stats['processed_returns'] = row['count'] if row else 0
-            print(f"DASHBOARD STATS: processed_returns = {stats['processed_returns']}")
         except Exception as processed_error:
-            print(f"DASHBOARD STATS: processed = 1 query failed: {processed_error}")
+            print(f"ERROR: Dashboard processed = 1 query failed: {processed_error}")
             stats['processed_returns'] = 0
             stats['processed_error'] = str(processed_error)
-    
+
         try:
-            print("DASHBOARD STATS: Testing client_id query")
             cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
             row = cursor.fetchone()
             stats['total_clients'] = row['count'] if row else 0
-            print(f"DASHBOARD STATS: total_clients = {stats['total_clients']}")
         except Exception as client_error:
-            print(f"DASHBOARD STATS: client_id query failed: {client_error}")
+            print(f"ERROR: Dashboard client_id query failed: {client_error}")
             stats['total_clients'] = 0
             stats['client_error'] = str(client_error)
-        
+
         try:
-            print("DASHBOARD STATS: Testing warehouse_id query")
             cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
             row = cursor.fetchone()
             stats['total_warehouses'] = row['count'] if row else 0
-            print(f"DASHBOARD STATS: total_warehouses = {stats['total_warehouses']}")
         except Exception as warehouse_error:
-            print(f"DASHBOARD STATS: warehouse_id query failed: {warehouse_error}")
+            print(f"ERROR: Dashboard warehouse_id query failed: {warehouse_error}")
             stats['total_warehouses'] = 0
             stats['warehouse_error'] = str(warehouse_error)
-    
+
         # Get return counts by time period
         if USE_AZURE_SQL:
             # Azure SQL syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE CAST(created_at AS DATE) = CAST(GETDATE() AS DATE)")
             row = cursor.fetchone()
             stats['returns_today'] = row['count'] if row else 0
-            
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -7, GETDATE())")
             row = cursor.fetchone()
             stats['returns_this_week'] = row['count'] if row else 0
-            
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -30, GETDATE())")
             row = cursor.fetchone()
             stats['returns_this_month'] = row['count'] if row else 0
@@ -554,15 +543,15 @@ async def get_dashboard_stats():
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
             row = cursor.fetchone()
             stats['returns_today'] = row['count'] if row else 0
-            
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
             row = cursor.fetchone()
             stats['returns_this_week'] = row['count'] if row else 0
-            
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
             row = cursor.fetchone()
             stats['returns_this_month'] = row['count'] if row else 0
-    
+
         # Count of unshared returns
         try:
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
@@ -571,7 +560,7 @@ async def get_dashboard_stats():
         except:
             # Table might not exist yet
             stats['unshared_returns'] = stats['total_returns']
-        
+
         # Get last sync time
         try:
             cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
@@ -579,7 +568,7 @@ async def get_dashboard_stats():
             stats['last_sync'] = row[0] if row else None
         except:
             stats['last_sync'] = None
-        
+
         # Get product statistics
         try:
             cursor.execute("SELECT COUNT(*) as count FROM products")
@@ -587,25 +576,25 @@ async def get_dashboard_stats():
             stats['total_products'] = row[0] if row else 0
         except:
             stats['total_products'] = 0
-        
+
         try:
             cursor.execute("SELECT COUNT(*) as count FROM return_items")
             row = cursor.fetchone()
             stats['total_return_items'] = row[0] if row else 0
         except:
             stats['total_return_items'] = 0
-        
+
         try:
             cursor.execute("SELECT SUM(quantity) as total FROM return_items")
             row = cursor.fetchone()
             stats['total_returned_quantity'] = row[0] if row else 0
         except:
             stats['total_returned_quantity'] = 0
-    
+
         conn.close()
-        print(f"DASHBOARD STATS: Returning stats: {stats}")
+        # print(f"ERROR: Dashboard Returning stats: {stats}")
         return {"stats": stats}
-        
+
     except Exception as e:
         print(f"DASHBOARD STATS ERROR: {str(e)}")
         import traceback
@@ -613,7 +602,7 @@ async def get_dashboard_stats():
         if 'conn' in locals():
             conn.close()
         return {
-            "stats": {"total_returns": 0, "processed_returns": 0, "pending_returns": 0}, 
+            "stats": {"total_returns": 0, "processed_returns": 0, "pending_returns": 0},
             "error": f"Dashboard error: {str(e)}"
         }
 
@@ -623,13 +612,13 @@ async def get_clients():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM clients ORDER BY name")
-        
+
         if USE_AZURE_SQL:
             rows = cursor.fetchall()
             clients = rows_to_dict(cursor, rows) if rows else []
         else:
             clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
-        
+
         conn.close()
         return clients
     except Exception as e:
@@ -644,13 +633,13 @@ async def get_warehouses():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
-        
+
         if USE_AZURE_SQL:
             rows = cursor.fetchall()
             warehouses = rows_to_dict(cursor, rows) if rows else []
         else:
             warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
-        
+
         conn.close()
         return warehouses
     except Exception as e:
@@ -670,19 +659,19 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
         'status': status,
         'search': search
     }
-    
+
     conn = get_db_connection()
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # Build query with filters
     query = """
-    SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at, 
-           r.processed, r.processed_at, r.warehouse_note, r.customer_note, 
-           r.tracking_number, r.tracking_url, r.carrier, r.service, 
+    SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at,
+           r.processed, r.processed_at, r.warehouse_note, r.customer_note,
+           r.tracking_number, r.tracking_url, r.carrier, r.service,
            r.label_cost, r.label_pdf_url, r.rma_slip_url, r.label_voided,
-           r.client_id, r.warehouse_id, r.order_id, r.return_integration_id, 
+           r.client_id, r.warehouse_id, r.order_id, r.return_integration_id,
            r.last_synced_at, c.name as client_name, w.name as warehouse_name,
            o.order_number, o.customer_name
     FROM returns r
@@ -691,25 +680,25 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     params = []
     if client_id:
         placeholder = get_param_placeholder()
         query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
-    
+
     if status:
         if status == 'pending':
             query += " AND r.processed = 0"
         elif status == 'processed':
             query += " AND r.processed = 1"
-    
+
     if search:
         placeholder = get_param_placeholder()
         query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
-    
+
     # Count total rows for pagination
     count_query = """
     SELECT COUNT(*) as total_count
@@ -719,45 +708,45 @@ async def get_returns(page: int = 1, limit: int = 20, client_id: Optional[int] =
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     # Add same filters to count query
     if client_id:
         placeholder = get_param_placeholder()
         count_query += f" AND r.client_id = {placeholder}"
-    
+
     if status:
         if status == 'pending':
             count_query += " AND r.processed = 0"
         elif status == 'processed':
             count_query += " AND r.processed = 1"
-    
+
     if search:
         placeholder = get_param_placeholder()
         count_query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
-    
+
     cursor.execute(count_query, ensure_tuple_params(params))
     count_result = cursor.fetchone()
     if USE_AZURE_SQL:
         total_count = count_result['total_count'] if count_result else 0
     else:
         total_count = count_result[0] if count_result else 0
-    
+
     # Get paginated results
     query += " ORDER BY r.created_at DESC"
     limit_clause = format_limit_clause(limit, (page - 1) * limit)
     query += f" {limit_clause}"
-    
+
     cursor.execute(query, ensure_tuple_params(params))
     rows = cursor.fetchall()
-    
+
     # Convert rows to dict for Azure SQL
     if USE_AZURE_SQL:
         rows = rows_to_dict(cursor, rows) if rows else []
-    
+
     conn.close()
-    
+
     total_pages = (total_count + limit - 1) // limit
-    
+
     return {
         "returns": rows,
         "total_count": total_count,
@@ -797,7 +786,7 @@ async def search_returns(request: Request):
             'date_to': None,
             'include_items': False
         }
-    
+
     try:
         conn = get_db_connection()
         if not USE_AZURE_SQL:
@@ -806,7 +795,7 @@ async def search_returns(request: Request):
     except Exception as e:
         print(f"Database connection error in search_returns: {e}")
         return {"error": "Database connection failed", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
-    
+
     # Extract filter parameters
     page = filter_params.get('page', 1)
     limit = filter_params.get('limit', 20)
@@ -815,7 +804,7 @@ async def search_returns(request: Request):
     search = filter_params.get('search') or ''
     search = search.strip() if search else ''
     include_items = filter_params.get('include_items', False)
-    
+
     # Build query with filters
     query = """
     SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at,
@@ -832,39 +821,39 @@ async def search_returns(request: Request):
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     params = []
-    
+
     if client_id:
         placeholder = get_param_placeholder()
         query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
-    
+
     if status:
         placeholder = get_param_placeholder()
         query += f" AND r.status = {placeholder}"
         params.append(status)
-        
+
     if search:
         placeholder = get_param_placeholder()
         query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
-    
+
     # Add date filtering
     date_from = filter_params.get('date_from')
     date_to = filter_params.get('date_to')
-    
+
     if date_from:
         placeholder = get_param_placeholder()
         query += f" AND r.created_at >= {placeholder}"
         params.append(date_from)
-    
+
     if date_to:
-        placeholder = get_param_placeholder()  
+        placeholder = get_param_placeholder()
         query += f" AND r.created_at <= {placeholder}"
         params.append(date_to + ' 23:59:59')  # Include full day
-    
+
     # Add pagination
     if USE_AZURE_SQL:
         placeholder = get_param_placeholder()
@@ -874,17 +863,17 @@ async def search_returns(request: Request):
         placeholder = get_param_placeholder()
         query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
         params.extend([limit, (page - 1) * limit])
-    
+
     try:
         cursor.execute(query, ensure_tuple_params(params))
         rows = cursor.fetchall()
-        
+
         returns = []
         if USE_AZURE_SQL:
             print(f"DEBUG: Raw rows type: {type(rows)}")
             print(f"DEBUG: Raw first row: {rows[0] if rows else 'No rows'}")
             print(f"DEBUG: Raw first row type: {type(rows[0]) if rows else 'No rows'}")
-            
+
             # Try to see if rows are already dictionaries
             if rows and hasattr(rows[0], 'keys'):
                 print(f"DEBUG: First row has keys: {list(rows[0].keys())}")
@@ -892,8 +881,8 @@ async def search_returns(request: Request):
             else:
                 print(f"DEBUG: Converting rows with rows_to_dict")
                 rows = rows_to_dict(cursor, rows) if rows else []
-                
-            # Debug: print first row to see what we're getting  
+
+            # Debug: print first row to see what we're getting
             if rows:
                 print(f"DEBUG: Final first row: {rows[0]}")
                 print(f"DEBUG: Final first row type: {type(rows[0])}")
@@ -901,7 +890,7 @@ async def search_returns(request: Request):
         print(f"Query execution error in search_returns: {e}")
         conn.close()
         return {"error": "Query execution failed", "returns": [], "total_count": 0, "page": page, "limit": limit, "total_pages": 1}
-    
+
     for row in rows:
         if USE_AZURE_SQL:
             return_dict = {
@@ -965,9 +954,9 @@ async def search_returns(request: Request):
                 "customer_name": row['customer_name'],
                 "is_shared": False
             }
-        
+
         returns.append(return_dict)
-    
+
     # Get total count for pagination
     count_query = """
     SELECT COUNT(*) as total_count
@@ -977,7 +966,7 @@ async def search_returns(request: Request):
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     count_params = []
     if client_id:
         placeholder = get_param_placeholder()
@@ -992,20 +981,20 @@ async def search_returns(request: Request):
         count_query += f" AND (r.tracking_number LIKE {placeholder} OR c.name LIKE {placeholder} OR w.name LIKE {placeholder})"
         search_param = f"%{search}%"
         count_params.extend([search_param, search_param, search_param])
-    
+
     if date_from:
         placeholder = get_param_placeholder()
         count_query += f" AND r.created_at >= {placeholder}"
         count_params.append(date_from)
-    
+
     if date_to:
         placeholder = get_param_placeholder()
         count_query += f" AND r.created_at <= {placeholder}"
         count_params.append(date_to + ' 23:59:59')
-    
+
     cursor.execute(count_query, ensure_tuple_params(count_params))
     count_result = cursor.fetchone()
-    
+
     if USE_AZURE_SQL:
         if hasattr(count_result, 'keys'):
             total_count = count_result['total_count']
@@ -1014,11 +1003,11 @@ async def search_returns(request: Request):
             total_count = count_dict['total_count'] if count_dict else 0
     else:
         total_count = count_result['total_count'] if count_result else 0
-    
+
     total_pages = (total_count + limit - 1) // limit
-    
+
     conn.close()
-    
+
     return {
         "returns": returns,
         "total_count": total_count,
@@ -1027,7 +1016,7 @@ async def search_returns(request: Request):
         "total_pages": total_pages
     }
 
-@app.get("/api/returns/search-test")  
+@app.get("/api/returns/search-test")
 async def search_returns_test():
     # For now, just return basic data without filters to test if the endpoint works
     filter_params = {
@@ -1041,7 +1030,7 @@ async def search_returns_test():
         'date_to': None,
         'include_items': False
     }
-    
+
     try:
         conn = get_db_connection()
         if not USE_AZURE_SQL:
@@ -1050,7 +1039,7 @@ async def search_returns_test():
     except Exception as e:
         print(f"Database connection error in search_returns: {e}")
         return {"error": "Database connection failed", "returns": [], "total_count": 0, "page": 1, "limit": 20, "total_pages": 1}
-    
+
     # Extract filter parameters
     page = filter_params.get('page', 1)
     limit = filter_params.get('limit', 20)
@@ -1059,7 +1048,7 @@ async def search_returns_test():
     search = filter_params.get('search') or ''
     search = search.strip() if search else ''
     include_items = filter_params.get('include_items', False)
-    
+
     # Build query with filters
     query = """
     SELECT r.id, r.api_id, r.paid_by, r.status, r.created_at, r.updated_at,
@@ -1076,26 +1065,26 @@ async def search_returns_test():
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     params = []
-    
+
     if client_id:
         placeholder = get_param_placeholder()
         query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
-    
+
     if status:
         if status == 'pending':
             query += " AND r.processed = 0"
         elif status == 'processed':
             query += " AND r.processed = 1"
-    
+
     if search:
         placeholder = get_param_placeholder()
         query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
-    
+
     # Get total count for pagination (use separate params for count query)
     count_params = []
     count_query = """
@@ -1105,31 +1094,31 @@ async def search_returns_test():
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     if client_id:
         placeholder = get_param_placeholder()
         count_query += f" AND r.client_id = {placeholder}"
         count_params.append(client_id)
-    
+
     if status:
         if status == 'pending':
             count_query += " AND r.processed = 0"
         elif status == 'processed':
             count_query += " AND r.processed = 1"
-    
+
     if search:
         placeholder = get_param_placeholder()
         count_query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         count_params.extend([search_param, search_param, search_param])
-    
+
     cursor.execute(count_query, ensure_tuple_params(count_params))
     row = cursor.fetchone()
     if USE_AZURE_SQL:
         total = row['total_count'] if row else 0
     else:
         total = row[0] if row else 0
-    
+
     # Add pagination (different syntax for Azure SQL vs SQLite)
     if USE_AZURE_SQL:
         placeholder = get_param_placeholder()
@@ -1139,17 +1128,17 @@ async def search_returns_test():
         placeholder = get_param_placeholder()
         query += f" ORDER BY r.created_at DESC LIMIT {placeholder} OFFSET {placeholder}"
         params.extend([limit, (page - 1) * limit])
-    
+
     try:
         cursor.execute(query, ensure_tuple_params(params))
         rows = cursor.fetchall()
-        
+
         returns = []
         if USE_AZURE_SQL:
             print(f"DEBUG: Raw rows type: {type(rows)}")
             print(f"DEBUG: Raw first row: {rows[0] if rows else 'No rows'}")
             print(f"DEBUG: Raw first row type: {type(rows[0]) if rows else 'No rows'}")
-            
+
             # Try to see if rows are already dictionaries
             if rows and hasattr(rows[0], 'keys'):
                 print(f"DEBUG: First row has keys: {list(rows[0].keys())}")
@@ -1157,8 +1146,8 @@ async def search_returns_test():
             else:
                 print(f"DEBUG: Converting rows with rows_to_dict")
                 rows = rows_to_dict(cursor, rows) if rows else []
-                
-            # Debug: print first row to see what we're getting  
+
+            # Debug: print first row to see what we're getting
             if rows:
                 print(f"DEBUG: Final first row: {rows[0]}")
                 print(f"DEBUG: Final first row type: {type(rows[0])}")
@@ -1166,7 +1155,7 @@ async def search_returns_test():
         print(f"Query execution error in search_returns: {e}")
         conn.close()
         return {"error": "Query execution failed", "returns": [], "total_count": 0, "page": page, "limit": limit, "total_pages": 1}
-    
+
     for row in rows:
         if USE_AZURE_SQL:
             return_dict = {
@@ -1230,7 +1219,7 @@ async def search_returns_test():
                 "customer_name": row['customer_name'],
                 "is_shared": False
             }
-        
+
         # Include items if requested
         if include_items:
             try:
@@ -1250,11 +1239,11 @@ async def search_returns_test():
                 print(f"Error fetching return items for return_id {return_id}: {e}")
                 return_dict['items'] = []
                 continue
-            
+
             item_rows = cursor.fetchall()
             if USE_AZURE_SQL:
                 item_rows = rows_to_dict(cursor, item_rows) if item_rows else []
-            
+
             items = []
             for item_row in item_rows:
                 items.append({
@@ -1275,14 +1264,14 @@ async def search_returns_test():
                     } if item_row['product_id'] else None
                 })
             return_dict['items'] = items
-        
+
         returns.append(return_dict)
-    
+
     if 'conn' in locals():
         conn.close()
-    
+
     total_pages = (total + limit - 1) // limit if total > 0 else 1
-    
+
     return {
         "returns": returns,
         "total_count": total,
@@ -1298,15 +1287,15 @@ async def get_return_detail(return_id: str):
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # Get return details with all fields
     placeholder = get_param_placeholder()
     cursor.execute(f"""
-        SELECT CAST(r.id AS NVARCHAR(50)) as id, r.api_id, r.paid_by, r.created_at, r.updated_at, 
-               r.status, r.tracking_number, r.processed, r.label_pdf_url, r.rma_slip_url, 
-               r.label_voided, CAST(r.client_id AS NVARCHAR(50)) as client_id, 
-               CAST(r.warehouse_id AS NVARCHAR(50)) as warehouse_id, 
-               CAST(r.order_id AS NVARCHAR(50)) as order_id, r.return_integration_id, 
+        SELECT CAST(r.id AS NVARCHAR(50)) as id, r.api_id, r.paid_by, r.created_at, r.updated_at,
+               r.status, r.tracking_number, r.processed, r.label_pdf_url, r.rma_slip_url,
+               r.label_voided, CAST(r.client_id AS NVARCHAR(50)) as client_id,
+               CAST(r.warehouse_id AS NVARCHAR(50)) as warehouse_id,
+               CAST(r.order_id AS NVARCHAR(50)) as order_id, r.return_integration_id,
                r.last_synced_at, c.name as client_name, w.name as warehouse_name, o.order_number
         FROM returns r
         LEFT JOIN clients c ON CAST(r.client_id AS NVARCHAR(50)) = CAST(c.id AS NVARCHAR(50))
@@ -1314,16 +1303,16 @@ async def get_return_detail(return_id: str):
         LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
         WHERE CAST(r.id AS NVARCHAR(50)) = {placeholder}
     """, (return_id,))
-    
+
     return_row = cursor.fetchone()
     if not return_row:
         return {"error": "Return not found"}
-    
+
     return_data = dict(return_row)
     order_id = return_data.get('order_id')
-    
+
     items = []
-    
+
     # First check if there are actual return items (there shouldn't be any from API)
     placeholder = get_param_placeholder()
     cursor.execute(f"""
@@ -1336,9 +1325,9 @@ async def get_return_detail(return_id: str):
         LEFT JOIN products p ON ri.product_id = p.id
         WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
     """, (return_id,))
-    
+
     return_items = cursor.fetchall()
-    
+
     if return_items:
         # If we have return items, use them
         for item_row in return_items:
@@ -1362,36 +1351,36 @@ async def get_return_detail(return_id: str):
     elif order_id:
         # If no return items but we have an order, fetch order details from API
         import requests
-        
+
         headers = {
             "X-API-KEY": "WH_237eb441_547781417ad5a2dc895ba0915deaf48cb963c1660e2324b3fb25df5bd4df65f1",
             "accept": "application/json"
         }
-        
+
         try:
             response = requests.get(
                 f"https://api.warehance.com/v1/orders/{order_id}",
                 headers=headers,
                 timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
             )
-            
+
             if response.status_code == 200:
                 order_data = response.json()
                 if order_data.get("status") == "success":
                     order = order_data.get("data", {})
                     return_data['order_number'] = order.get('order_number')
-                    
+
                     # Get order items and display them as likely returned items
                     order_items = order.get('order_items', [])
                     for item in order_items:
                         # Get the best quantity to display
                         qty = item.get('quantity', 0)
                         qty_shipped = item.get('quantity_shipped', 0)
-                        
+
                         # Use shipped quantity if available, otherwise use ordered quantity
                         # If both are 0, still show the item but mark it as bundle component
                         display_qty = qty_shipped if qty_shipped > 0 else qty
-                        
+
                         # Always show items that have a name, even if quantity is 0
                         if item.get('name'):
                             note = "Original order item"
@@ -1399,7 +1388,7 @@ async def get_return_detail(return_id: str):
                                 note = "Bundle component - quantity included in bundle"
                                 # Try to set quantity to 1 for display purposes if it's a bundle item
                                 display_qty = 1
-                            
+
                             items.append({
                                 "id": item.get('id'),
                                 "sku": item.get('sku'),
@@ -1410,7 +1399,7 @@ async def get_return_detail(return_id: str):
                                 "unit_price": item.get('unit_price'),
                                 "note": note
                             })
-                    
+
                     if items:
                         return_data['items_note'] = "Showing original order items (return-specific quantities not available from API)"
         except Exception as e:
@@ -1420,39 +1409,39 @@ async def get_return_detail(return_id: str):
                 FROM orders o
                 WHERE o.id = %s
             """, (order_id,))
-            
+
             order_row = cursor.fetchone()
             if order_row:
                 return_data['order_number'] = order_row['order_number']
                 return_data['items_note'] = "Return items not available from API. Order reference shown."
-    
+
     return_data['items'] = items
-    
+
     conn.close()
     return return_data
 
 @app.post("/api/returns/export/csv")
 async def export_returns_csv(request: Request):
     """Export returns with product details to CSV"""
-    print("CSV EXPORT: Starting export process")
+    # print("CSV EXPORT: Starting export process")
     # Parse the request body as JSON
     try:
         filter_params = await request.json()
-        print(f"CSV EXPORT: Filter params: {filter_params}")
+        # print(f"CSV EXPORT: Filter params: {filter_params}")
     except Exception as e:
         print(f"JSON parsing error in export_returns_csv: {e}")
         filter_params = {}
-    
-    print("CSV EXPORT: Getting database connection")
+
+    # print("CSV EXPORT: Getting database connection")
     conn = get_db_connection()
-    print("CSV EXPORT: Database connection successful")
+    # print("CSV EXPORT: Database connection successful")
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # First get all returns matching the filter
     query = """
-    SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number, 
+    SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number,
            r.processed, c.name as client_name, w.name as warehouse_name,
            CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.created_at as order_date, o.customer_name
     FROM returns r
@@ -1461,64 +1450,64 @@ async def export_returns_csv(request: Request):
     LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
     WHERE 1=1
     """
-    
+
     params = []
     client_id = filter_params.get('client_id')
     status = filter_params.get('status')
     search = filter_params.get('search') or ''
     search = search.strip() if search else ''
-    
+
     if client_id:
         placeholder = get_param_placeholder()
         query += f" AND r.client_id = {placeholder}"
         params.append(client_id)
-    
+
     if status:
         if status == 'pending':
             query += " AND r.processed = 0"
         elif status == 'processed':
             query += " AND r.processed = 1"
-    
+
     if search:
         placeholder = get_param_placeholder()
         query += f" AND (r.tracking_number LIKE {placeholder} OR CAST(r.id AS NVARCHAR(50)) LIKE {placeholder} OR c.name LIKE {placeholder})"
         search_param = f"%{search}%"
         params.extend([search_param, search_param, search_param])
-    
+
     query += " ORDER BY r.created_at DESC"
-    
+
     cursor.execute(query, ensure_tuple_params(params))
     returns = cursor.fetchall()
-    
+
     # Convert rows to dict for Azure SQL
     if USE_AZURE_SQL:
         returns = rows_to_dict(cursor, returns) if returns else []
-    
+
     # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
-    
+
     # Write header with your requested columns
     writer.writerow([
-        'Client', 'Customer Name', 'Order Date', 'Return Date', 
-        'Order Number', 'Item Name', 'Order Qty', 'Return Qty', 
+        'Client', 'Customer Name', 'Order Date', 'Return Date',
+        'Order Number', 'Item Name', 'Order Qty', 'Return Qty',
         'Reason for Return'
     ])
-    
+
     # Process each return - using data from database including customer names
     for return_row in returns:
         return_id = return_row['return_id']
         order_id = return_row['order_id']
         customer_name = return_row['customer_name'] if return_row['customer_name'] else ''
-        
+
         # Check for return items first (LEFT JOIN to handle NULL product_ids)
         placeholder = get_param_placeholder()
         try:
             # Use string-based comparison to avoid INT overflow completely
             # Just query directly with string return_id (no conversion needed)
             cursor.execute(f"""
-                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku, 
-                       COALESCE(p.name, 'Unknown Product') as name, 
+                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku,
+                       COALESCE(p.name, 'Unknown Product') as name,
                        ri.quantity as order_quantity,
                        ri.quantity_received as return_quantity,
                        ri.return_reasons, ri.condition_on_arrival
@@ -1527,15 +1516,15 @@ async def export_returns_csv(request: Request):
                 WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
             """, (str(return_id),))
             items = cursor.fetchall()
-            print(f"CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items")
+            # print(f"CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items")
         except Exception as query_error:
             print(f"CSV EXPORT ERROR: Query failed for return {return_id}: {query_error}")
             items = []  # Continue with empty items instead of crashing
-        
+
         # Convert items to dict for Azure SQL
         if USE_AZURE_SQL:
             items = rows_to_dict(cursor, items) if items else []
-        
+
         if items:
             # Write return items from database
             for item in items:
@@ -1546,7 +1535,7 @@ async def export_returns_csv(request: Request):
                         reasons = ', '.join(reasons_data) if isinstance(reasons_data, list) else str(reasons_data)
                     except:
                         reasons = str(item.get('return_reasons', ''))
-                
+
                 writer.writerow([
                     return_row['client_name'] or '',
                     customer_name,
@@ -1571,14 +1560,14 @@ async def export_returns_csv(request: Request):
                 0,
                 'Return items not in database'
             ])
-    
+
     conn.close()
-    
+
     # Return CSV as downloadable file
     output.seek(0)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"returns_export_{timestamp}.csv"
-    
+
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode()),
         media_type="text/csv",
@@ -1590,7 +1579,7 @@ async def get_return_reasons():
     """Get analytics on return reasons"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute(f"""
         SELECT return_reasons, COUNT(*) as count
         FROM return_items
@@ -1599,7 +1588,7 @@ async def get_return_reasons():
         ORDER BY count DESC
         {format_limit_clause(20)}
     """)
-    
+
     reasons_count = {}
     for row in cursor.fetchall():
         reasons = json.loads(row[0]) if row[0] else []
@@ -1608,10 +1597,10 @@ async def get_return_reasons():
                 reasons_count[reason] += row[1]
             else:
                 reasons_count[reason] = row[1]
-    
+
     # Convert to list format
     result = [{"reason": k, "count": v} for k, v in sorted(reasons_count.items(), key=lambda x: x[1], reverse=True)]
-    
+
     conn.close()
     return result
 
@@ -1620,7 +1609,7 @@ async def get_top_returned_products():
     """Get top returned products"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute(f"""
         SELECT p.sku, p.name, SUM(ri.quantity) as total_quantity, COUNT(ri.id) as return_count
         FROM return_items ri
@@ -1629,7 +1618,7 @@ async def get_top_returned_products():
         ORDER BY total_quantity DESC
         {format_limit_clause(10)}
     """)
-    
+
     products = []
     for row in cursor.fetchall():
         products.append({
@@ -1638,7 +1627,7 @@ async def get_top_returned_products():
             "total_quantity": row[2],
             "return_count": row[3]
         })
-    
+
     conn.close()
     return products
 
@@ -1651,16 +1640,16 @@ async def get_top_returned_products():
 async def trigger_sync():
     """Trigger a sync with Warehance API"""
     global sync_status
-    
+
     print(f"SYNC TRIGGER: is_running={sync_status['is_running']}")
-    
+
     # Check if API key is configured
     if not WAREHANCE_API_KEY:
         return {"message": "WAREHANCE_API_KEY not configured. Please set it in Azure App Service Application Settings.", "status": "error"}
-    
+
     if sync_status["is_running"]:
         return {"message": "Sync already in progress", "status": "running"}
-    
+
     # Initialize sync status immediately to prevent race conditions
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
@@ -1670,7 +1659,7 @@ async def trigger_sync():
     sync_status["last_sync_status"] = "running"
     sync_status["last_sync_message"] = "Starting sync..."
     print(f"SYNC TRIGGER: Set is_running=True immediately")
-    
+
     # Start sync in background
     print("SYNC TRIGGER: Starting background sync task")
     try:
@@ -1682,7 +1671,7 @@ async def trigger_sync():
         sync_status["last_sync_status"] = "error"
         sync_status["last_sync_message"] = f"Failed to start sync: {str(e)}"
         return {"message": f"Failed to start sync: {str(e)}", "status": "error"}
-    
+
     return {"message": "Sync started", "status": "started"}
 
 
@@ -1690,12 +1679,12 @@ async def trigger_sync():
 async def stop_sync():
     """Force stop any running sync process"""
     global sync_status
-    
+
     was_running = sync_status["is_running"]
     sync_status["is_running"] = False
     sync_status["last_sync_status"] = "stopped"
     sync_status["last_sync_message"] = "Sync stopped by user request"
-    
+
     return {
         "message": f"Sync {'stopped' if was_running else 'was not running'}",
         "status": "stopped",
@@ -1710,12 +1699,12 @@ async def migrate_database():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         columns_added = []
-        
+
         # Define missing columns for each table
         migrations = [
             ("returns", "tracking_number", "NVARCHAR(100)"),
@@ -1741,19 +1730,19 @@ async def migrate_database():
             ("returns", "return_integration_id", "NVARCHAR(100)"),
             ("returns", "last_synced_at", "DATETIME"),
         ]
-        
+
         for table_name, column_name, column_type in migrations:
             try:
                 # Check if column exists
                 cursor.execute("""
                     SELECT COUNT(*) as count
-                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    FROM INFORMATION_SCHEMA.COLUMNS
                     WHERE TABLE_NAME = %s AND COLUMN_NAME = %s
                 """, (table_name, column_name))
-                
+
                 result = cursor.fetchone()
                 exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
-                
+
                 if not exists:
                     # Add the column
                     cursor.execute(f"ALTER TABLE {table_name} ADD {column_name} {column_type}")
@@ -1761,15 +1750,15 @@ async def migrate_database():
                     columns_added.append(f"{table_name}.{column_name}")
             except Exception as e:
                 print(f"Error adding column {table_name}.{column_name}: {e}")
-        
+
         conn.close()
-        
+
         return {
             "status": "success",
             "columns_added": columns_added,
             "message": f"Added {len(columns_added)} missing columns"
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1779,14 +1768,14 @@ async def reset_database():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL, reset not needed"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Drop all tables in correct order (due to foreign keys)
         tables_to_drop = [
             'email_share_items',
-            'return_items', 
+            'return_items',
             'email_history',
             'sync_logs',
             'settings',
@@ -1796,7 +1785,7 @@ async def reset_database():
             'warehouses',
             'clients'
         ]
-        
+
         dropped = []
         for table in tables_to_drop:
             try:
@@ -1805,20 +1794,20 @@ async def reset_database():
                 dropped.append(table)
             except Exception as e:
                 print(f"Error dropping {table}: {e}")
-        
+
         # Now recreate using the init endpoint logic
         conn.close()
-        
+
         # Call the init endpoint
         init_result = await initialize_database()
-        
+
         return {
             "status": "success",
             "tables_dropped": dropped,
             "init_result": init_result,
             "message": "Database reset complete"
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1828,19 +1817,19 @@ async def initialize_database():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL, initialization not needed"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # First, check if orders table exists and add missing columns if needed
         try:
             cursor.execute("""
-                SELECT COLUMN_NAME 
-                FROM INFORMATION_SCHEMA.COLUMNS 
+                SELECT COLUMN_NAME
+                FROM INFORMATION_SCHEMA.COLUMNS
                 WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'customer_name'
             """)
             customer_name_exists = cursor.fetchone()
-            
+
             if not customer_name_exists:
                 print("Adding missing customer_name column to orders table...")
                 cursor.execute("ALTER TABLE orders ADD customer_name NVARCHAR(255)")
@@ -1850,11 +1839,11 @@ async def initialize_database():
                 print("✅ customer_name column already exists in orders table")
         except Exception as alter_err:
             print(f"Error checking/adding customer_name column: {alter_err}")
-        
+
         # Check if tables exist and create them if not
         tables_created = []
         tables_skipped = []
-        
+
         # Table definitions for Azure SQL
         table_definitions = {
             'clients': """
@@ -1992,19 +1981,19 @@ async def initialize_database():
                 )
             """
         }
-        
+
         for table_name, create_sql in table_definitions.items():
             try:
                 # Check if table exists
                 cursor.execute("""
                     SELECT COUNT(*) as count
-                    FROM INFORMATION_SCHEMA.TABLES 
+                    FROM INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_NAME = %s
                 """, (table_name,))
-                
+
                 result = cursor.fetchone()
                 exists = (result['count'] > 0 if USE_AZURE_SQL else result[0] > 0)
-                
+
                 if not exists:
                     cursor.execute(create_sql)
                     conn.commit()
@@ -2013,16 +2002,16 @@ async def initialize_database():
                     tables_skipped.append(table_name)
             except Exception as e:
                 print(f"Error creating table {table_name}: {e}")
-        
+
         conn.close()
-        
+
         return {
             "status": "success",
             "tables_created": tables_created,
             "tables_already_existed": tables_skipped,
             "message": f"Created {len(tables_created)} tables, {len(tables_skipped)} already existed"
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -2030,14 +2019,14 @@ async def initialize_database():
 async def get_sync_status():
     """Get current sync status"""
     global sync_status
-    
+
     try:
         # Simplified sync status - no database query to avoid timeouts
         # Just return the in-memory sync status
-        
+
         current_sync_status = "running" if sync_status["is_running"] else "completed"
         # print(f"=== SYNC STATUS API: Returning status='{current_sync_status}', is_running={sync_status['is_running']} ===")
-        
+
         return {
             "current_sync": {
                 "status": current_sync_status,
@@ -2057,7 +2046,7 @@ async def get_sync_status():
         print(f"Error in sync status: {str(e)}")
         return {
             "current_sync": {
-                "status": "error", 
+                "status": "error",
                 "items_synced": 0,
                 "products_synced": 0,
                 "return_items_synced": 0,
@@ -2075,19 +2064,19 @@ async def get_sync_status():
 async def sync_returns_with_product_data():
     """Target and process returns that have real product data in items array"""
     global sync_status
-    
+
     if sync_status["is_running"]:
         return {"message": "Sync already in progress", "status": "running"}
-    
+
     try:
         sync_status["is_running"] = True
         sync_status["last_sync_status"] = "running"
         sync_status["last_sync_message"] = "Targeting returns with product data..."
-        
+
         # Get API key
         api_key = WAREHANCE_API_KEY
         headers = {"X-API-KEY": api_key, "accept": "application/json"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -2154,49 +2143,49 @@ async def sync_returns_with_product_data():
         processed_count = 0
         returns_with_data = 0
         return_items_created = 0
-        
+
         # First, get a batch of returns to check for product data
         print("Fetching returns to check for product data...")
-        
+
         # Get first 20 returns to analyze
         response = requests.get(
             "https://api.warehance.com/v1/returns?limit=20&offset=0",
             headers=headers,
             timeout=10  # 🚀 PERFORMANCE: Reduced from 30s to 10s for debug endpoint
         )
-        
+
         if response.status_code != 200:
             sync_status["last_sync_status"] = "error"
             sync_status["last_sync_message"] = f"API call failed: {response.status_code}"
             return {"error": f"API call failed: {response.status_code}"}
-        
+
         data = response.json()
         returns_data = data.get('data', {}).get('returns', [])
-        
+
         print(f"Analyzing {len(returns_data)} returns for product data...")
-        
+
         # Check each return for real product data
         for return_item in returns_data:
             processed_count += 1
             return_id = return_item.get('id')
             items = return_item.get('items', [])
-            
+
             # Skip if no items array or empty
             if not items or items is None:
                 print(f"Return {return_id}: No items array")
                 continue
-                
+
             # Check if any item has real product data
             has_real_data = False
             for item in items:
                 if item.get('product', {}).get('sku') and item.get('product', {}).get('name'):
                     has_real_data = True
                     break
-            
+
             if not has_real_data:
                 print(f"Return {return_id}: Items array exists but no product data")
                 continue
-                
+
             print(f"Return {return_id}: HAS REAL PRODUCT DATA! Processing {len(items)} items...")
             returns_with_data += 1
 
@@ -2209,9 +2198,9 @@ async def sync_returns_with_product_data():
                     sku = product_info.get('sku')
                     name = product_info.get('name')
                     quantity = item.get('quantity', 1)
-                    
+
                     print(f"  Item {item_id}: {sku} - {name} (qty: {quantity})")
-                    
+
                     # First ensure product exists in products table
                     placeholder = get_param_placeholder()
 
@@ -2231,7 +2220,7 @@ async def sync_returns_with_product_data():
                         else:
                             # SQLite - can use explicit IDs
                             product_insert_sql = f"INSERT OR IGNORE INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
-                            cursor.execute(product_insert_sql, (product_id, sku, name))
+                        cursor.execute(product_insert_sql, (product_id, sku, name))
 
                         print(f"    Product {product_id} inserted successfully")
                     except Exception as e:
@@ -2242,9 +2231,9 @@ async def sync_returns_with_product_data():
                     try:
                         if USE_AZURE_SQL:
                             cursor.execute(f"""
-                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                INSERT INTO return_items (return_id, product_id, quantity, return_reasons,
                                        condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
                                        {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
                                 str(return_id),  # Convert to string for NVARCHAR field
@@ -2281,16 +2270,16 @@ async def sync_returns_with_product_data():
                     except Exception as e:
                         print(f"    CRITICAL: Return item insert failed for return {return_id}: {e}")
                         # This is the critical failure - return_items not being created
-        
+
         # Commit all changes
         conn.commit()
         conn.close()
-        
+
         sync_status["is_running"] = False
         sync_status["last_sync_status"] = "success"
         sync_status["last_sync_message"] = f"Targeted sync: {returns_with_data} returns with data, {return_items_created} items created"
         sync_status["return_items_synced"] = return_items_created
-        
+
         return {
             "status": "success",
             "message": f"Targeted sync completed successfully",
@@ -2298,15 +2287,15 @@ async def sync_returns_with_product_data():
             "returns_with_product_data": returns_with_data,
             "return_items_created": return_items_created
         }
-        
+
     except Exception as e:
         sync_status["is_running"] = False
         sync_status["last_sync_status"] = "error"
         sync_status["last_sync_message"] = f"Targeted sync error: {str(e)}"
-        
+
         if 'conn' in locals():
             conn.close()
-            
+
         return {
             "status": "error",
             "message": str(e),
@@ -2322,7 +2311,7 @@ def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
     if not date_string:
         return None
-    
+
     try:
         # print(f"DATE CONVERSION: Converting '{date_string}'")
         # Parse the date string and convert to ISO format that SQL Server accepts
@@ -2350,7 +2339,7 @@ def convert_date_for_sql(date_string):
                 return result
             except ValueError:
                 continue
-        
+
         # If no format matches, return None to avoid SQL errors
         print(f"DATE CONVERSION ERROR: No format matched for '{date_string}'")
         return None
@@ -2362,11 +2351,11 @@ def convert_date_for_sql(date_string):
 async def run_sync():
     """Run the actual sync process"""
     global sync_status
-    
+
     print("RUN_SYNC: Starting sync process")
     # Sync status already initialized in trigger_sync to prevent race conditions
     print(f"RUN_SYNC: Status already set, is_running={sync_status['is_running']}")
-    
+
     try:
         # print("=== RUN_SYNC: Checking API key and database connection ===")
         api_key = os.getenv('WAREHANCE_API_KEY')
@@ -2375,9 +2364,9 @@ async def run_sync():
             sync_status["last_sync_status"] = "error"
             sync_status["last_sync_message"] = "WAREHANCE_API_KEY not configured"
             return
-        
+
         # print(f"=== RUN_SYNC: API key found, length={len(api_key)} ===")
-        
+
         # Initialize database tables if using Azure SQL
         if USE_AZURE_SQL:
             print("RUN_SYNC: Initializing Azure SQL database")
@@ -2385,38 +2374,38 @@ async def run_sync():
             print(f"Database initialization result: {init_result}")
             if init_result.get("status") == "error":
                 raise Exception(f"Database initialization failed: {init_result.get('message')}")
-        
+
         # Use the configured API key
         api_key = WAREHANCE_API_KEY
-        
+
         headers = {
             "X-API-KEY": api_key,
             "accept": "application/json"
         }
-        
+
         # print(f"=== SYNC DEBUG: Starting sync with API key: {api_key[:15]}...")
         sync_status["last_sync_message"] = f"STEP 1: Starting sync with API key: {api_key[:15]}..."
-        
+
         # Test database connection early with detailed logging
         print("SYNC DEBUG: Testing database connection")
         sync_status["last_sync_message"] = "STEP 2: Testing database connection..."
-        
+
         # CRITICAL: Ensure database schema is migrated before sync
         print("SYNC DEBUG: Ensuring database schema is migrated (INT -> BIGINT)")
         sync_status["last_sync_message"] = "STEP 2.1: Running database migration..."
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
-            
+
             # Check if products.id is still INT and needs migration
             if USE_AZURE_SQL:
                 cursor.execute("""
-                    SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+                    SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
                     WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
                 """)
                 result = cursor.fetchone()
                 current_type = result['data_type'] if result else "unknown"
-                
+
                 if current_type == "int":
                     print(f"🔧 SYNC DEBUG: products.id is {current_type}, running migration to BIGINT...")
                     # Run critical migrations
@@ -2438,10 +2427,10 @@ async def run_sync():
                     if migration_success:
                         conn.commit()
                         print("🚀 PERFORMANCE: All migrations committed in batch")
-                    
+
                     # Verify migration
                     cursor.execute("""
-                        SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+                        SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
                         WHERE TABLE_NAME = 'products' AND COLUMN_NAME = 'id'
                     """)
                     new_result = cursor.fetchone()
@@ -2449,29 +2438,29 @@ async def run_sync():
                     print(f"✅ SYNC DEBUG: products.id type after migration: {new_type}")
                 else:
                     print(f"✅ SYNC DEBUG: products.id already {current_type}, migration not needed")
-            
+
             conn.close()
         except Exception as schema_err:
             print(f"⚠️ SYNC DEBUG: Schema migration error (continuing): {schema_err}")
-        
+
         sync_status["last_sync_message"] = "STEP 2.2: Database migration completed, continuing sync..."
-        
-        print(f"SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
-        print(f"SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
-        
+
+        # print(f"SYNC DEBUG: USE_AZURE_SQL = {USE_AZURE_SQL}")
+        # print(f"SYNC DEBUG: DATABASE_URL exists = {bool(os.getenv('DATABASE_URL'))}")
+
         # 🚀 CURSOR PERFORMANCE FIX: Removed inefficient individual API calls (1,000+ calls)
         # Now using efficient batch API processing below (10 batch calls instead)
         print("🚀 PERFORMANCE: Skipping individual API calls, using batch processing...")
         sync_status["last_sync_message"] = "STEP 2.3: Using efficient batch API processing..."
-        
+
         conn = get_db_connection()
         if not conn:
             raise Exception("STEP 2 FAILED: Failed to establish database connection")
-            
+
         print("SYNC DEBUG: Database connection established, creating cursor")
         cursor = conn.cursor()
         sync_status["last_sync_message"] = "STEP 3: Database cursor created..."
-        
+
         # Test basic database operation
         try:
             print("SYNC DEBUG: Testing basic database query")
@@ -2480,12 +2469,12 @@ async def run_sync():
             else:
                 cursor.execute("SELECT 1")
             test_result = cursor.fetchone()
-            print(f"SYNC DEBUG: Database test query successful: {test_result}")
+            # print(f"SYNC DEBUG: Database test query successful: {test_result}")
             sync_status["last_sync_message"] = "STEP 4: Database connection confirmed"
         except Exception as db_test_error:
-            print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
+            # print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
-        
+
         # STEP 5: Fetch ALL returns from API with pagination
         # print("=== SYNC DEBUG: Starting API fetch phase...")
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
@@ -2497,65 +2486,65 @@ async def run_sync():
         limit = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 200)
         max_returns_to_process = 500  # 🚀 SPEED: Increased limit to process more returns (was 200)
         total_fetched = 0
-        
+
         while True:
             try:
                 url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
                 log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
                 response = http_session.get(url, headers=headers)
-                
+
                 if response.status_code != 200:
                     error_text = response.text[:500] if response.text else "No response body"
                     print(f"API Error: Status {response.status_code}, Response: {error_text}")
                     sync_status["last_sync_message"] = f"API Error: {response.status_code} - {error_text[:100]}"
                     sync_status["last_sync_status"] = "error"
                     break
-                
+
                 data = response.json()
                 print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
                 print(f"API Response data length: {len(data.get('data', [])) if data.get('data') else 0}")
-                
+
                 # Check for API error response
                 if data.get('status') == 'error':
                     error_msg = data.get('message', 'Unknown API error')
                     print(f"API returned error: {error_msg}")
                     sync_status["last_sync_message"] = f"API Error: {error_msg}"
                     break
-                
+
                 if 'data' not in data:
                     print(f"No 'data' key in API response. Response: {data}")
                     sync_status["last_sync_message"] = "Invalid API response format"
                     break
-                
+
                 if 'returns' not in data['data']:
                     print(f"No 'returns' key in data. Data keys: {data['data'].keys() if isinstance(data['data'], dict) else 'Not a dict'}")
                     sync_status["last_sync_message"] = "No returns data in API response"
                     break
-                    
+
                 returns_batch = data['data']['returns'] or []  # Handle None case
                 print(f"Fetched {len(returns_batch)} returns at offset {offset}")
                 sync_status["last_sync_message"] = f"Processing {len(returns_batch)} returns from offset {offset}..."
-                
+
                 if not returns_batch:
                     print("No more returns to process - breaking loop")
                     break
-                
+
                 for ret in returns_batch:
                     return_id = ret['id']
                     client_name = ret.get('client', {}).get('name', 'no-client')
-                    
+
                     # Enhanced logging to see API response structure
                     has_order = bool(ret.get('order'))
                     has_items = bool(ret.get('items'))
                     items_count = len(ret.get('items', [])) if ret.get('items') else 0
-                    
+
                     print(f"Return {return_id}: order={has_order}, items={has_items} (count: {items_count})")
                     log_sync_activity(f"Processing return {return_id} from {client_name}: order={has_order}, items={items_count}")
-                    
+
                     # Increment progress counter at start of each return processing
                     sync_status["items_synced"] += 1
                     sync_status["last_sync_message"] = f"Processing return {return_id} (#{sync_status['items_synced']}) - order:{has_order}, items:{items_count}"
-                    
+
                     # Update progress every 25 returns for better frontend feedback without spam
                     if sync_status["items_synced"] % 25 == 0:
                         print(f"SYNC PROGRESS: {sync_status['items_synced']} returns processed, {sync_status.get('return_items_synced', 0)} items created")
@@ -2565,16 +2554,16 @@ async def run_sync():
                         try:
                             client_id = ret['client']['id']
                             client_name = ret['client'].get('name', '')
-                            
+
                             # Convert large IDs to string to prevent arithmetic overflow
                             if isinstance(client_id, int) and client_id > 2147483647:
                                 client_id = str(client_id)
-                            
+
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
                                     placeholder = get_param_placeholder()
-                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", 
+                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})",
                                                  ensure_tuple_params((client_id, client_name)))
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
@@ -2587,16 +2576,16 @@ async def run_sync():
                                 """, (client_id, client_name))
                         except Exception as e:
                             print(f"Error handling client: {e}")
-                
+
                     if ret.get('warehouse'):
                         try:
                             warehouse_id = ret['warehouse']['id']
                             warehouse_name = ret['warehouse'].get('name', '')
-                            
+
                             # Convert large IDs to string to prevent arithmetic overflow
                             if isinstance(warehouse_id, int) and warehouse_id > 2147483647:
                                 warehouse_id = str(warehouse_id)
-                            
+
                             if USE_AZURE_SQL:
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
@@ -2614,7 +2603,7 @@ async def run_sync():
                                 """, (warehouse_id, warehouse_name))
                         except Exception as e:
                             print(f"Error handling warehouse: {e}")
-                
+
                     # Collect order ID if present - handle multiple API response formats
                     order_id_to_collect = None
                     if ret.get('order'):
@@ -2627,23 +2616,23 @@ async def run_sync():
                     elif ret.get('order_id'):
                         # Alternative field name: {"order_id": "123"}
                         order_id_to_collect = ret['order_id']
-                    
+
                     if order_id_to_collect:
                         all_order_ids.add(str(order_id_to_collect))
                         print(f"📋 Collected order ID {order_id_to_collect} for return {return_id}")
-                    
+
                     # Update or insert return - with overflow protection
                     # Convert large IDs to string to prevent arithmetic overflow
                     if isinstance(return_id, int) and return_id > 2147483647:
                         return_id = str(return_id)
-                    
+
                     if USE_AZURE_SQL:
                         # Use IF EXISTS for Azure SQL (simpler than MERGE)
                         placeholder = get_param_placeholder()
                         cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] > 0 if USE_AZURE_SQL else return_result[0] > 0)
-                        
+
                         if exists:
                             # Update existing return
                             placeholder = get_param_placeholder()
@@ -2733,7 +2722,7 @@ async def run_sync():
                     ret.get('return_integration_id'),
                     convert_date_for_sql(datetime.now().isoformat())
                 )))
-                
+
                 # Store order info - always make separate API call for complete data
                 order_data = None
                 # Extract order ID from returns API response - use same robust logic as collection
@@ -2747,7 +2736,7 @@ async def run_sync():
                         order_id = str(ret['order'])
                 elif ret.get('order_id'):  # Alternative field name: {"order_id": "123"}
                     order_id = str(ret['order_id'])
-                    
+
                 # Always make separate API call to get complete order details with customer name
                 if order_id:
                     # Make separate API call to fetch order details
@@ -2759,7 +2748,7 @@ async def run_sync():
                             headers=headers,
                             timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
                         )
-                        
+
                         if order_response.status_code == 200:
                             order_api_data = order_response.json()
                             if order_api_data.get("status") == "success":
@@ -2772,7 +2761,7 @@ async def run_sync():
                             print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
                     except Exception as order_err:
                         print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
-                
+
                 # Insert order data if we have it
                 if order_data:
                     try:
@@ -2782,7 +2771,7 @@ async def run_sync():
                         last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
                         customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
                         # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
-                        
+
                         if USE_AZURE_SQL:
                             # Check if order exists first
                             placeholder = get_param_placeholder()
@@ -2794,8 +2783,8 @@ async def run_sync():
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
                                     VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                 """, ensure_tuple_params((
-                                    str(order_data['id']), 
-                                    order_data.get('order_number', ''), 
+                                    str(order_data['id']),
+                                    order_data.get('order_number', ''),
                                     customer_name,
                                     convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
                                     convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
@@ -2808,8 +2797,8 @@ async def run_sync():
                                 INSERT OR IGNORE INTO orders (id, order_number, customer_name, created_at, updated_at)
                                 VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
-                                str(order_data['id']), 
-                                order_data.get('order_number', ''), 
+                                str(order_data['id']),
+                                order_data.get('order_number', ''),
                                 customer_name,
                                 convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
                                 datetime.now().isoformat()  # Updated at current time
@@ -2821,14 +2810,14 @@ async def run_sync():
                         print(f"Full traceback: {traceback.format_exc()}")
                         print(f"Order data: {order_data}")
                         print(f"Customer name: {customer_name}")
-                
+
                 # Store return items - use optimized concurrent approach
                 items_data = []
-                
+
                 # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
                 print(f"🔄 SYNC TRACE: Return {return_id}: Fetching individual return with items data")
                 return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
-                
+
                 if items_data:
                     # print(f"✅ SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
                     if items_data:
@@ -2856,7 +2845,7 @@ async def run_sync():
                     except Exception as items_err:
                         print(f"💥 SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
                         items_data = []
-                
+
                 # Process return items if we have them
                 if items_data:
                     items_count = len(items_data)
@@ -2870,7 +2859,7 @@ async def run_sync():
                         product_name = item.get('product', {}).get('name', '')
                         print(f"🎯 SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
                         log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
-                        
+
                         # CRITICAL FIX: Process ALL products with SKU, not just those with product_id == 0
                         # Previous logic skipped products with large API IDs (like 231185187982)
                         print(f"🎯 SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
@@ -2950,7 +2939,7 @@ async def run_sync():
                                 placeholder_sku = f"UNKNOWN_ITEM_{item_id}"
                                 placeholder_name = f"Return Item {item_id} (No Product Data)"
                                 print(f"🎯 SYNC TRACE: Creating placeholder - item_id={item_id}, sku={placeholder_sku}, name={placeholder_name}")
-                                
+
                                 if USE_AZURE_SQL:
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"""
@@ -2993,10 +2982,10 @@ async def run_sync():
                                     print(f"⚠️ SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
                                     actual_product_id = None
                             else:
-                                # For SQLite, we can use the API product_id directly
+                            # For SQLite, we can use the API product_id directly
                                 actual_product_id = product_id
                                 print(f"🎯 SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
-                        
+
                         # Store return item with proper error handling
                         print(f"🎯 SYNC TRACE: Preparing to create return_item - return_id={return_id}, actual_product_id={actual_product_id}")
                         import json
@@ -3006,7 +2995,7 @@ async def run_sync():
                                 # Simplified insert for Azure SQL - check and insert
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                    SELECT COUNT(*) as count FROM return_items 
+                                    SELECT COUNT(*) as count FROM return_items
                                     WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
                                 """, (str(return_id), actual_product_id))
                                 result = cursor.fetchone()
@@ -3014,9 +3003,9 @@ async def run_sync():
                                 print(f"🎯 SYNC TRACE: Return item exists check - count={result}, exists={exists}, actual_product_id={actual_product_id}")
                                 if not exists and actual_product_id:
                                     cursor.execute(f"""
-                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons, 
+                                        INSERT INTO return_items (return_id, product_id, quantity, return_reasons,
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
                                                {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                     """, ensure_tuple_params((
                                         str(return_id),  # Convert to string for NVARCHAR field
@@ -3060,7 +3049,7 @@ async def run_sync():
                         except Exception as item_err:
                             print(f"Return item INSERT error for return {return_id}, product {product_id}: {item_err}")
                             # Continue processing other items
-                    
+
                     print(f"✅ SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
                     log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
                 else:
@@ -3068,9 +3057,9 @@ async def run_sync():
                     print(f"⚠️ SYNC TRACE: Return {return_id} items field from API: {ret.get('items')}")
                     log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
                     print(f"⚠️ SYNC TRACE: Successfully processed return {return_id} (no items)")
-                
+
                 total_fetched += len(returns_batch)
-                
+
                 # Check if we've fetched enough recent returns or reached limit
                 total_count = data['data'].get('total_count', 0)
                 if total_fetched >= max_returns_to_process or len(returns_batch) < limit:
@@ -3080,11 +3069,11 @@ async def run_sync():
                         sample_ids = list(all_order_ids)[:5]
                         print(f"📝 Sample order IDs: {sample_ids}")
                     break
-                    
+
             except Exception as e:
                 error_str = str(e)
                 log_sync_activity(f"ERROR in sync loop: {error_str}")
-                
+
                 # Check if this is a duplicate key error that we can gracefully handle
                 if "duplicate key" in error_str.lower() or "primary key constraint" in error_str.lower():
                     log_sync_activity(f"Duplicate key detected - continuing sync, advancing to offset {offset + limit}")
@@ -3097,51 +3086,51 @@ async def run_sync():
                     log_sync_activity(f"CRITICAL ERROR - breaking sync: {error_str[:200]}")
                     sync_status["last_sync_message"] = f"Error: {error_str[:100]}"
                     break
-            
+
             # Normal pagination increment (moved outside try block)
             offset += limit
             log_sync_activity(f"Page completed successfully - advancing to offset {offset}")
-            
+
             # Removed artificial delay per Cursor's performance optimization
-        
+
         # 🚀 CRITICAL FIX: Commit all products and return items created during batch processing
         print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
         conn.commit()
         print(f"✅ BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
-        
+
         # STEP 1.5: Fetch orders from API to populate orders table
         print("🔄 STEP 1.5: Fetching orders from API to populate orders table...")
         sync_status["last_sync_message"] = "STEP 1.5: Fetching orders from API..."
-        
+
         # Fetch orders in batches
         offset = 0
         batch_size = 100  # Warehance API limit
         orders_fetched = 0
-        
+
         while True:
             url = f"https://api.warehance.com/v1/orders?limit={batch_size}&offset={offset}"
             print(f"Fetching orders: offset={offset}, limit={batch_size}")
             response = http_session.get(url, headers=headers)
-            
+
             if response.status_code != 200:
                 print(f"Orders API error: {response.status_code}")
                 break
-                
+
             data = response.json()
             orders_data = data.get('data', {}).get('orders', [])
-            
+
             if not orders_data:
                 print("No more orders to fetch")
                 break
-                
+
             print(f"Processing {len(orders_data)} orders...")
-            
+
             for order_data in orders_data:
                 order_id = str(order_data['id'])
                 # Extract customer name from ship_to_address
                 ship_to = order_data.get('ship_to_address', {})
                 customer_name = f"{ship_to.get('first_name', '')} {ship_to.get('last_name', '')}".strip()
-                
+
                 # Check if order already exists
                 cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}", (order_id,))
                 result = cursor.fetchone()
@@ -3166,8 +3155,8 @@ async def run_sync():
                     # Update existing order with correct date
                     try:
                         cursor.execute(f"""
-                            UPDATE orders 
-                            SET customer_name = {get_param_placeholder()}, order_number = {get_param_placeholder()}, 
+                            UPDATE orders
+                            SET customer_name = {get_param_placeholder()}, order_number = {get_param_placeholder()},
                                 created_at = {get_param_placeholder()}, updated_at = {get_param_placeholder()}
                             WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}
                         """, ensure_tuple_params((
@@ -3180,24 +3169,24 @@ async def run_sync():
                     except Exception as e:
                         print(f"❌ Error updating order {order_id}: {e}")
                         continue
-            
+
             offset += batch_size
-            
+
             # Break if we got fewer orders than requested (end of data)
             if len(orders_data) < batch_size:
                 break
-        
+
         print(f"✅ ORDERS SYNC: Fetched {orders_fetched} new orders from API")
         sync_status["orders_synced"] = orders_fetched
-        
+
         # Commit orders to database
         conn.commit()
         print(f"✅ ORDERS COMMIT: Successfully committed {orders_fetched} orders")
-        
+
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
         sync_status["last_sync_message"] = "STEP 2: Querying database for returns with order IDs..."
-        
+
         # 🚨 CRITICAL FIX: Get ALL returns with order_ids that need return_items created
         # Don't limit to missing customer names - we need return_items for ALL older returns
         cursor.execute("""
@@ -3210,7 +3199,7 @@ async def run_sync():
         order_id_rows = cursor.fetchall()
         if USE_AZURE_SQL:
             order_id_rows = rows_to_dict(cursor, order_id_rows) if order_id_rows else []
-        
+
         # Extract both order_id and return_id from the query results
         orders_needing_processing = []
         for row in order_id_rows:
@@ -3226,7 +3215,7 @@ async def run_sync():
                 })
 
         print(f"📋 Found {len(orders_needing_processing)} returns with order IDs needing return_items created")
-        
+
         # Fetch order details in batches (NO LIMIT - process all orders)
         batch_size = 100  # 🚀 SPEED: Maximum allowed batch size by Warehance API (was 50)
         print(f"🚀 PERFORMANCE: Processing ALL {len(orders_needing_processing)} orders (no 500 limit) in batches of {batch_size}")
@@ -3237,7 +3226,7 @@ async def run_sync():
             total_batches = (len(orders_needing_processing) + batch_size - 1) // batch_size
             print(f"📦 Processing batch {batch_num}/{total_batches} ({len(batch)} orders)")
             sync_status["last_sync_message"] = f"Processing batch {batch_num}/{total_batches} - {sync_status['orders_synced']} orders completed"
-            
+
             for order_data in batch:
                 order_id = order_data['order_id']
                 return_id = order_data['return_id']
@@ -3250,14 +3239,14 @@ async def run_sync():
                     if order_response.status_code == 200:
                         order_data = order_response.json().get('data', {})
                         customer_name = ''
-                        
+
                         # Extract customer name from ship_to_address
                         if order_data.get('ship_to_address'):
                             ship_addr = order_data['ship_to_address']
                             first = ship_addr.get('first_name', '')
                             last = ship_addr.get('last_name', '')
                             customer_name = f"{first} {last}".strip()
-                        
+
                         # Insert or update order with full details including customer name
                         placeholder = get_param_placeholder()
                         if USE_AZURE_SQL:
@@ -3270,8 +3259,8 @@ async def run_sync():
                                     INSERT INTO orders (id, order_number, customer_name, created_at, updated_at)
                                     VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                                 """, ensure_tuple_params((
-                                    order_id, 
-                                    order_data.get('order_number', ''), 
+                                    order_id,
+                                    order_data.get('order_number', ''),
                                     customer_name,
                                     convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
                                     convert_date_for_sql(datetime.now().isoformat())    # Updated at current time
@@ -3281,13 +3270,13 @@ async def run_sync():
                             else:
                                 # Update existing order with correct order date
                                 cursor.execute(f"""
-                                    UPDATE orders 
-                                    SET customer_name = {placeholder}, order_number = {placeholder}, 
+                                    UPDATE orders
+                                    SET customer_name = {placeholder}, order_number = {placeholder},
                                         created_at = {placeholder}, updated_at = {placeholder}
                                     WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
                                 """, ensure_tuple_params((
-                                    customer_name, 
-                                    order_data.get('order_number', ''), 
+                                    customer_name,
+                                    order_data.get('order_number', ''),
                                     convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
                                     convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
                                     order_id
@@ -3298,18 +3287,18 @@ async def run_sync():
                                 INSERT OR REPLACE INTO orders (id, order_number, customer_name, created_at, updated_at)
                                 VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
                             """, ensure_tuple_params((
-                                order_id, 
-                                order_data.get('order_number', ''), 
+                                order_id,
+                                order_data.get('order_number', ''),
                                 customer_name,
                                 convert_date_for_sql(order_data.get('created_at')),  # Use actual order date from API
                                 datetime.now().isoformat()  # Updated at current time
                             )))
                             sync_status["orders_synced"] += 1
                             print(f"✅ Inserted/updated order {order_id} with customer '{customer_name}'")
-                        
+
                         if customer_name:
                             customers_updated += 1
-                        
+
                         # Process order items and store them as return items
                         order_items = order_data.get('order_items', [])
                         for item in order_items:
@@ -3321,10 +3310,10 @@ async def run_sync():
                                 quantity_ordered = item.get('quantity', 0)
                                 quantity_shipped = item.get('quantity_shipped', 0)
                                 unit_price = item.get('unit_price', 0)
-                                
+
                                 # Use shipped quantity if available, otherwise use ordered quantity
                                 display_qty = quantity_shipped if quantity_shipped > 0 else quantity_ordered
-                                
+
                                 # Only process items that have a name and quantity
                                 if product_name and display_qty > 0:
                                     # Ensure product exists
@@ -3335,16 +3324,16 @@ async def run_sync():
                                         existing = cursor.fetchone()
                                         if not existing:
                                             cursor.execute(f"""
-                                                INSERT INTO products (sku, name, created_at, updated_at) 
+                                                INSERT INTO products (sku, name, created_at, updated_at)
                                                 VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
                                             """, ensure_tuple_params((sku, product_name)))
                                     else:
                                         # SQLite version - can use explicit IDs
                                         cursor.execute("""
-                                            INSERT OR IGNORE INTO products (id, sku, name) 
+                                            INSERT OR IGNORE INTO products (id, sku, name)
                                             VALUES (?, ?, ?)
                                         """, (product_id, sku, product_name))
-                                    
+
                                     # Get actual product ID from database (since we can't use explicit ID)
                                     cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (sku,))
                                     db_product = cursor.fetchone()
@@ -3353,73 +3342,73 @@ async def run_sync():
                                     else:
                                         print(f"Warning: Product not found in DB for SKU {sku}")
                                         continue
-                                    
+
                                     # 🚨 CRITICAL FIX: Use the return_id we already have from the query
                                     # No need to query again - we know which return needs this return_item
 
-                                    # Check if return item already exists
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"""
-                                        SELECT COUNT(*) as count FROM return_items
-                                        WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
-                                    """, (return_id, actual_product_id))
-                                    item_result = cursor.fetchone()
-                                    if USE_AZURE_SQL:
-                                        exists = item_result['count'] > 0 if item_result else False
-                                    else:
-                                        exists = item_result[0] > 0 if item_result else False
-
-                                    if not exists:
-                                        # Create return item from order item
-                                        print(f"🎯 Creating return_item: return_id={return_id}, product_id={actual_product_id}, sku={sku}, qty={display_qty}")
+                                        # Check if return item already exists
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"""
+                                            SELECT COUNT(*) as count FROM return_items
+                                            WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder} AND CAST(product_id AS NVARCHAR(50)) = {placeholder}
+                                        """, (return_id, actual_product_id))
+                                        item_result = cursor.fetchone()
                                         if USE_AZURE_SQL:
-                                            placeholder = get_param_placeholder()
-                                            cursor.execute(f"""
-                                                INSERT INTO return_items
-                                                (return_id, product_id, quantity, return_reasons,
+                                            exists = item_result['count'] > 0 if item_result else False
+                                        else:
+                                            exists = item_result[0] > 0 if item_result else False
+
+                                        if not exists:
+                                            # Create return item from order item
+                                            print(f"🎯 Creating return_item: return_id={return_id}, product_id={actual_product_id}, sku={sku}, qty={display_qty}")
+                                            if USE_AZURE_SQL:
+                                                placeholder = get_param_placeholder()
+                                                cursor.execute(f"""
+                                                    INSERT INTO return_items
+                                                    (return_id, product_id, quantity, return_reasons,
                                                  condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
                                                 VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                            """, ensure_tuple_params((
-                                                return_id, actual_product_id, display_qty,
-                                                '["Original order item"]',  # Default return reason
-                                                '["Unknown"]',  # Default condition
-                                                display_qty,  # Assume all received
-                                                0  # None rejected initially
-                                            )))
-                                        else:
-                                            cursor.execute("""
-                                                INSERT INTO return_items
-                                                (return_id, product_id, quantity, return_reasons,
+                                                """, ensure_tuple_params((
+                                                    return_id, actual_product_id, display_qty,
+                                                    '["Original order item"]',  # Default return reason
+                                                    '["Unknown"]',  # Default condition
+                                                    display_qty,  # Assume all received
+                                                    0  # None rejected initially
+                                                )))
+                                            else:
+                                                cursor.execute("""
+                                                    INSERT INTO return_items
+                                                    (return_id, product_id, quantity, return_reasons,
                                                  condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
                                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                            """, (
-                                                return_id, actual_product_id, display_qty,
-                                                '["Original order item"]',  # Default return reason
-                                                '["Unknown"]',  # Default condition
-                                                display_qty,  # Assume all received
+                                                """, (
+                                                    return_id, actual_product_id, display_qty,
+                                                    '["Original order item"]',  # Default return reason
+                                                    '["Unknown"]',  # Default condition
+                                                    display_qty,  # Assume all received
                                                 0,  # None rejected initially
                                                 datetime.now().isoformat(),  # created_at
                                                 datetime.now().isoformat()   # updated_at
-                                            ))
+                                                ))
 
                                         sync_status["return_items_synced"] += 1
                                         print(f"✅ Created return_item for return {return_id}, product {actual_product_id}")
-                                        
+
                             except Exception as item_error:
                                 print(f"Error processing order item {item.get('id', 'unknown')}: {item_error}")
                                 continue
-                    
+
                     # Removed artificial delay per Cursor's performance optimization
-                    
+
                 except Exception as e:
                     print(f"Error fetching order {order_id}: {e}")
-            
+
             # Update progress
             sync_status["last_sync_message"] = f"Fetched {i+len(batch)} of {len(orders_needing_processing)} orders..."
-        
+
         conn.commit()
         conn.close()
-        
+
         # Only mark as success if we actually synced something
         if sync_status['items_synced'] > 0:
             sync_status["last_sync_status"] = "success"
@@ -3427,16 +3416,16 @@ async def run_sync():
         else:
             sync_status["last_sync_status"] = "warning"
             sync_status["last_sync_message"] = "No returns found to sync. Check API connection and logs."
-        
+
         sync_status["last_sync"] = datetime.now().isoformat()
-            
+
     except Exception as e:
         import traceback
         error_details = f"Sync error: {type(e).__name__}: {str(e)}"
         traceback_str = traceback.format_exc()
         print(f"SYNC FAILED: {error_details}")
         print(f"Traceback: {traceback_str}")
-        
+
         # Enhanced error logging for debugging
         print(f"ERROR DEBUG INFO:")
         print(f"  Exception type: {type(e)}")
@@ -3444,18 +3433,18 @@ async def run_sync():
         print(f"  Exception str: '{str(e)}'")
         print(f"  Exception repr: {repr(e)}")
         print(f"  Items synced before error: {sync_status.get('items_synced', 'unknown')}")
-        
+
         sync_status["last_sync_status"] = "error"
         # Ensure we don't just get the truncated version
         full_error_msg = f"{error_details} | Args: {e.args} | Type: {type(e).__name__}"
         sync_status["last_sync_message"] = full_error_msg[:200]  # Increase limit to capture more detail
-        
+
         if 'conn' in locals():
             try:
                 conn.close()
             except:
                 pass
-    
+
     finally:
         sync_status["is_running"] = False
         print(f"SYNC COMPLETED: Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
@@ -3469,14 +3458,14 @@ async def send_returns_email(request_data: dict):
         recipient_email = request_data.get('email')
         date_range = request_data.get('date_range', 'Last 30 days')
         custom_message = request_data.get('message', '')
-        
+
         if not recipient_email:
             raise HTTPException(status_code=400, detail="Recipient email is required")
-        
+
         # Get client info and statistics
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Get client name
         client_name = "All Clients"
         if client_id:
@@ -3485,7 +3474,7 @@ async def send_returns_email(request_data: dict):
             result = cursor.fetchone()
             if result:
                 client_name = result[0]
-        
+
         # Get statistics
         where_clause = "WHERE 1=1"
         params = []
@@ -3493,30 +3482,30 @@ async def send_returns_email(request_data: dict):
             placeholder = get_param_placeholder()
             where_clause += f" AND r.client_id = {placeholder}"
             params.append(client_id)
-        
+
         # Total returns
         cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", params)
         row = cursor.fetchone()
         total_returns = row['count'] if row else 0
-        
+
         # Processed returns
         cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", params)
         row = cursor.fetchone()
         processed_returns = row['count'] if row else 0
-        
+
         # Pending returns
         pending_returns = total_returns - processed_returns
-        
+
         # Total items
         cursor.execute(f"""
-            SELECT COUNT(ri.id) 
-            FROM return_items ri 
-            JOIN returns r ON CAST(ri.return_id AS NVARCHAR(50)) = CAST(r.id AS NVARCHAR(50)) 
+            SELECT COUNT(ri.id)
+            FROM return_items ri
+            JOIN returns r ON CAST(ri.return_id AS NVARCHAR(50)) = CAST(r.id AS NVARCHAR(50))
             {where_clause}
         """, params)
         row = cursor.fetchone()
         total_items = row[0] if row else 0
-        
+
         # Top return reason
         cursor.execute(f"""
             SELECT ri.return_reasons, COUNT(*) as count
@@ -3529,18 +3518,18 @@ async def send_returns_email(request_data: dict):
         """, params)
         result = cursor.fetchone()
         top_reason = result['return_reasons'] if result else "N/A"
-        
+
         # Generate CSV export
         export_params = {'client_id': client_id} if client_id else {}
         csv_data = await export_returns_csv(export_params)
         csv_content = csv_data.body.decode('utf-8') if hasattr(csv_data.body, 'decode') else str(csv_data.body)
-        
+
         # Prepare email
         msg = MIMEMultipart('alternative')
         msg['From'] = EMAIL_CONFIG['SENDER_EMAIL'] if EMAIL_CONFIG else "returns@company.com"
         msg['To'] = recipient_email
         msg['Subject'] = f"Returns Report - {client_name} - {datetime.now().strftime('%Y-%m-%d')}"
-        
+
         # Prepare template variables
         template_vars = {
             'client_name': client_name,
@@ -3556,7 +3545,7 @@ async def send_returns_email(request_data: dict):
             'year': datetime.now().year,
             'custom_message': custom_message
         }
-        
+
         # Create email body
         if EMAIL_TEMPLATE:
             html_body = EMAIL_TEMPLATE.format(**template_vars)
@@ -3580,21 +3569,21 @@ async def send_returns_email(request_data: dict):
             """
             plain_body = f"""
             Returns Report for {client_name}
-            
+
             Please find attached your returns report.
-            
+
             Summary:
             - Total Returns: {total_returns}
             - Processed: {processed_returns}
             - Pending: {pending_returns}
-            
+
             {custom_message if custom_message else ''}
             """
-        
+
         # Attach HTML and plain text
         msg.attach(MIMEText(plain_body, 'plain'))
         msg.attach(MIMEText(html_body, 'html'))
-        
+
         # Attach CSV file
         attachment = MIMEBase('application', 'octet-stream')
         attachment.set_payload(csv_content.encode('utf-8'))
@@ -3604,7 +3593,7 @@ async def send_returns_email(request_data: dict):
             f'attachment; filename="{template_vars["attachment_name"]}"'
         )
         msg.attach(attachment)
-        
+
         # Send email (configure SMTP settings)
         auth_password = EMAIL_CONFIG.get('AUTH_PASSWORD') or EMAIL_CONFIG.get('SENDER_PASSWORD')
         if EMAIL_CONFIG and auth_password:
@@ -3615,7 +3604,7 @@ async def send_returns_email(request_data: dict):
             server.login(auth_email, auth_password)
             server.send_message(msg)
             server.quit()
-            
+
             # Log to email history
             placeholder = get_param_placeholder()
             cursor.execute(f"""
@@ -3631,7 +3620,7 @@ async def send_returns_email(request_data: dict):
                 'sent'
             )))
             conn.commit()
-            
+
             status = "sent"
             message = "Email sent successfully!"
         else:
@@ -3650,19 +3639,19 @@ async def send_returns_email(request_data: dict):
                 'draft'
             )))
             conn.commit()
-            
+
             status = "draft"
             message = "Email prepared but not sent (SMTP not configured). Email saved as draft."
-        
+
         conn.close()
-        
+
         return {
             "status": status,
             "message": message,
             "recipient": recipient_email,
             "subject": msg['Subject']
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3673,27 +3662,27 @@ async def get_email_history(client_id: Optional[int] = None):
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     query = "SELECT * FROM email_history WHERE 1=1"
     params = []
-    
+
     if client_id:
         placeholder = get_param_placeholder()
         query += f" AND client_id = {placeholder}"
         params.append(client_id)
-    
+
     query += " ORDER BY sent_date DESC"
-    
+
     cursor.execute(query, ensure_tuple_params(params))
     rows = cursor.fetchall()
-    
+
     if USE_AZURE_SQL:
         emails = rows_to_dict(cursor, rows) if rows else []
     else:
         emails = [dict(row) for row in rows]
-    
+
     conn.close()
-    
+
     return emails
 
 @app.get("/api/email-config")
@@ -3701,7 +3690,7 @@ async def get_email_config():
     """Get email configuration status"""
     auth_configured = EMAIL_CONFIG.get('AUTH_PASSWORD') or EMAIL_CONFIG.get('SENDER_PASSWORD')
     is_configured = bool(EMAIL_CONFIG and auth_configured)
-    
+
     return {
         "is_configured": is_configured,
         "sender_email": EMAIL_CONFIG['SENDER_EMAIL'] if EMAIL_CONFIG else None,
@@ -3712,12 +3701,12 @@ async def get_email_config():
 async def update_email_config(config: dict):
     """Update email configuration"""
     global EMAIL_CONFIG
-    
+
     if not EMAIL_CONFIG:
         EMAIL_CONFIG = {}
-    
+
     EMAIL_CONFIG.update(config)
-    
+
     return {"status": "success", "message": "Email configuration updated"}
 
 @app.get("/settings")
@@ -3731,11 +3720,11 @@ async def settings_page():
         "/home/site/wwwroot/web/templates/settings.html",  # Azure absolute path
         os.path.join(os.path.dirname(__file__), "templates", "settings.html")  # Relative to this file
     ]
-    
+
     for path in possible_paths:
         if os.path.exists(path):
             return FileResponse(path)
-    
+
     # If no template found, return error with debug info
     return {"error": "Settings template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
 
@@ -3746,13 +3735,13 @@ async def get_settings():
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # Create settings table if it doesn't exist
     if USE_AZURE_SQL:
         # Check if table exists first
         cursor.execute("""
             SELECT COUNT(*) as count
-            FROM INFORMATION_SCHEMA.TABLES 
+            FROM INFORMATION_SCHEMA.TABLES
             WHERE TABLE_NAME = 'settings'
         """)
         settings_result = cursor.fetchone()
@@ -3774,15 +3763,15 @@ async def get_settings():
             )
         """)
     conn.commit()
-    
+
     # Get all settings
     cursor.execute("SELECT key, value FROM settings")
     settings_rows = cursor.fetchall()
-    
+
     # Convert rows for Azure SQL
     if USE_AZURE_SQL:
         settings_rows = rows_to_dict(cursor, settings_rows) if settings_rows else []
-    
+
     # Convert to array of objects for frontend compatibility
     settings = []
     for row in settings_rows:
@@ -3792,12 +3781,12 @@ async def get_settings():
         except (json.JSONDecodeError, TypeError):
             # If not JSON, use as string
             value = row['value']
-        
+
         settings.append({
             'key': row['key'],
             'value': value
         })
-    
+
     # Add current EMAIL_CONFIG if available
     if EMAIL_CONFIG:
         email_settings = [
@@ -3809,9 +3798,9 @@ async def get_settings():
             {'key': 'sender_name', 'value': EMAIL_CONFIG.get('SENDER_NAME', '')}
         ]
         settings.extend(email_settings)
-    
+
     conn.close()
-    
+
     return settings
 
 @app.post("/api/settings")
@@ -3819,13 +3808,13 @@ async def save_settings(settings: dict):
     """Save system settings"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     # Create settings table if it doesn't exist
     if USE_AZURE_SQL:
         # Check if table exists first
         cursor.execute("""
             SELECT COUNT(*) as count
-            FROM INFORMATION_SCHEMA.TABLES 
+            FROM INFORMATION_SCHEMA.TABLES
             WHERE TABLE_NAME = 'settings'
         """)
         settings_result = cursor.fetchone()
@@ -3846,7 +3835,7 @@ async def save_settings(settings: dict):
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-    
+
     # Update each setting
     for key, value in settings.items():
         # Convert complex values to JSON
@@ -3854,7 +3843,7 @@ async def save_settings(settings: dict):
             value_str = json.dumps(value)
         else:
             value_str = str(value)
-        
+
         if USE_AZURE_SQL:
             # Check if setting exists
             placeholder = get_param_placeholder()
@@ -3863,7 +3852,7 @@ async def save_settings(settings: dict):
             if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
                 # Update existing
                 cursor.execute("""
-                    UPDATE settings 
+                    UPDATE settings
                     SET value = %s, updated_at = %s
                     WHERE [key] = %s
                 """, (value_str, datetime.now().isoformat(), key))
@@ -3880,14 +3869,14 @@ async def save_settings(settings: dict):
                 INSERT INTO settings (key, value, updated_at)
                 VALUES ({placeholder}, {placeholder}, {placeholder})
             """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
-    
+
     conn.commit()
-    
+
     # Update EMAIL_CONFIG if email settings are provided
     global EMAIL_CONFIG
     if not EMAIL_CONFIG:
         EMAIL_CONFIG = {}
-    
+
     if 'smtp_server' in settings:
         EMAIL_CONFIG['SMTP_SERVER'] = settings['smtp_server']
     if 'smtp_port' in settings:
@@ -3905,9 +3894,9 @@ async def save_settings(settings: dict):
     if 'smtp_password' in settings:
         # Legacy support
         EMAIL_CONFIG['SENDER_PASSWORD'] = settings['smtp_password']
-    
+
     conn.close()
-    
+
     return {"status": "success", "message": "Settings saved successfully"}
 
 @app.post("/api/test-email-oauth")
@@ -3923,17 +3912,17 @@ async def test_email_oauth(config: dict):
             raise HTTPException(status_code=400, detail="Client Secret is required")
         if not config.get('test_recipient'):
             raise HTTPException(status_code=400, detail="Test recipient email is required")
-        
+
         # Initialize Graph mailer
         mailer = MicrosoftGraphMailer(
             tenant_id=config['tenant_id'],
             client_id=config['client_id'],
             client_secret=config['client_secret']
         )
-        
+
         # Get access token
         token = mailer.get_access_token()
-        
+
         # Prepare test email
         sender_email = config.get('sender_email', 'returns@uptimeops.net')
         test_body = f"""
@@ -3953,7 +3942,7 @@ async def test_email_oauth(config: dict):
         </body>
         </html>
         """
-        
+
         # Send test email
         result = mailer.send_mail(
             from_address=sender_email,
@@ -3961,9 +3950,9 @@ async def test_email_oauth(config: dict):
             subject="Warehance Returns - OAuth Test Email",
             body_html=test_body
         )
-        
+
         return {"status": "success", "message": "OAuth test email sent successfully!"}
-        
+
     except Exception as e:
         print(f"OAuth test email error: {e}")
         import traceback
@@ -3985,29 +3974,29 @@ async def test_email(config: dict):
             raise HTTPException(status_code=400, detail="Authentication password is required")
         if not config.get('test_recipient'):
             raise HTTPException(status_code=400, detail="Test recipient email is required")
-        
+
         # Get port with default value
         try:
             smtp_port = int(config.get('smtp_port', 587)) if config.get('smtp_port') else 587
         except ValueError:
             smtp_port = 587
-        
+
         # Create test SMTP connection
         if config.get('use_tls'):
             server = smtplib.SMTP(config['smtp_server'], smtp_port)
             server.starttls()
         else:
             server = smtplib.SMTP_SSL(config['smtp_server'], smtp_port)
-        
+
         # Try to login with auth account (personal account with Send As permissions)
         auth_email = config.get('auth_email') or config.get('sender_email')
         auth_password = config.get('auth_password') or config.get('smtp_password', '')
-        
+
         if not auth_email or not auth_password:
             raise HTTPException(status_code=400, detail="Authentication credentials are required")
-            
+
         server.login(auth_email, auth_password)
-        
+
         # Create test message
         msg = MIMEMultipart()
         sender_email = config.get('sender_email') or config.get('auth_email')
@@ -4015,7 +4004,7 @@ async def test_email(config: dict):
         msg['From'] = f"{sender_name} <{sender_email}>"
         msg['To'] = config['test_recipient']
         msg['Subject'] = "Warehance Returns - Test Email"
-        
+
         # Create test body
         body = f"""
         <html>
@@ -4034,15 +4023,15 @@ async def test_email(config: dict):
         </body>
         </html>
         """
-        
+
         msg.attach(MIMEText(body, 'html'))
-        
+
         # Send email
         server.send_message(msg)
         server.quit()
-        
+
         return {"status": "success", "message": "Test email sent successfully!"}
-        
+
     except smtplib.SMTPAuthenticationError as e:
         print(f"Authentication error: {e}")
         raise HTTPException(status_code=400, detail="Authentication failed. Please check your email and password.")
@@ -4070,9 +4059,9 @@ async def get_recent_logs(lines: int = 100):
     try:
         import subprocess
         import os
-        
+
         log_lines = []
-        
+
         # Try to read from Azure's log directory
         log_paths = [
             "/home/LogFiles/Application/",
@@ -4080,7 +4069,7 @@ async def get_recent_logs(lines: int = 100):
             "/tmp/",
             "/home/site/wwwroot/logs/",
         ]
-        
+
         for log_path in log_paths:
             if os.path.exists(log_path):
                 try:
@@ -4100,17 +4089,17 @@ async def get_recent_logs(lines: int = 100):
                                     log_lines.append(f"Error reading {full_path}: {e}")
                 except Exception as e:
                     log_lines.append(f"Error accessing {log_path}: {e}")
-        
+
         # Also try to capture recent stdout/stderr if possible
         try:
             # Try to read from Docker logs or systemd logs
-            result = subprocess.run(['tail', '-n', str(lines), '/var/log/syslog'], 
+            result = subprocess.run(['tail', '-n', str(lines), '/var/log/syslog'],
                                   capture_output=True, text=True, timeout=5)
             if result.stdout:
                 log_lines.extend(["=== System Logs ===", result.stdout])
         except Exception as e:
             log_lines.append(f"System log access failed: {e}")
-        
+
         return {
             "status": "success",
             "logs": log_lines,
@@ -4121,7 +4110,7 @@ async def get_recent_logs(lines: int = 100):
                 "env_vars": {k: v for k, v in os.environ.items() if 'WEBSITE' in k or 'AZURE' in k}
             }
         }
-        
+
     except Exception as e:
         return {
             "status": "error",
@@ -4134,7 +4123,7 @@ async def get_deployment_version():
     """Simple endpoint to verify deployment version"""
     import datetime
     return {
-        "version": "2025-01-15-ORDER-ITEMS-ENHANCEMENT-V42", 
+        "version": "2025-01-15-ORDER-ITEMS-ENHANCEMENT-V42",
         "timestamp": datetime.datetime.now().isoformat(),
         "status": "latest_deployment_active"
     }
@@ -4145,10 +4134,10 @@ async def diagnose_azure_sql():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         diagnostics = {
             "connection": "working",
             "current_user": None,
@@ -4159,7 +4148,7 @@ async def diagnose_azure_sql():
             "simple_create_test": None,
             "detailed_errors": []
         }
-        
+
         try:
             # Get current user
             cursor.execute("SELECT SUSER_NAME() as user_name")
@@ -4172,7 +4161,7 @@ async def diagnose_azure_sql():
                 error_details += f" Args: {e.args}"
             diagnostics["detailed_errors"].append(error_details)
             diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
-        
+
         try:
             # Get database name
             cursor.execute("SELECT DB_NAME() as database_name")
@@ -4185,7 +4174,7 @@ async def diagnose_azure_sql():
                 error_details += f" Args: {e.args}"
             diagnostics["detailed_errors"].append(error_details)
             diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
-        
+
         try:
             # Check schema permissions
             cursor.execute("SELECT SCHEMA_NAME() as schema_name")
@@ -4193,18 +4182,18 @@ async def diagnose_azure_sql():
             diagnostics["schema_info"]["current_schema"] = (schema_result['schema_name'] if USE_AZURE_SQL else schema_result[0])
         except Exception as e:
             diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
-        
+
         try:
             # Check table creation permissions with a simple test
             cursor.execute("CREATE TABLE test_permissions_check (id INT)")
             diagnostics["simple_create_test"] = "SUCCESS - Can create tables"
-            
+
             # Clean up test table
             cursor.execute("DROP TABLE test_permissions_check")
         except Exception as e:
             diagnostics["simple_create_test"] = f"FAILED - Cannot create tables: {str(e)}"
             diagnostics["detailed_errors"].append(f"CREATE TABLE test failed: {str(e)}")
-        
+
         try:
             # List existing tables
             cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
@@ -4212,11 +4201,11 @@ async def diagnose_azure_sql():
             diagnostics["tables"]["existing_tables"] = [row[0] for row in tables] if tables else []
         except Exception as e:
             diagnostics["detailed_errors"].append(f"Table listing error: {str(e)}")
-        
+
         try:
             # Check specific permissions
             cursor.execute("""
-                SELECT 
+                SELECT
                     p.permission_name,
                     p.state_desc,
                     pr.name as principal_name
@@ -4226,22 +4215,22 @@ async def diagnose_azure_sql():
             """)
             perms = cursor.fetchall()
             diagnostics["permissions"]["database_permissions"] = [
-                {"permission": row[0], "state": row[1], "principal": row[2]} 
+                {"permission": row[0], "state": row[1], "principal": row[2]}
                 for row in perms
             ] if perms else []
         except Exception as e:
             diagnostics["detailed_errors"].append(f"Permission query error: {str(e)}")
-        
+
         conn.close()
-        
+
         return {
             "status": "success",
             "diagnostics": diagnostics
         }
-        
+
     except Exception as e:
         return {
-            "status": "error", 
+            "status": "error",
             "message": str(e),
             "diagnostics": diagnostics if 'diagnostics' in locals() else {}
         }
@@ -4252,16 +4241,16 @@ async def migrate_to_bigint():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         migrations = []
-        
+
         # Migration commands to change INT to BIGINT
         migration_commands = [
             "ALTER TABLE clients ALTER COLUMN id BIGINT",
-            "ALTER TABLE warehouses ALTER COLUMN id BIGINT", 
+            "ALTER TABLE warehouses ALTER COLUMN id BIGINT",
             "ALTER TABLE orders ALTER COLUMN id BIGINT",
             "ALTER TABLE returns ALTER COLUMN id BIGINT",
             "ALTER TABLE returns ALTER COLUMN client_id BIGINT",
@@ -4274,7 +4263,7 @@ async def migrate_to_bigint():
             "ALTER TABLE products ALTER COLUMN id BIGINT",
             "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
         ]
-        
+
         # CURSOR PERFORMANCE FIX: Execute all migrations then batch commit
         migration_success = True
         for cmd in migration_commands:
@@ -4291,13 +4280,13 @@ async def migrate_to_bigint():
             print("🚀 PERFORMANCE: All BIGINT migrations committed in batch")
 
         conn.close()
-        
+
         return {
             "status": "success",
             "migrations": migrations,
             "message": f"Completed {len([m for m in migrations if m['status'] == 'success'])} migrations"
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -4336,13 +4325,13 @@ async def create_email_share(request: Request):
         subject = data.get('subject')
         notes = data.get('notes')
         return_ids = data.get('return_ids')
-        
+
         if not all([client_id, date_range_start, date_range_end, recipient_email]):
             return {"error": "Missing required fields: client_id, date_range_start, date_range_end, recipient_email"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Build query to get returns to share
         placeholder = get_param_placeholder()
         query = f"""
@@ -4353,17 +4342,17 @@ async def create_email_share(request: Request):
             AND CAST(r.created_at AS DATE) <= {placeholder}
         """
         params = [client_id, date_range_start, date_range_end]
-        
+
         # If specific return IDs provided, filter by those
         if return_ids and len(return_ids) > 0:
             placeholders = ','.join([placeholder] * len(return_ids))
             query += f" AND r.id IN ({placeholders})"
             params.extend(return_ids)
-        
+
         # Exclude already shared returns
         query += f"""
             AND r.id NOT IN (
-                SELECT DISTINCT esi.return_id 
+                SELECT DISTINCT esi.return_id
                 FROM email_share_items esi
                 JOIN email_shares es ON esi.email_share_id = es.id
                 WHERE es.client_id = {placeholder}
@@ -4371,17 +4360,17 @@ async def create_email_share(request: Request):
             )
         """
         params.append(client_id)
-        
+
         cursor.execute(query, params)
         returns_to_share = cursor.fetchall()
-        
+
         if USE_AZURE_SQL:
             returns_to_share = rows_to_dict(cursor, returns_to_share)
-        
+
         if not returns_to_share:
             conn.close()
             return {"error": "No unshared returns found for the specified criteria"}
-        
+
         # Create email share record
         placeholder = get_param_placeholder()
         cursor.execute(f"""
@@ -4399,14 +4388,14 @@ async def create_email_share(request: Request):
             "system",
             datetime.now().isoformat()
         )))
-        
+
         # Get the email share ID
         if USE_AZURE_SQL:
             cursor.execute("SELECT @@IDENTITY as id")
             email_share_id = cursor.fetchone()['id']
         else:
             email_share_id = cursor.lastrowid
-        
+
         # Add share items
         for return_obj in returns_to_share:
             return_id = return_obj['id'] if USE_AZURE_SQL else return_obj[0]
@@ -4419,10 +4408,10 @@ async def create_email_share(request: Request):
                 return_id,
                 datetime.now().isoformat()
             )))
-        
+
         conn.commit()
         conn.close()
-        
+
         return {
             "id": email_share_id,
             "client_id": client_id,
@@ -4430,7 +4419,7 @@ async def create_email_share(request: Request):
             "recipient_email": recipient_email,
             "status": "pending"
         }
-        
+
     except Exception as e:
         print(f"Error creating email share: {e}")
         return {"error": str(e)}
@@ -4442,7 +4431,7 @@ async def get_email_share_history(client_id: Optional[int] = None, limit: int = 
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         # Build query
         placeholder = get_param_placeholder()
         query = f"""
@@ -4454,20 +4443,20 @@ async def get_email_share_history(client_id: Optional[int] = None, limit: int = 
             WHERE 1=1
         """
         params = []
-        
+
         if client_id:
             query += f" AND es.client_id = {placeholder}"
             params.append(client_id)
-        
+
         query += f" ORDER BY es.created_at DESC LIMIT {placeholder}"
         params.append(limit)
-        
+
         cursor.execute(query, params)
         shares = cursor.fetchall()
-        
+
         if USE_AZURE_SQL:
             shares = rows_to_dict(cursor, shares)
-        
+
         result = []
         for share in shares:
             if USE_AZURE_SQL:
@@ -4485,7 +4474,7 @@ async def get_email_share_history(client_id: Optional[int] = None, limit: int = 
                     "created_at": share['created_at'].isoformat() if share['created_at'] else None,
                     "notes": share['notes']
                 })
-            else:
+        else:
                 result.append({
                     "id": share[0],
                     "client_id": share[1],
@@ -4500,10 +4489,10 @@ async def get_email_share_history(client_id: Optional[int] = None, limit: int = 
                     "created_at": share[10],
                     "notes": share[11]
                 })
-        
+
         conn.close()
         return result
-        
+
     except Exception as e:
         print(f"Error getting email share history: {e}")
         return {"error": str(e)}
