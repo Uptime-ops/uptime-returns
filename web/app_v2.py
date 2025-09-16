@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.109-CRITICAL-FIX-ORDER-DATE-INCONSISTENCY-CURSOR-ANALYSIS"
+DEPLOYMENT_VERSION = "V87.110-DEBUG-ORDER-API-FIELDS-INVESTIGATION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -2772,8 +2772,18 @@ async def run_sync():
                         # CURSOR ANALYSIS FIX: Debug order date field usage
                         order_date_field = order_data.get('order_date')
                         created_at_field = order_data.get('created_at')
+
+                        # Check for other potential date fields
+                        placed_at_field = order_data.get('placed_at')
+                        ordered_at_field = order_data.get('ordered_at')
+                        date_placed_field = order_data.get('date_placed')
+
+                        print(f"ORDER DATE DEBUG: Order {order_data['id']} - order_date: {order_date_field}, created_at: {created_at_field}")
+                        print(f"ORDER DATE DEBUG: Other date fields - placed_at: {placed_at_field}, ordered_at: {ordered_at_field}, date_placed: {date_placed_field}")
+                        print(f"ORDER DATE DEBUG: All order fields: {list(order_data.keys())}")
+
                         using_field = order_date_field or created_at_field
-                        print(f"ORDER DATE DEBUG: Order {order_data['id']} - order_date: {order_date_field}, created_at: {created_at_field}, using: {'order_date' if order_date_field else 'created_at'}")
+                        print(f"ORDER DATE DEBUG: Using field: {'order_date' if order_date_field else 'created_at'}")
 
                         # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
 
