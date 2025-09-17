@@ -8,12 +8,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.129-CRITICAL-FIX-PRODUCT-IDS-AND-RETURN-ITEMS-CREATION"
+DEPLOYMENT_VERSION = "V87.137-REMOVE-FALLBACK-DATA-FAIL-FAST-ON-MISSING-IDS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
-print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
-print(f"DEPLOYMENT TIME: {DEPLOYMENT_TIME}")
-print("THIS IS THE NEW APP_V2.PY FILE")
+print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -21,7 +19,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sqlite3
 try:
     import pyodbc
-    print("pyodbc imported successfully")
+    print("pyodbc available")
 except ImportError:
     pyodbc = None  # Will use SQLite if pyodbc not available
     print("pyodbc not available")
@@ -29,7 +27,7 @@ except ImportError:
 # Try pymssql as fallback for Azure SQL
 try:
     import pymssql
-    print("pymssql imported successfully")
+    print("pymssql available")
 except ImportError:
     pymssql = None
     print("pymssql not available")
@@ -43,8 +41,7 @@ AZURE_CLIENT_ID = os.getenv('AZURE_CLIENT_ID', '')
 AZURE_CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET', '')
 WAREHANCE_API_KEY = os.getenv('WAREHANCE_API_KEY')
 if not WAREHANCE_API_KEY:
-    print("WARNING:  WARNING: WAREHANCE_API_KEY environment variable not set. Sync functionality will be disabled.")
-    print("   Please configure WAREHANCE_API_KEY in Azure App Service Application Settings.")
+    print("WARNING: WAREHANCE_API_KEY not set - sync disabled")
     WAREHANCE_API_KEY = None
 
 # Database configuration
@@ -54,15 +51,8 @@ USE_AZURE_SQL = bool(DATABASE_URL and ('database.windows.net' in DATABASE_URL or
 # 🚀 CURSOR PERFORMANCE FIX: HTTP connection pooling for API calls
 # (Function definition moved after imports to avoid NameError)
 
-# Debug database configuration
-print("DATABASE CONFIGURATION")
-print(f"DATABASE_URL exists: {bool(DATABASE_URL)}")
-print(f"USE_AZURE_SQL: {USE_AZURE_SQL}")
-print(f"IS_AZURE: {IS_AZURE}")
-if DATABASE_URL:
-    print(f"DATABASE_URL preview: {DATABASE_URL[:50]}...")
-else:
-    print("DATABASE_URL is empty - will use SQLite fallback")
+# Database configuration
+print(f"Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}")
 
 # SQL parameterization helper - Azure SQL uses %s, SQLite uses ?
 def get_param_placeholder():
@@ -113,31 +103,25 @@ def execute_sql(cursor, sql, params=None):
     return cursor
 
 if USE_AZURE_SQL:
-    print(f"Using Azure SQL Database")
-
-    # First, list all available ODBC drivers for diagnostics
-    print("ODBC Driver Diagnostics")
+    # Check ODBC drivers availability
     try:
         available_drivers = pyodbc.drivers()
-        print(f"Available ODBC drivers: {available_drivers}")
         if not available_drivers:
-            print("WARNING: No ODBC drivers detected! This may be a configuration issue.")
+            print("WARNING: No ODBC drivers detected")
     except Exception as e:
-        print(f"ERROR listing drivers: {e}")
-    print("ODBC Driver Diagnostics Complete")
+        print(f"ERROR checking drivers: {e}")
 
     def get_db_connection():
         """Get Azure SQL connection with comprehensive fallback"""
         import re
         import subprocess
 
-        print(f"DATABASE_URL exists: {bool(DATABASE_URL)}")
-        print(f"DATABASE_URL starts with: {DATABASE_URL[:50] if DATABASE_URL else 'Empty'}...")
+        # Connection attempt starting
 
         # First try pymssql as it's simpler and doesn't need ODBC drivers
         if pymssql:
             try:
-                print("Attempting pymssql connection...")
+                # Trying pymssql connection
                 # Parse DATABASE_URL - same parsing logic as pyodbc
                 conn_params = {}
                 for part in DATABASE_URL.split(';'):
@@ -154,10 +138,8 @@ if USE_AZURE_SQL:
                 # If database is empty, use a default name
                 if not database:
                     database = 'uptime-returns-db'
-                    print(f"No database specified, using default: {database}")
 
                 if server and database and username and password:
-                    print(f"Connecting to {server}/{database} as {username}")
 
                     # Connect using pymssql
                     conn = pymssql.connect(
@@ -168,7 +150,7 @@ if USE_AZURE_SQL:
                         as_dict=True,
                         port=1433
                     )
-                    print("SUCCESS: Connected with pymssql")
+                    print("✅ Connected with pymssql")
                     return conn
                 else:
                     print(f"pymssql: Missing connection parameters - server:{bool(server)}, db:{bool(database)}, user:{bool(username)}, pwd:{bool(password)}")
@@ -3060,10 +3042,10 @@ async def run_sync():
                                         # Use the API product ID we just inserted
                                         actual_product_id = product_id
                                         sync_status["products_synced"] += 1
-                                        print(f"✅ Product inserted: SKU: {product_sku}, API ID: {actual_product_id}")
+                                        print(f"✅ Product created: SKU={product_sku}, ID={actual_product_id}")
                                     else:
                                         actual_product_id = existing_product['id']
-                                        print(f"✅ Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
+                                        print(f"✅ Product exists: SKU={product_sku}, ID={actual_product_id}")
                                 else:
                                     # SQLite version - can use explicit IDs
                                     cursor.execute("""
@@ -3077,38 +3059,11 @@ async def run_sync():
                                 actual_product_id = None
                                 # Continue processing even if product insert fails
                         elif product_id == 0 and not product_sku:
-                            # DISABLED TRACE - print(f"SYNC TRACE: Taking path 2: product_id=0 AND no SKU - creating placeholder")
-                            # Handle case where both product_id and product_sku are missing/empty
-                            # Create a placeholder product for the return item
-                            try:
-                                item_id = item.get('id', 'unknown')
-                                placeholder_sku = f"UNKNOWN_ITEM_{item_id}"
-                                placeholder_name = f"Return Item {item_id} (No Product Data)"
-                                # DISABLED TRACE - print(f"SYNC TRACE: Creating placeholder - item_id={item_id}, sku={placeholder_sku}, name={placeholder_name}")
-
-                                if USE_AZURE_SQL:
-                                    placeholder = get_param_placeholder()
-                                    # Use item_id as the placeholder product ID to maintain consistency
-                                    placeholder_product_id = item_id
-                                    cursor.execute(f"""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((placeholder_product_id, placeholder_sku, placeholder_name)))
-                                    actual_product_id = placeholder_product_id
-                                    sync_status["products_synced"] += 1
-                                    print(f"✅ Placeholder product created: SKU: {placeholder_sku}, ID: {actual_product_id}")
-                                else:
-                                    # SQLite version - use item_id as product ID for consistency
-                                    placeholder_product_id = item_id
-                                    cursor.execute("""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, (placeholder_product_id, placeholder_sku, placeholder_name))
-                                    actual_product_id = placeholder_product_id
-                                    sync_status["products_synced"] += 1
-                            except Exception as placeholder_err:
-                                print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
-                                actual_product_id = None
+                            # NO FALLBACK DATA - Fail fast with clear error
+                            item_id = item.get('id', 'unknown')
+                            print(f"❌ CRITICAL ERROR: Return item {item_id} has no product_id and no product_sku - cannot create return_item without valid product data")
+                            print(f"❌ Item data: {item}")
+                            actual_product_id = None
                         else:
                             # DISABLED TRACE - print(f"SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
                             # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
@@ -3149,22 +3104,11 @@ async def run_sync():
                                 # DISABLED TRACE - print(f"SYNC TRACE: Return item exists check - count={result}, exists={exists}, actual_product_id={actual_product_id}")
                                 # TEMP FIX: Always create return_items, create placeholder product if needed
                                 if not exists:
-                                    # Ensure we have a valid product_id
+                                    # NO FALLBACK DATA - Fail fast if no valid product_id
                                     if not actual_product_id:
-                                        # Create a fallback product for this return item
-                                        print(f"⚠️ FALLBACK: Creating placeholder product for return {return_id}")
-                                        try:
-                                            cursor.execute(f"""
-                                                INSERT INTO products (sku, name, created_at, updated_at)
-                                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                            """, ensure_tuple_params(('UNKNOWN', 'Unknown Product')))
-                                            cursor.execute(f"SELECT SCOPE_IDENTITY() as id")
-                                            new_product = cursor.fetchone()
-                                            actual_product_id = new_product['id']
-                                            print(f"✅ FALLBACK: Created placeholder product ID: {actual_product_id}")
-                                        except Exception as fallback_err:
-                                            print(f"❌ FALLBACK: Could not create placeholder product: {fallback_err}")
-                                            continue  # Skip this return item if we can't create a product
+                                        print(f"❌ CRITICAL ERROR: Cannot create return_item for return {return_id} - no valid product_id available")
+                                        print(f"❌ Product data: product_id={product_id}, product_sku={product_sku}, product_name={product_name}")
+                                        continue  # Skip this return item - no fallback data
 
                                     if actual_product_id:
                                         cursor.execute(f"""
@@ -3184,7 +3128,7 @@ async def run_sync():
                                             convert_date_for_sql(datetime.now().isoformat())   # updated_at
                                         )))
                                         sync_status["return_items_synced"] += 1
-                                        print(f"✅ FIXED: Created return_item for return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
+                                        print(f"✅ Return item created: return_id={return_id}, product_id={actual_product_id}, qty={item.get('quantity', 0)}")
                                     # DISABLED TRACE - print(f"SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                 elif not actual_product_id:
                                     pass  # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - no valid product ID")
