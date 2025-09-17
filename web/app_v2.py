@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.137-REMOVE-FALLBACK-DATA-FAIL-FAST-ON-MISSING-IDS"
+DEPLOYMENT_VERSION = "V87.138-CLEAN-REMAINING-LOGGING-FRAGMENTS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -1757,7 +1757,7 @@ async def trigger_sync():
     print("SYNC TRIGGER: Starting background sync task")
     try:
         task = asyncio.create_task(run_sync())
-        print(f"SYNC TRIGGER: Task created successfully")
+        print("Sync task started")
     except Exception as e:
         print(f"SYNC TRIGGER ERROR: Failed to create task: {e}")
         sync_status["is_running"] = False
@@ -2296,7 +2296,7 @@ async def sync_returns_with_product_data():
                             product_insert_sql = f"INSERT OR IGNORE INTO products (id, sku, name) VALUES ({placeholder}, {placeholder}, {placeholder})"
                         cursor.execute(product_insert_sql, (product_id, sku, name))
 
-                        print(f"    Product {product_id} inserted successfully")
+                        print(f"Product {product_id} created")
                     except Exception as e:
                         print(f"    Product {product_id} insert failed: {e}")
                         # Continue anyway - product might already exist
@@ -2340,7 +2340,7 @@ async def sync_returns_with_product_data():
                                 datetime.now().isoformat()   # updated_at
                             )))
                         return_items_created += 1
-                        print(f"    Return item created successfully for return {return_id}!")
+                        print(f"Return item created for return {return_id}")
                     except Exception as e:
                         print(f"    CRITICAL: Return item insert failed for return {return_id}: {e}")
                         # This is the critical failure - return_items not being created
@@ -3161,7 +3161,7 @@ async def run_sync():
                             # Continue processing other items
 
                     # DISABLED TRACE - print(f"SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
-                    log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
+                    log_sync_activity(f"Processed return {return_id} with {items_count} items")
                 else:
                     print(f"⚠️ ITEMS EMPTY: Return {return_id} - no items found via individual API")
                     print(f"⚠️ ITEMS EMPTY: Return {return_id} items field from bulk API: {ret.get('items')}")
@@ -3200,14 +3200,14 @@ async def run_sync():
 
             # Normal pagination increment (moved outside try block)
             offset += limit
-            log_sync_activity(f"Page completed successfully - advancing to offset {offset}")
+            log_sync_activity(f"Page completed - advancing to offset {offset}")
 
             # Removed artificial delay per Cursor's performance optimization
 
         # 🚀 CRITICAL FIX: Commit all products and return items created during batch processing
         print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
         conn.commit()
-        print(f"SUCCESS: BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
+        print(f"Batch commit: {sync_status.get('products_synced', 0)} products, {sync_status.get('return_items_synced', 0)} return items")
 
         # STEP 1.5: Orders are fetched individually per return (no bulk fetch needed)
         print("🔄 STEP 1.5: Orders will be fetched per return as needed (no bulk fetch)")
@@ -4393,7 +4393,7 @@ async def reset_database():
                     final_count = final_count_result['count'] if USE_AZURE_SQL else final_count_result[0]
 
                     if final_count == 0:
-                        print(f"✅ RESET: Successfully cleared {initial_count} rows from {table}")
+                        print(f"✅ Cleared {initial_count} rows from {table}")
                         cleared_tables.append({"table": table, "initial_rows": initial_count, "rows_deleted": initial_count, "status": "success"})
                         total_rows_deleted += initial_count
                     else:
