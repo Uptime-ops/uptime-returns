@@ -3864,7 +3864,7 @@ async def get_settings():
     conn.commit()
 
     # Get all settings
-    cursor.execute("SELECT key, value FROM settings")
+    cursor.execute("SELECT [key], value FROM settings")
     settings_rows = cursor.fetchall()
 
     # Convert rows for Azure SQL
@@ -3965,7 +3965,7 @@ async def save_settings(settings: dict):
         else:
             placeholder = get_param_placeholder()
             cursor.execute(f"""
-                INSERT INTO settings (key, value, updated_at)
+                INSERT INTO settings ([key], value, updated_at)
                 VALUES ({placeholder}, {placeholder}, {placeholder})
             """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
 
