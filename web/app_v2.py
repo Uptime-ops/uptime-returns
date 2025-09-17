@@ -3961,13 +3961,13 @@ async def save_settings(settings: dict):
                 cursor.execute(f"""
                     INSERT INTO settings ([key], value, updated_at)
                     VALUES ({placeholder}, {placeholder}, {placeholder})
-                """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
+                """, ensure_tuple_params((key, value_str, convert_date_for_sql(datetime.now().isoformat()))))
         else:
             placeholder = get_param_placeholder()
             cursor.execute(f"""
                 INSERT INTO settings ([key], value, updated_at)
                 VALUES ({placeholder}, {placeholder}, {placeholder})
-            """, ensure_tuple_params((key, value_str, datetime.now().isoformat())))
+            """, ensure_tuple_params((key, value_str, convert_date_for_sql(datetime.now().isoformat()))))
 
     conn.commit()
 
