@@ -2738,35 +2738,35 @@ async def run_sync():
                             try:
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
-                                UPDATE returns SET
-                                    api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
-                                    updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
-                                    warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
-                                    tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
-                                    label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
-                                    client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
-                                    return_integration_id = {placeholder}, last_synced_at = {placeholder}
-                                WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
-                            """, (
-                                ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                                ret.get('tracking_number'), ret.get('tracking_url'),
-                                ret.get('carrier', ''), ret.get('service', ''),
-                                ret.get('label_cost'), ret.get('label_pdf_url'),
-                                ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                                str(ret['order']['id']) if ret.get('order') else None,
-                                ret.get('return_integration_id'),
-                                convert_date_for_sql(datetime.now().isoformat()),
-                                return_id  # WHERE clause
-                            ))
+                                    UPDATE returns SET
+                                        api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
+                                        updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
+                                        warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
+                                        tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
+                                        label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
+                                        client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
+                                        return_integration_id = {placeholder}, last_synced_at = {placeholder}
+                                    WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
+                                """, (
+                                    ret.get('api_id'), ret.get('paid_by', ''),
+                                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
+                                    ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                                    ret.get('tracking_number'), ret.get('tracking_url'),
+                                    ret.get('carrier', ''), ret.get('service', ''),
+                                    ret.get('label_cost'), ret.get('label_pdf_url'),
+                                    ret.get('rma_slip_url'), ret.get('label_voided', False),
+                                    str(ret['client']['id']) if ret.get('client') else None,
+                                    str(ret['warehouse']['id']) if ret.get('warehouse') else None,
+                                    str(ret['order']['id']) if ret.get('order') else None,
+                                    ret.get('return_integration_id'),
+                                    convert_date_for_sql(datetime.now().isoformat()),
+                                    return_id  # WHERE clause
+                                ))
                                 print(f"✅ STEP 4: UPDATE completed for return {return_id}")
                             except Exception as update_err:
-                                print(f"❌ STEP 4 ERROR: UPDATE failed for return {return_id}: {update_err}")
-                                continue  # Skip this return and continue with next
+                                print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
+                                continue  # Skip this return and move to next
                         else:
                             # Insert new return with duplicate handling
                             print(f"➕ STEP 3: About to INSERT new return {return_id}")
