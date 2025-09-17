@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.138-CLEAN-REMAINING-LOGGING-FRAGMENTS"
+DEPLOYMENT_VERSION = "V87.139-ADD-DEBUG-LOGGING-TO-TRACK-SYNC-FAILURES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2612,7 +2612,7 @@ async def run_sync():
                 for ret in returns_batch:
                     return_id = ret['id']
                     client_name = ret.get('client', {}).get('name', 'no-client')
-                    print(f"🔄 PROCESSING: Starting individual return {return_id} from {client_name}")
+                    print(f"🔄 Processing return {return_id} from {client_name.strip()}")
 
                     # Enhanced logging to see API response structure
                     has_order = bool(ret.get('order'))
@@ -2718,6 +2718,7 @@ async def run_sync():
                         print(f"📋 Collected order ID {order_id_to_collect} for return {return_id}")
 
                     print(f"🏁 STEP 1: About to start returns processing for {return_id}")
+                    print(f"🔍 DEBUG: Return {return_id} - has_order={has_order}, has_items={has_items}, items_count={items_count}")
                     # Update or insert return - with overflow protection
                     # Convert large IDs to string to prevent arithmetic overflow
                     if isinstance(return_id, int) and return_id > 2147483647:
@@ -2734,8 +2735,9 @@ async def run_sync():
                         if exists:
                             # Update existing return
                             print(f"📝 STEP 3: About to UPDATE return {return_id}")
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
+                            try:
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"""
                                 UPDATE returns SET
                                     api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
                                     updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
@@ -2761,7 +2763,10 @@ async def run_sync():
                                 convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
                             ))
-                            print(f"✅ STEP 4: UPDATE completed for return {return_id}")
+                                print(f"✅ STEP 4: UPDATE completed for return {return_id}")
+                            except Exception as update_err:
+                                print(f"❌ STEP 4 ERROR: UPDATE failed for return {return_id}: {update_err}")
+                                continue  # Skip this return and continue with next
                         else:
                             # Insert new return with duplicate handling
                             print(f"➕ STEP 3: About to INSERT new return {return_id}")
@@ -2825,6 +2830,7 @@ async def run_sync():
                 )))
 
                 # Store order info - always make separate API call for complete data
+                print(f"🎯 STEP 5: Starting order processing for return {return_id}")
                 order_data = None
                 # Extract order ID from returns API response - use same robust logic as collection
                 order_id = None
@@ -2839,6 +2845,7 @@ async def run_sync():
                     order_id = str(ret['order_id'])
 
                 # Always make separate API call to get complete order details with customer name
+                print(f"📞 STEP 6: About to make order API call for return {return_id}, order_id: {order_id}")
                 if order_id:
                     # Make separate API call to fetch order details
                     try:
@@ -2948,6 +2955,7 @@ async def run_sync():
                         print(f"Order data: {order_data}")
                         print(f"Customer name: {customer_name}")
 
+                print(f"🔍 DEBUG: Finished order processing, about to reach checkpoint for return {return_id}")
                 print(f"🔍 PRE-CHECKPOINT: About to reach checkpoint for return {return_id}")
                 print(f"📍 CHECKPOINT: Finished order processing for return {return_id}, about to start items")
                 # Store return items - use optimized concurrent approach
