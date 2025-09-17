@@ -507,6 +507,67 @@ async def debug_order_dates():
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch order dates"}
 
+@app.get("/api/debug/products-returns")
+async def debug_products_returns():
+    """Debug endpoint to check products and return_items tables"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get counts
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        products_count = cursor.fetchone()
+        products_count = products_count['count'] if USE_AZURE_SQL else products_count[0]
+
+        cursor.execute("SELECT COUNT(*) as count FROM return_items")
+        return_items_count = cursor.fetchone()
+        return_items_count = return_items_count['count'] if USE_AZURE_SQL else return_items_count[0]
+
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        returns_count = cursor.fetchone()
+        returns_count = returns_count['count'] if USE_AZURE_SQL else returns_count[0]
+
+        # Get sample products
+        cursor.execute("SELECT TOP 5 id, sku, name FROM products" if USE_AZURE_SQL else "SELECT id, sku, name FROM products LIMIT 5")
+        products_sample = cursor.fetchall()
+
+        # Get sample return_items
+        cursor.execute("SELECT TOP 5 return_id, product_id, quantity FROM return_items" if USE_AZURE_SQL else "SELECT return_id, product_id, quantity FROM return_items LIMIT 5")
+        return_items_sample = cursor.fetchall()
+
+        # Get returns without return_items
+        cursor.execute("""
+            SELECT TOP 5 r.id, COUNT(ri.id) as items_count
+            FROM returns r
+            LEFT JOIN return_items ri ON CAST(r.id AS NVARCHAR(50)) = CAST(ri.return_id AS NVARCHAR(50))
+            GROUP BY r.id
+            HAVING COUNT(ri.id) = 0
+        """ if USE_AZURE_SQL else """
+            SELECT r.id, COUNT(ri.id) as items_count
+            FROM returns r
+            LEFT JOIN return_items ri ON r.id = ri.return_id
+            GROUP BY r.id
+            HAVING COUNT(ri.id) = 0
+            LIMIT 5
+        """)
+        returns_without_items = cursor.fetchall()
+
+        conn.close()
+
+        return {
+            "message": "Products and return items debug",
+            "counts": {
+                "products": products_count,
+                "return_items": return_items_count,
+                "returns": returns_count
+            },
+            "sample_products": [dict(row) for row in products_sample] if not USE_AZURE_SQL else [{"id": p['id'], "sku": p['sku'], "name": p['name']} for p in products_sample],
+            "sample_return_items": [dict(row) for row in return_items_sample] if not USE_AZURE_SQL else [{"return_id": ri['return_id'], "product_id": ri['product_id'], "quantity": ri['quantity']} for ri in return_items_sample],
+            "returns_without_items": [dict(row) for row in returns_without_items] if not USE_AZURE_SQL else [{"id": r['id'], "items_count": r['items_count']} for r in returns_without_items]
+        }
+    except Exception as e:
+        return {"error": str(e), "message": "Failed to debug products/returns"}
+
 @app.get("/favicon.ico")
 async def favicon():
     """Return empty response for favicon to prevent 404 errors"""
