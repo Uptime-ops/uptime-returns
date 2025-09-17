@@ -3149,24 +3149,44 @@ async def run_sync():
                                 result = cursor.fetchone()
                                 exists = result['count'] > 0 if USE_AZURE_SQL else result[0] > 0
                                 # DISABLED TRACE - print(f"SYNC TRACE: Return item exists check - count={result}, exists={exists}, actual_product_id={actual_product_id}")
-                                if not exists and actual_product_id:
-                                    cursor.execute(f"""
+                                # TEMP FIX: Always create return_items, create placeholder product if needed
+                                if not exists:
+                                    # Ensure we have a valid product_id
+                                    if not actual_product_id:
+                                        # Create a fallback product for this return item
+                                        print(f"⚠️ FALLBACK: Creating placeholder product for return {return_id}")
+                                        try:
+                                            cursor.execute(f"""
+                                                INSERT INTO products (sku, name, created_at, updated_at)
+                                                VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params(('UNKNOWN', 'Unknown Product')))
+                                            cursor.execute(f"SELECT SCOPE_IDENTITY() as id")
+                                            new_product = cursor.fetchone()
+                                            actual_product_id = new_product['id']
+                                            print(f"✅ FALLBACK: Created placeholder product ID: {actual_product_id}")
+                                        except Exception as fallback_err:
+                                            print(f"❌ FALLBACK: Could not create placeholder product: {fallback_err}")
+                                            continue  # Skip this return item if we can't create a product
+
+                                    if actual_product_id:
+                                        cursor.execute(f"""
                                         INSERT INTO return_items (return_id, product_id, quantity, return_reasons,
                                                condition_on_arrival, quantity_received, quantity_rejected, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
-                                               {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                                    """, ensure_tuple_params((
-                                        str(return_id),  # Convert to string for NVARCHAR field
-                                        actual_product_id,
-                                        item.get('quantity', 0),
-                                        json.dumps(item.get('return_reasons', [])),
-                                        json.dumps(item.get('condition_on_arrival', [])),
-                                        item.get('quantity_received', 0),
-                                        item.get('quantity_rejected', 0),
-                                        convert_date_for_sql(datetime.now().isoformat()),  # created_at
-                                        convert_date_for_sql(datetime.now().isoformat())   # updated_at
-                                    )))
-                                    sync_status["return_items_synced"] += 1
+                                            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder},
+                                                   {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                        """, ensure_tuple_params((
+                                            str(return_id),  # Convert to string for NVARCHAR field
+                                            actual_product_id,
+                                            item.get('quantity', 0),
+                                            json.dumps(item.get('return_reasons', [])),
+                                            json.dumps(item.get('condition_on_arrival', [])),
+                                            item.get('quantity_received', 0),
+                                            item.get('quantity_rejected', 0),
+                                            convert_date_for_sql(datetime.now().isoformat()),  # created_at
+                                            convert_date_for_sql(datetime.now().isoformat())   # updated_at
+                                        )))
+                                        sync_status["return_items_synced"] += 1
+                                        print(f"✅ FIXED: Created return_item for return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                     # DISABLED TRACE - print(f"SYNC TRACE: Return item inserted successfully: return {return_id}, product {actual_product_id}, qty {item.get('quantity', 0)}")
                                 elif not actual_product_id:
                                     pass  # DISABLED TRACE - print(f"SYNC TRACE: Skipping return item - no valid product ID")
