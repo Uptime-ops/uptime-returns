@@ -4298,6 +4298,68 @@ async def migrate_to_bigint():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/database/reset")
+async def reset_database():
+    """Clear all data from tables for fresh sync - DANGEROUS OPERATION"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # List of tables to clear in order (considering foreign key dependencies)
+        tables_to_clear = [
+            'return_items',      # Clear first (has foreign keys to returns/products)
+            'email_share_items', # Clear second (has foreign keys)
+            'email_history',     # Clear third (has foreign keys)
+            'returns',           # Clear fourth (has foreign keys to clients/warehouses/orders)
+            'orders',            # Clear fifth (referenced by returns)
+            'products',          # Clear sixth (referenced by return_items)
+            'clients',           # Clear seventh (referenced by returns)
+            'warehouses'         # Clear last (referenced by returns)
+        ]
+
+        cleared_tables = []
+        total_rows_deleted = 0
+
+        for table in tables_to_clear:
+            try:
+                # Get count before deletion
+                cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                count_result = cursor.fetchone()
+                count = count_result['count'] if USE_AZURE_SQL else count_result[0]
+
+                if count > 0:
+                    # Clear the table
+                    cursor.execute(f"DELETE FROM {table}")
+                    print(f"✅ Cleared {count} rows from {table}")
+                    cleared_tables.append({"table": table, "rows_deleted": count, "status": "success"})
+                    total_rows_deleted += count
+                else:
+                    print(f"⏭️ Table {table} was already empty")
+                    cleared_tables.append({"table": table, "rows_deleted": 0, "status": "already_empty"})
+
+            except Exception as table_error:
+                print(f"❌ Error clearing table {table}: {table_error}")
+                cleared_tables.append({"table": table, "rows_deleted": 0, "status": "error", "error": str(table_error)})
+
+        # Commit all deletions
+        conn.commit()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": f"Database reset complete - deleted {total_rows_deleted} total rows",
+            "tables_cleared": cleared_tables,
+            "warning": "All data has been permanently deleted. Run sync to repopulate.",
+            "next_steps": "Use POST /api/sync/trigger to repopulate with fresh data"
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Database reset failed: {str(e)}",
+            "warning": "Some data may have been partially deleted"
+        }
+
 @app.get("/api/database/migrate-bigint")
 async def migrate_to_bigint_get():
     """GET version of BIGINT migration for browser testing"""
