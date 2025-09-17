@@ -2626,6 +2626,7 @@ async def run_sync():
                     print("No more returns to process - breaking loop")
                     break
 
+                print(f"🎯 ABOUT TO START: Processing {len(returns_batch)} individual returns in main loop")
                 for ret in returns_batch:
                     return_id = ret['id']
                     client_name = ret.get('client', {}).get('name', 'no-client')
