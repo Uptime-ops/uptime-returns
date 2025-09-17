@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.141-REVERT-CURSOR-INDENTATION-FIXES-KEEP-DEBUG"
+DEPLOYMENT_VERSION = "V87.143-MAJOR-CLEANUP-REMOVE-SQLITE-AZURE-ONLY"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2724,64 +2724,30 @@ async def run_sync():
                     if isinstance(return_id, int) and return_id > 2147483647:
                         return_id = str(return_id)
 
-                    if USE_AZURE_SQL:
-                        # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                        placeholder = get_param_placeholder()
-                        cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
-                        return_result = cursor.fetchone()
-                        exists = (return_result['count'] > 0 if USE_AZURE_SQL else return_result[0] > 0)
-                        print(f"🔍 STEP 2: Return {return_id} exists check: {exists}")
+                    # Azure SQL-only simplified returns processing
+                    placeholder = get_param_placeholder()
+                    cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
+                    return_result = cursor.fetchone()
+                    exists = (return_result['count'] > 0)
+                    print(f"🔍 STEP 2: Return {return_id} exists check: {exists}")
 
-                        if exists:
-                            # Update existing return
-                            print(f"📝 STEP 3: About to UPDATE return {return_id}")
-                            try:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    UPDATE returns SET
-                                        api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
-                                        updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
-                                        warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
-                                        tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
-                                        label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
-                                        client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
-                                        return_integration_id = {placeholder}, last_synced_at = {placeholder}
-                                    WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
-                                """, (
-                                    ret.get('api_id'), ret.get('paid_by', ''),
-                                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                                    ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                                    ret.get('tracking_number'), ret.get('tracking_url'),
-                                    ret.get('carrier', ''), ret.get('service', ''),
-                                    ret.get('label_cost'), ret.get('label_pdf_url'),
-                                    ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                    str(ret['client']['id']) if ret.get('client') else None,
-                                    str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                                    str(ret['order']['id']) if ret.get('order') else None,
-                                    ret.get('return_integration_id'),
-                                    convert_date_for_sql(datetime.now().isoformat()),
-                                    return_id  # WHERE clause
-                                ))
-                                print(f"✅ STEP 4: UPDATE completed for return {return_id}")
-                            except Exception as update_err:
-                                print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
-                                continue  # Skip this return and move to next
-                        else:
-                            # Insert new return with duplicate handling
-                            print(f"➕ STEP 3: About to INSERT new return {return_id}")
-                            try:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
-                                            processed, processed_at, warehouse_note, customer_note,
-                                            tracking_number, tracking_url, carrier, service,
-                                            label_cost, label_pdf_url, rma_slip_url, label_voided,
-                                            client_id, warehouse_id, order_id, return_integration_id,
-                                            last_synced_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                            """, ensure_tuple_params((
-                                return_id, ret.get('api_id'), ret.get('paid_by', ''),
+                    if exists:
+                        # Update existing return
+                        print(f"📝 STEP 3: About to UPDATE return {return_id}")
+                        try:
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"""
+                                UPDATE returns SET
+                                    api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
+                                    updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
+                                    warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
+                                    tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
+                                    label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
+                                    client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
+                                    return_integration_id = {placeholder}, last_synced_at = {placeholder}
+                                WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
+                            """, (
+                                ret.get('api_id'), ret.get('paid_by', ''),
                                 ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
                                 ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
                                 ret.get('warehouse_note', ''), ret.get('customer_note', ''),
@@ -2793,41 +2759,47 @@ async def run_sync():
                                 str(ret['warehouse']['id']) if ret.get('warehouse') else None,
                                 str(ret['order']['id']) if ret.get('order') else None,
                                 ret.get('return_integration_id'),
-                                convert_date_for_sql(datetime.now().isoformat())
-                            )))
-                            except Exception as insert_error:
-                                if "duplicate key" in str(insert_error).lower() or "primary key constraint" in str(insert_error).lower():
-                                    print(f"Duplicate return {return_id} already exists, skipping insert")
-                                else:
-                                    print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
-                                    raise
-                else:
-                    # Use INSERT OR REPLACE for SQLite
-                    placeholder = get_param_placeholder()
-                    cursor.execute(f"""
-                        INSERT INTO returns (
-                        id, api_id, paid_by, status, created_at, updated_at,
-                        processed, processed_at, warehouse_note, customer_note,
-                        tracking_number, tracking_url, carrier, service,
-                        label_cost, label_pdf_url, rma_slip_url, label_voided,
-                        client_id, warehouse_id, order_id, return_integration_id,
-                        last_synced_at
-                        ) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                    """, ensure_tuple_params((
-                    return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                    ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                    ret.get('tracking_number'), ret.get('tracking_url'),
-                    ret.get('carrier', ''), ret.get('service', ''),
-                    ret.get('label_cost'), ret.get('label_pdf_url'),
-                    ret.get('rma_slip_url'), ret.get('label_voided', False),
-                    str(ret['client']['id']) if ret.get('client') else None,
-                    str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                    str(ret['order']['id']) if ret.get('order') else None,
-                    ret.get('return_integration_id'),
-                    convert_date_for_sql(datetime.now().isoformat())
-                )))
+                                convert_date_for_sql(datetime.now().isoformat()),
+                                return_id  # WHERE clause
+                            ))
+                            print(f"✅ STEP 4: UPDATE completed for return {return_id}")
+                        except Exception as update_err:
+                            print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
+                            continue  # Skip this return and move to next
+                    else:
+                        # Insert new return with duplicate handling
+                        print(f"➕ STEP 3: About to INSERT new return {return_id}")
+                        try:
+                            placeholder = get_param_placeholder()
+                            cursor.execute(f"""
+                                INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
+                                        processed, processed_at, warehouse_note, customer_note,
+                                        tracking_number, tracking_url, carrier, service,
+                                        label_cost, label_pdf_url, rma_slip_url, label_voided,
+                                        client_id, warehouse_id, order_id, return_integration_id,
+                                        last_synced_at)
+                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                        """, ensure_tuple_params((
+                            return_id, ret.get('api_id'), ret.get('paid_by', ''),
+                            ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                            ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
+                            ret.get('warehouse_note', ''), ret.get('customer_note', ''),
+                            ret.get('tracking_number'), ret.get('tracking_url'),
+                            ret.get('carrier', ''), ret.get('service', ''),
+                            ret.get('label_cost'), ret.get('label_pdf_url'),
+                            ret.get('rma_slip_url'), ret.get('label_voided', False),
+                            str(ret['client']['id']) if ret.get('client') else None,
+                            str(ret['warehouse']['id']) if ret.get('warehouse') else None,
+                            str(ret['order']['id']) if ret.get('order') else None,
+                            ret.get('return_integration_id'),
+                            convert_date_for_sql(datetime.now().isoformat())
+                        )))
+                        except Exception as insert_error:
+                            if "duplicate key" in str(insert_error).lower() or "primary key constraint" in str(insert_error).lower():
+                                print(f"Duplicate return {return_id} already exists, skipping insert")
+                            else:
+                                print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
+                                raise
 
                 # Store order info - always make separate API call for complete data
                 print(f"🎯 STEP 5: Starting order processing for return {return_id}")
