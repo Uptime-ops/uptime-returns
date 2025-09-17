@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.119-FIX-504-GATEWAY-TIMEOUT-PERIODIC-COMMITS"
+DEPLOYMENT_VERSION = "V87.120-OPTIMIZED-SYNC-REMOVED-BULK-ORDER-FETCH-RETURN-DRIVEN-ONLY"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -472,7 +472,7 @@ async def debug_order_dates():
         cursor = conn.cursor()
 
         # Get sample of order dates to verify they're diverse
-        cursor.execute("SELECT TOP 10 id, order_number, order_date, created_at, updated_at FROM orders ORDER BY order_date DESC" if USE_AZURE_SQL else "SELECT id, order_number, order_date, created_at, updated_at FROM orders ORDER BY order_date DESC LIMIT 10")
+        cursor.execute("SELECT TOP 10 id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
         orders = cursor.fetchall()
 
         if USE_AZURE_SQL:
@@ -481,7 +481,6 @@ async def debug_order_dates():
                 orders_list.append({
                     "id": order['id'],
                     "order_number": order['order_number'],
-                    "order_date": str(order['order_date']) if order['order_date'] else None,
                     "created_at": str(order['created_at']),
                     "updated_at": str(order['updated_at'])
                 })
@@ -491,142 +490,12 @@ async def debug_order_dates():
         conn.close()
 
         return {
-            "message": "Order dates debug - showing order_date vs created_at columns",
+            "message": "Order dates debug - created_at column contains order_date from API",
             "sample_orders": orders_list,
-            "note": "order_date = actual order date from API, created_at = record creation timestamp"
+            "note": "created_at column contains the actual order_date from API, not creation timestamp"
         }
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch order dates"}
-
-@app.post("/api/debug/fix-order-date-column")
-async def fix_order_date_column():
-    """Fix the oreder_date typo to order_date"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Check if oreder_date exists and order_date doesn't
-        cursor.execute("""
-            SELECT COUNT(*) as oreder_count
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'oreder_date'
-        """)
-        oreder_exists = cursor.fetchone()['oreder_count'] > 0
-
-        cursor.execute("""
-            SELECT COUNT(*) as order_count
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_NAME = 'orders' AND COLUMN_NAME = 'order_date'
-        """)
-        order_exists = cursor.fetchone()['order_count'] > 0
-
-        if oreder_exists and not order_exists:
-            # Rename the column
-            cursor.execute("EXEC sp_rename 'orders.oreder_date', 'order_date', 'COLUMN'")
-            conn.commit()
-            conn.close()
-            return {"status": "success", "message": "Renamed oreder_date to order_date"}
-        elif order_exists:
-            conn.close()
-            return {"status": "already_fixed", "message": "order_date column already exists"}
-        else:
-            conn.close()
-            return {"status": "not_needed", "message": "Neither column found"}
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/debug/orders-table")
-async def debug_orders_table():
-    """Debug endpoint to check orders table data for ID/order_number mismatch"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Get sample orders to check ID vs order_number relationship - check both possible column names
-        try:
-            cursor.execute("SELECT TOP 10 id, order_number, customer_name, created_at, order_date FROM orders ORDER BY id DESC" if USE_AZURE_SQL else "SELECT id, order_number, customer_name, created_at, order_date FROM orders ORDER BY id DESC LIMIT 10")
-        except:
-            # Fallback to oreder_date if order_date doesn't exist
-            cursor.execute("SELECT TOP 10 id, order_number, customer_name, created_at, oreder_date as order_date FROM orders ORDER BY id DESC" if USE_AZURE_SQL else "SELECT id, order_number, customer_name, created_at, oreder_date as order_date FROM orders ORDER BY id DESC LIMIT 10")
-        orders = cursor.fetchall()
-
-        if USE_AZURE_SQL:
-            orders_list = []
-            for order in orders:
-                orders_list.append({
-                    "id": str(order['id']),
-                    "order_number": order['order_number'],
-                    "customer_name": order['customer_name'],
-                    "created_at": str(order['created_at']),
-                    "id_matches_order_number": str(order['id']) == order['order_number']
-                })
-        else:
-            orders_list = [dict(row) for row in orders]
-
-        conn.close()
-
-        return {
-            "message": "Orders table diagnostic - checking ID vs order_number consistency",
-            "sample_orders": orders_list,
-            "note": "id should match order_number, or be the internal order ID from Warehance API"
-        }
-    except Exception as e:
-        return {"error": str(e), "message": "Failed to fetch orders table data"}
-
-@app.get("/api/debug/order-return-mapping")
-async def debug_order_return_mapping():
-    """Debug order ID mapping between returns and orders tables"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Get sample returns with their order IDs
-        cursor.execute("""
-            SELECT TOP 5 r.id as return_id, r.order_id, o.id as orders_table_id,
-                   o.order_number, o.customer_name, r.created_at as return_created
-            FROM returns r
-            LEFT JOIN orders o ON CAST(r.order_id AS NVARCHAR(50)) = CAST(o.id AS NVARCHAR(50))
-            WHERE r.order_id IS NOT NULL
-            ORDER BY r.created_at DESC
-        """ if USE_AZURE_SQL else """
-            SELECT r.id as return_id, r.order_id, o.id as orders_table_id,
-                   o.order_number, o.customer_name, r.created_at as return_created
-            FROM returns r
-            LEFT JOIN orders o ON r.order_id = o.id
-            WHERE r.order_id IS NOT NULL
-            ORDER BY r.created_at DESC
-            LIMIT 5
-        """)
-
-        results = cursor.fetchall()
-
-        if USE_AZURE_SQL:
-            mapping_list = []
-            for row in results:
-                mapping_list.append({
-                    "return_id": row['return_id'],
-                    "return_order_id": str(row['order_id']),
-                    "orders_table_id": str(row['orders_table_id']) if row['orders_table_id'] else None,
-                    "order_number": row['order_number'],
-                    "customer_name": row['customer_name'],
-                    "ids_match": str(row['order_id']) == str(row['orders_table_id']) if row['orders_table_id'] else False
-                })
-        else:
-            mapping_list = [dict(row) for row in results]
-
-        conn.close()
-
-        return {
-            "message": "Order ID mapping verification between returns and orders tables",
-            "mappings": mapping_list,
-            "note": "Checks if return.order_id matches orders.id and has correct customer data"
-        }
-    except Exception as e:
-        return {"error": str(e), "message": "Failed to fetch order mapping data"}
 
 @app.get("/favicon.ico")
 async def favicon():
@@ -1614,8 +1483,7 @@ async def export_returns_csv(request: Request):
     query = """
     SELECT CAST(r.id AS NVARCHAR(50)) as return_id, r.status, r.created_at as return_date, r.tracking_number,
            r.processed, c.name as client_name, w.name as warehouse_name,
-           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number,
-           COALESCE(o.order_date, o.oreder_date) as order_date, o.customer_name
+           CAST(r.order_id AS NVARCHAR(50)) as order_id, o.order_number, o.order_date, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON r.client_id = c.id
     LEFT JOIN warehouses w ON r.warehouse_id = w.id
@@ -1901,7 +1769,7 @@ async def migrate_database():
             ("returns", "order_id", "INT"),
             ("returns", "return_integration_id", "NVARCHAR(100)"),
             ("returns", "last_synced_at", "DATETIME"),
-            # CURSOR FIX: Add order_date column to orders table
+            # Add order_date column to orders table
             ("orders", "order_date", "DATETIME"),
         ]
 
@@ -2976,25 +2844,26 @@ async def run_sync():
                                     str(order_data['id']),
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
+                                    convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
+                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
                                     convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
                                 print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
                             else:
-                                # Update existing order with correct order date
+                                # Update existing order with correct data
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
                                     UPDATE orders
                                     SET customer_name = {placeholder}, order_number = {placeholder},
-                                        order_date = {placeholder}, updated_at = {placeholder}
+                                        order_date = {placeholder}, created_at = {placeholder}, updated_at = {placeholder}
                                     WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
                                 """, ensure_tuple_params((
                                     customer_name,
                                     order_data.get('order_number', ''),
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API
-                                    convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
+                                    convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
+                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
+                                    convert_date_for_sql(datetime.now().isoformat()),   # updated_at = current timestamp
                                     str(order_data['id'])
                                 )))
                                 print(f"Updated order {order_data['id']} with customer '{customer_name}'")
@@ -3007,9 +2876,9 @@ async def run_sync():
                                 str(order_data['id']),
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
-                                convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
-                                datetime.now().isoformat()   # updated_at = current timestamp
+                                convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
+                                convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
+                                datetime.now().isoformat()  # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
                     except Exception as e:
@@ -3268,7 +3137,7 @@ async def run_sync():
 
                 total_fetched += len(returns_batch)
 
-                # Check if we've fetched enough recent returns or reached limit
+                # Check if we've fetched all available returns
                 total_count = data['data'].get('total_count', 0)
                 # Stop when no more returns available (natural end of data)
                 if len(returns_batch) < limit:
@@ -3307,105 +3176,9 @@ async def run_sync():
         conn.commit()
         print(f"SUCCESS: BATCH COMMIT: Successfully committed {sync_status.get('products_synced', 0)} products and {sync_status.get('return_items_synced', 0)} return items")
 
-        # STEP 1.5: Fetch orders from API to populate orders table
-        print("🔄 STEP 1.5: Fetching orders from API to populate orders table...")
-        sync_status["last_sync_message"] = "STEP 1.5: Fetching orders from API..."
-
-        # Fetch orders in batches
-        offset = 0
-        batch_size = 100  # Warehance API limit
-        orders_fetched = 0
-        max_orders_to_fetch = 5000  # INFINITE LOOP PROTECTION: Safety limit to prevent runaway fetching
-
-        while True:
-            url = f"https://api.warehance.com/v1/orders?limit={batch_size}&offset={offset}"
-            print(f"Fetching orders: offset={offset}, limit={batch_size}")
-            response = http_session.get(url, headers=headers)
-
-            if response.status_code != 200:
-                print(f"Orders API error: {response.status_code}")
-                break
-
-            data = response.json()
-            orders_data = data.get('data', {}).get('orders', [])
-
-            if not orders_data:
-                print("No more orders to fetch")
-                break
-
-            print(f"Processing {len(orders_data)} orders...")
-
-            for order_data in orders_data:
-                order_id = str(order_data['id'])
-                # Extract customer name from ship_to_address
-                ship_to = order_data.get('ship_to_address', {})
-                customer_name = f"{ship_to.get('first_name', '')} {ship_to.get('last_name', '')}".strip()
-
-                # Check if order already exists
-                cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}", (order_id,))
-                result = cursor.fetchone()
-                if (result['count'] == 0 if USE_AZURE_SQL else result[0] == 0):
-                    # Insert new order with correct date
-                    try:
-                        cursor.execute(f"""
-                            INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
-                            VALUES ({get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()}, {get_param_placeholder()})
-                        """, ensure_tuple_params((
-                            order_id,
-                            order_data.get('order_number', ''),
-                            customer_name,
-                            convert_date_for_sql(order_data.get('order_date')),  # CURSOR FIX: Store actual order date from API
-                            convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
-                            convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
-                        )))
-                        orders_fetched += 1
-                    except Exception as e:
-                        print(f"❌ Error inserting order {order_id}: {e}")
-                        continue
-                else:
-                    # Update existing order with correct order date
-                    try:
-                        cursor.execute(f"""
-                            UPDATE orders
-                            SET customer_name = {get_param_placeholder()}, order_number = {get_param_placeholder()},
-                                order_date = {get_param_placeholder()}, updated_at = {get_param_placeholder()}
-                            WHERE CAST(id AS NVARCHAR(50)) = {get_param_placeholder()}
-                        """, ensure_tuple_params((
-                            customer_name,
-                            order_data.get('order_number', ''),
-                            convert_date_for_sql(order_data.get('order_date')),  # FIXED: Use actual order date from API
-                            convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
-                            order_id
-                        )))
-                        print(f"✅ Updated order {order_id} with customer '{customer_name}'")
-                    except Exception as e:
-                        print(f"❌ Error updating order {order_id}: {e}")
-                        continue
-
-            offset += batch_size
-
-            # INFINITE LOOP PROTECTION: Multiple break conditions
-            # 1. Break if we got fewer orders than requested (end of data)
-            if len(orders_data) < batch_size:
-                print(f"ORDERS PAGINATION: End of data reached - got {len(orders_data)} orders (less than {batch_size})")
-                break
-
-            # 2. Break if we've fetched too many orders (safety limit)
-            if offset >= max_orders_to_fetch:
-                print(f"ORDERS PAGINATION: Safety limit reached - fetched {offset} orders, stopping to prevent infinite loop")
-                break
-
-            # 3. Break if we've been fetching for too long (time limit)
-            if orders_fetched > 2000:  # Reasonable limit for order count
-                print(f"ORDERS PAGINATION: Reasonable limit reached - fetched {orders_fetched} orders, stopping")
-                break
-
-        print(f"SUCCESS: ORDERS SYNC: Fetched {orders_fetched} new orders from API")
-        sync_status["orders_synced"] = orders_fetched
-
-        # Commit orders to database
-        conn.commit()
-        print(f"SUCCESS: ORDERS COMMIT: Successfully committed {orders_fetched} orders")
+        # STEP 1.5: Orders are fetched individually per return (no bulk fetch needed)
+        print("🔄 STEP 1.5: Orders will be fetched per return as needed (no bulk fetch)")
+        sync_status["last_sync_message"] = "STEP 1.5: Skipping bulk order fetch - using return-driven approach..."
 
         # STEP 2: Fetch orders from DATABASE (ignore API collection) and populate missing customer names
         print("🔄 STEP 2: Using database-driven approach like individual return endpoint...")
@@ -3486,7 +3259,7 @@ async def run_sync():
                                     order_id,
                                     order_data.get('order_number', ''),
                                     customer_name,
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                    convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
                                     convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
                                     convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
@@ -3502,7 +3275,7 @@ async def run_sync():
                                 """, ensure_tuple_params((
                                     customer_name,
                                     order_data.get('order_number', ''),
-                                    convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # FIXED: Use actual order date from API, fallback to created_at
+                                    convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
                                     convert_date_for_sql(datetime.now().isoformat()),  # Updated at current time
                                     order_id
                                 )))
@@ -3515,9 +3288,9 @@ async def run_sync():
                                 order_id,
                                 order_data.get('order_number', ''),
                                 customer_name,
-                                convert_date_for_sql(order_data.get('order_date') or order_data.get('created_at')),  # CURSOR FIX: Store actual order date from API
+                                convert_date_for_sql(order_data.get('order_date')),  # Use actual order date from API
                                 convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation time from API
-                                datetime.now().isoformat()   # updated_at = current timestamp
+                                datetime.now().isoformat()  # updated_at = current timestamp
                             )))
                             sync_status["orders_synced"] += 1
                             print(f"SUCCESS: Inserted/updated order {order_id} with customer '{customer_name}'")
@@ -4541,10 +4314,6 @@ async def trigger_sync_get():
     # Provide default request data for GET trigger
     request_data = {"sync_type": "full"}
     return await trigger_sync(request_data)
-
-
-
-
 
 # Email Share Endpoints
 @app.post("/api/email-shares/create")
