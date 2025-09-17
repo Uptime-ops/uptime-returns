@@ -2801,6 +2801,7 @@ async def run_sync():
                                 print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
                                 raise
 
+                print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
                 # Store order info - always make separate API call for complete data
                 print(f"🎯 STEP 5: Starting order processing for return {return_id}")
                 order_data = None
