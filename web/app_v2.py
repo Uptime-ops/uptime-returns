@@ -2961,6 +2961,7 @@ async def run_sync():
                         print(f"Order data: {order_data}")
                         print(f"Customer name: {customer_name}")
 
+                print(f"🔍 PRE-CHECKPOINT: About to reach checkpoint for return {return_id}")
                 print(f"📍 CHECKPOINT: Finished order processing for return {return_id}, about to start items")
                 # Store return items - use optimized concurrent approach
                 print(f"🚀 REACHED: Starting items processing for return {return_id}")
