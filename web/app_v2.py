@@ -4305,7 +4305,35 @@ async def reset_database():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # List of tables to clear in order (considering foreign key dependencies)
+        # Get counts before deletion for reporting
+        initial_counts = {}
+        all_tables = ['return_items', 'email_share_items', 'email_history', 'returns', 'orders', 'products', 'clients', 'warehouses']
+
+        print("🔍 RESET: Getting initial table counts...")
+        for table in all_tables:
+            try:
+                cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                count_result = cursor.fetchone()
+                initial_counts[table] = count_result['count'] if USE_AZURE_SQL else count_result[0]
+                print(f"📊 Table {table}: {initial_counts[table]} rows")
+            except Exception as count_error:
+                print(f"⚠️ Could not count {table}: {count_error}")
+                initial_counts[table] = -1
+
+        # For Azure SQL, temporarily disable foreign key checks for faster deletion
+        if USE_AZURE_SQL:
+            try:
+                # Disable foreign key constraints temporarily
+                print("🔧 RESET: Disabling foreign key constraints...")
+                cursor.execute("EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'")
+                print("✅ RESET: Foreign key constraints disabled")
+            except Exception as fk_error:
+                print(f"⚠️ RESET: Could not disable FK constraints: {fk_error}")
+
+        cleared_tables = []
+        total_rows_deleted = 0
+
+        # Clear tables in dependency order
         tables_to_clear = [
             'return_items',      # Clear first (has foreign keys to returns/products)
             'email_share_items', # Clear second (has foreign keys)
@@ -4317,43 +4345,60 @@ async def reset_database():
             'warehouses'         # Clear last (referenced by returns)
         ]
 
-        cleared_tables = []
-        total_rows_deleted = 0
-
         for table in tables_to_clear:
             try:
-                # Get count before deletion
-                cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
-                count_result = cursor.fetchone()
-                count = count_result['count'] if USE_AZURE_SQL else count_result[0]
+                initial_count = initial_counts.get(table, 0)
+                if initial_count > 0:
+                    print(f"🗑️ RESET: Clearing {initial_count} rows from {table}...")
 
-                if count > 0:
-                    # Clear the table
+                    # Use DELETE instead of TRUNCATE to avoid issues with IDENTITY columns
                     cursor.execute(f"DELETE FROM {table}")
-                    print(f"✅ Cleared {count} rows from {table}")
-                    cleared_tables.append({"table": table, "rows_deleted": count, "status": "success"})
-                    total_rows_deleted += count
+
+                    # Verify deletion worked
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                    final_count_result = cursor.fetchone()
+                    final_count = final_count_result['count'] if USE_AZURE_SQL else final_count_result[0]
+
+                    if final_count == 0:
+                        print(f"✅ RESET: Successfully cleared {initial_count} rows from {table}")
+                        cleared_tables.append({"table": table, "initial_rows": initial_count, "rows_deleted": initial_count, "status": "success"})
+                        total_rows_deleted += initial_count
+                    else:
+                        print(f"⚠️ RESET: {table} still has {final_count} rows after deletion")
+                        cleared_tables.append({"table": table, "initial_rows": initial_count, "rows_deleted": initial_count - final_count, "status": "partial", "remaining": final_count})
                 else:
-                    print(f"⏭️ Table {table} was already empty")
-                    cleared_tables.append({"table": table, "rows_deleted": 0, "status": "already_empty"})
+                    print(f"⏭️ RESET: Table {table} was already empty ({initial_count} rows)")
+                    cleared_tables.append({"table": table, "initial_rows": initial_count, "rows_deleted": 0, "status": "already_empty"})
 
             except Exception as table_error:
-                print(f"❌ Error clearing table {table}: {table_error}")
-                cleared_tables.append({"table": table, "rows_deleted": 0, "status": "error", "error": str(table_error)})
+                print(f"❌ RESET: Error clearing table {table}: {table_error}")
+                cleared_tables.append({"table": table, "initial_rows": initial_counts.get(table, 0), "rows_deleted": 0, "status": "error", "error": str(table_error)})
 
-        # Commit all deletions
+        # Re-enable foreign key constraints for Azure SQL
+        if USE_AZURE_SQL:
+            try:
+                print("🔧 RESET: Re-enabling foreign key constraints...")
+                cursor.execute("EXEC sp_MSforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT ALL'")
+                print("✅ RESET: Foreign key constraints re-enabled")
+            except Exception as fk_error:
+                print(f"⚠️ RESET: Could not re-enable FK constraints: {fk_error}")
+
+        # Commit all changes
         conn.commit()
+        print("💾 RESET: All changes committed to database")
         conn.close()
 
         return {
             "status": "success",
             "message": f"Database reset complete - deleted {total_rows_deleted} total rows",
+            "initial_counts": initial_counts,
             "tables_cleared": cleared_tables,
             "warning": "All data has been permanently deleted. Run sync to repopulate.",
             "next_steps": "Use POST /api/sync/trigger to repopulate with fresh data"
         }
 
     except Exception as e:
+        print(f"💥 RESET: Critical error: {e}")
         return {
             "status": "error",
             "message": f"Database reset failed: {str(e)}",
