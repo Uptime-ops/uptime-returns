@@ -2763,6 +2763,7 @@ async def run_sync():
                                 return_id  # WHERE clause
                             ))
                             print(f"✅ STEP 4: UPDATE completed for return {return_id}")
+                            print(f"🔥 POST-UPDATE: About to exit UPDATE try block for {return_id}")
                         except Exception as update_err:
                             print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
                             continue  # Skip this return and move to next
