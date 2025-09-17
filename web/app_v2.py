@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.128-FIX-SQL-SYNTAX-ERROR-KEY-RESERVED-KEYWORD"
+DEPLOYMENT_VERSION = "V87.129-CRITICAL-FIX-PRODUCT-IDS-AND-RETURN-ITEMS-CREATION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION}")
@@ -3030,23 +3030,18 @@ async def run_sync():
                                 # Create a placeholder product
                                 placeholder = get_param_placeholder()
                                 if USE_AZURE_SQL:
-                                    # 🚨 FIXED: Remove explicit ID INSERT for IDENTITY column
+                                    # 🚨 CRITICAL FIX: Include actual API product ID instead of auto-generated IDENTITY
                                     cursor.execute(f"""
-                                        INSERT INTO products (sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((product_sku, product_name or 'Unknown Product')))
+                                        INSERT INTO products (id, sku, name, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
                                 else:
                                     cursor.execute(f"""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
                                         VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                     """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
-                                # Get the newly created product ID
-                                if USE_AZURE_SQL:
-                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                    new_product = cursor.fetchone()
-                                    actual_product_id = new_product['id'] if new_product else None
-                                else:
-                                    actual_product_id = cursor.lastrowid
+                                # Use the API product ID we just inserted
+                                actual_product_id = product_id
                                 sync_status["products_synced"] += 1
                                 # DISABLED TRACE - print(f"SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
                         elif product_id > 0:
@@ -3059,18 +3054,16 @@ async def run_sync():
                                     existing_product = cursor.fetchone()
                                     if not existing_product:
                                         cursor.execute(f"""
-                                            INSERT INTO products (sku, name, created_at, updated_at)
-                                            VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                        """, ensure_tuple_params((product_sku, product_name)))
-                                        # Get the newly inserted product ID
-                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                        new_product = cursor.fetchone()
-                                        actual_product_id = new_product['id'] if new_product else None
+                                            INSERT INTO products (id, sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                        # Use the API product ID we just inserted
+                                        actual_product_id = product_id
                                         sync_status["products_synced"] += 1
-                                        print(f"Product inserted: SKU: {product_sku}, DB ID: {actual_product_id}")
+                                        print(f"✅ Product inserted: SKU: {product_sku}, API ID: {actual_product_id}")
                                     else:
                                         actual_product_id = existing_product['id']
-                                        print(f"Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
+                                        print(f"✅ Product exists: SKU: {product_sku}, DB ID: {actual_product_id}")
                                 else:
                                     # SQLite version - can use explicit IDs
                                     cursor.execute("""
@@ -3095,23 +3088,23 @@ async def run_sync():
 
                                 if USE_AZURE_SQL:
                                     placeholder = get_param_placeholder()
+                                    # Use item_id as the placeholder product ID to maintain consistency
+                                    placeholder_product_id = item_id
                                     cursor.execute(f"""
-                                        INSERT INTO products (sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((placeholder_sku, placeholder_name)))
-                                    # Get the newly inserted product ID
-                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (placeholder_sku,))
-                                    new_product = cursor.fetchone()
-                                    actual_product_id = new_product['id'] if new_product else None
+                                        INSERT INTO products (id, sku, name, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                    """, ensure_tuple_params((placeholder_product_id, placeholder_sku, placeholder_name)))
+                                    actual_product_id = placeholder_product_id
                                     sync_status["products_synced"] += 1
-                                    print(f"Placeholder product created: SKU: {placeholder_sku}, DB ID: {actual_product_id}")
+                                    print(f"✅ Placeholder product created: SKU: {placeholder_sku}, ID: {actual_product_id}")
                                 else:
-                                    # SQLite version
+                                    # SQLite version - use item_id as product ID for consistency
+                                    placeholder_product_id = item_id
                                     cursor.execute("""
-                                        INSERT INTO products (sku, name, created_at, updated_at)
-                                        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, (placeholder_sku, placeholder_name))
-                                    actual_product_id = cursor.lastrowid
+                                        INSERT INTO products (id, sku, name, created_at, updated_at)
+                                        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    """, (placeholder_product_id, placeholder_sku, placeholder_name))
+                                    actual_product_id = placeholder_product_id
                                     sync_status["products_synced"] += 1
                             except Exception as placeholder_err:
                                 print(f"Error creating placeholder product for item {item_id}: {placeholder_err}")
@@ -3135,7 +3128,7 @@ async def run_sync():
                                     # DISABLED TRACE - print(f"SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
                                     actual_product_id = None
                             else:
-                            # For SQLite, we can use the API product_id directly
+                                # For SQLite, we can use the API product_id directly
                                 actual_product_id = product_id
                                 # DISABLED TRACE - print(f"SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
 
