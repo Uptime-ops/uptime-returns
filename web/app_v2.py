@@ -2963,15 +2963,15 @@ async def run_sync():
                 items_data = []
 
                 # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
-                # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Fetching individual return with items data")
+                print(f"🔍 ITEMS DEBUG: Return {return_id}: Fetching individual return with items data")
                 return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
 
                 if items_data:
-                    # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} items via individual API")
+                    print(f"✅ ITEMS SUCCESS: Return {return_id}: Fetched {len(items_data)} items via individual API")
                     if items_data:
                         pass  # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
                 elif error:
-                    pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: {error}")
+                    print(f"❌ ITEMS ERROR: Return {return_id}: {error}")
                     # Fallback: Try separate items API call if individual return didn't work
                     # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Fallback to separate items API call")
                     try:
@@ -3221,8 +3221,8 @@ async def run_sync():
                     # DISABLED TRACE - print(f"SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
                     log_sync_activity(f"Successfully processed return {return_id} with {items_count} items")
                 else:
-                    # DISABLED TRACE - print(f"SYNC TRACE: No items found for return {return_id} - items_data is empty")
-                    # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id} items field from API: {ret.get('items')}")
+                    print(f"⚠️ ITEMS EMPTY: Return {return_id} - no items found via individual API")
+                    print(f"⚠️ ITEMS EMPTY: Return {return_id} items field from bulk API: {ret.get('items')}")
                     log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
                     # DISABLED TRACE - print(f"SYNC TRACE: Successfully processed return {return_id} (no items)")
 
