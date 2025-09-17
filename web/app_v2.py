@@ -471,28 +471,38 @@ async def debug_order_dates():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Get sample of order dates to verify they're diverse
-        cursor.execute("SELECT TOP 10 id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
+        # Get sample of order dates to verify they're diverse - include order_date column if it exists
+        try:
+            cursor.execute("SELECT TOP 10 id, order_number, order_date, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, order_date, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
+        except:
+            # Fallback if order_date column doesn't exist
+            cursor.execute("SELECT TOP 10 id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC" if USE_AZURE_SQL else "SELECT id, order_number, created_at, updated_at FROM orders ORDER BY created_at DESC LIMIT 10")
         orders = cursor.fetchall()
 
         if USE_AZURE_SQL:
             orders_list = []
             for order in orders:
-                orders_list.append({
+                order_dict = {
                     "id": order['id'],
                     "order_number": order['order_number'],
                     "created_at": str(order['created_at']),
                     "updated_at": str(order['updated_at'])
-                })
+                }
+                # Add order_date if it exists in the result
+                try:
+                    order_dict["order_date"] = str(order['order_date']) if order['order_date'] else None
+                except (KeyError, IndexError):
+                    pass  # order_date column doesn't exist
+                orders_list.append(order_dict)
         else:
             orders_list = [dict(row) for row in orders]
 
         conn.close()
 
         return {
-            "message": "Order dates debug - created_at column contains order_date from API",
+            "message": "Order dates debug - showing actual database schema",
             "sample_orders": orders_list,
-            "note": "created_at column contains the actual order_date from API, not creation timestamp"
+            "note": "order_date = actual order date from API, created_at = order creation timestamp from API"
         }
     except Exception as e:
         return {"error": str(e), "message": "Failed to fetch order dates"}
