@@ -2717,6 +2717,7 @@ async def run_sync():
                         all_order_ids.add(str(order_id_to_collect))
                         print(f"📋 Collected order ID {order_id_to_collect} for return {return_id}")
 
+                    print(f"🏁 STEP 1: About to start returns processing for {return_id}")
                     # Update or insert return - with overflow protection
                     # Convert large IDs to string to prevent arithmetic overflow
                     if isinstance(return_id, int) and return_id > 2147483647:
@@ -2728,9 +2729,11 @@ async def run_sync():
                         cursor.execute(f"SELECT COUNT(*) as count FROM returns WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] > 0 if USE_AZURE_SQL else return_result[0] > 0)
+                        print(f"🔍 STEP 2: Return {return_id} exists check: {exists}")
 
                         if exists:
                             # Update existing return
+                            print(f"📝 STEP 3: About to UPDATE return {return_id}")
                             placeholder = get_param_placeholder()
                             cursor.execute(f"""
                                 UPDATE returns SET
@@ -2758,8 +2761,10 @@ async def run_sync():
                                 convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
                             ))
+                            print(f"✅ STEP 4: UPDATE completed for return {return_id}")
                         else:
                             # Insert new return with duplicate handling
+                            print(f"➕ STEP 3: About to INSERT new return {return_id}")
                             try:
                                 placeholder = get_param_placeholder()
                                 cursor.execute(f"""
