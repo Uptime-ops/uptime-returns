@@ -2629,6 +2629,7 @@ async def run_sync():
                 for ret in returns_batch:
                     return_id = ret['id']
                     client_name = ret.get('client', {}).get('name', 'no-client')
+                    print(f"🔄 PROCESSING: Starting individual return {return_id} from {client_name}")
 
                     # Enhanced logging to see API response structure
                     has_order = bool(ret.get('order'))
@@ -2960,6 +2961,7 @@ async def run_sync():
                         print(f"Customer name: {customer_name}")
 
                 # Store return items - use optimized concurrent approach
+                print(f"🚀 REACHED: Starting items processing for return {return_id}")
                 items_data = []
 
                 # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
