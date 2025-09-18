@@ -2932,72 +2932,73 @@ async def run_sync():
                         print(f"Order data: {order_data}")
                         print(f"Customer name: {customer_name}")
 
-                print(f"🔍 DEBUG: Finished order processing, about to reach checkpoint for return {return_id}")
-                print(f"🔍 PRE-CHECKPOINT: About to reach checkpoint for return {return_id}")
-                print(f"📍 CHECKPOINT: Finished order processing for return {return_id}, about to start items")
-                # Store return items - use optimized concurrent approach
-                print(f"🚀 REACHED: Starting items processing for return {return_id}")
-                items_data = []
+                    print(f"🔥 ALMOST-CHECKPOINT: About to start checkpoint messages for return {return_id}")
+                    print(f"🔍 DEBUG: Finished order processing, about to reach checkpoint for return {return_id}")
+                    print(f"🔍 PRE-CHECKPOINT: About to reach checkpoint for return {return_id}")
+                    print(f"📍 CHECKPOINT: Finished order processing for return {return_id}, about to start items")
+                    # Store return items - use optimized concurrent approach
+                    print(f"🚀 REACHED: Starting items processing for return {return_id}")
+                    items_data = []
 
-                # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
-                print(f"🔍 ITEMS DEBUG: Return {return_id}: Fetching individual return with items data")
-                return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
+                    # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
+                    print(f"🔍 ITEMS DEBUG: Return {return_id}: Fetching individual return with items data")
+                    return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
 
-                if items_data:
-                    print(f"✅ ITEMS SUCCESS: Return {return_id}: Fetched {len(items_data)} items via individual API")
                     if items_data:
-                        pass  # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
-                elif error:
-                    print(f"❌ ITEMS ERROR: Return {return_id}: {error}")
-                    # Fallback: Try separate items API call if individual return didn't work
-                    # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Fallback to separate items API call")
-                    try:
-                        items_response = http_session.get(
-                            f"https://api.warehance.com/v1/returns/{return_id}/items",
-                            headers=headers,
-                            timeout=1.5  # 🚀 SPEED: Reduced from 3s to 1.5s for maximum speed
-                        )
-                        if items_response.status_code == 200:
-                            items_api_data = items_response.json()
-                            # # DISABLED TRACE - print(f"SYNC TRACE: Items API response: {items_api_data}")
-                            if items_api_data.get("status") == "success":
-                                items_data = items_api_data.get("data", [])
-                                # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                        print(f"✅ ITEMS SUCCESS: Return {return_id}: Fetched {len(items_data)} items via individual API")
+                        if items_data:
+                            pass  # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
+                    elif error:
+                        print(f"❌ ITEMS ERROR: Return {return_id}: {error}")
+                        # Fallback: Try separate items API call if individual return didn't work
+                        # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Fallback to separate items API call")
+                        try:
+                            items_response = http_session.get(
+                                f"https://api.warehance.com/v1/returns/{return_id}/items",
+                                headers=headers,
+                                timeout=1.5  # 🚀 SPEED: Reduced from 3s to 1.5s for maximum speed
+                            )
+                            if items_response.status_code == 200:
+                                items_api_data = items_response.json()
+                                # # DISABLED TRACE - print(f"SYNC TRACE: Items API response: {items_api_data}")
+                                if items_api_data.get("status") == "success":
+                                    items_data = items_api_data.get("data", [])
+                                    # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                                else:
+                                    pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                             else:
-                                pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
-                        else:
-                            pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
-                    except Exception as items_err:
-                        # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
-                        items_data = []
+                                pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
+                        except Exception as items_err:
+                            # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
+                            items_data = []
 
-                # Process return items if we have them
-                if items_data:
-                    items_count = len(items_data)
-                    # DISABLED TRACE - print(f"SYNC TRACE: Processing {items_count} return items for return {return_id}")
-                    log_sync_activity(f"Processing {items_count} return items for return {return_id}")
-                    for item_idx, item in enumerate(items_data, 1):
-                        # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count} full structure: {item}")
-                        # Get or create product
-                        product_id = item.get('product', {}).get('id', 0)
-                        product_sku = item.get('product', {}).get('sku', '')
-                        product_name = item.get('product', {}).get('name', '')
-                        # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
-                        log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
+                    # Process return items if we have them
+                    if items_data:
+                        items_count = len(items_data)
+                        # DISABLED TRACE - print(f"SYNC TRACE: Processing {items_count} return items for return {return_id}")
+                        log_sync_activity(f"Processing {items_count} return items for return {return_id}")
+                        for item_idx, item in enumerate(items_data, 1):
+                            # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count} full structure: {item}")
+                            # Get or create product
+                            product_id = item.get('product', {}).get('id', 0)
+                            product_sku = item.get('product', {}).get('sku', '')
+                            product_name = item.get('product', {}).get('name', '')
+                            # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
+                            log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
 
-                        # CRITICAL FIX: Process ALL products with SKU, not just those with product_id == 0
-                        # Previous logic skipped products with large API IDs (like 231185187982)
-                        # DISABLED TRACE - print(f"SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
-                        if product_sku:
-                            # DISABLED TRACE - print(f"SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
-                            # Original logic for products with SKU but no ID
-                            # Try to find existing product by SKU
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
-                            existing = cursor.fetchone()
-                            if existing:
-                                actual_product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
-                                # DISABLED TRACE - print(f"SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
+                            # CRITICAL FIX: Process ALL products with SKU, not just those with product_id == 0
+                            # Previous logic skipped products with large API IDs (like 231185187982)
+                            # DISABLED TRACE - print(f"SYNC TRACE: Product logic check - product_id={product_id}, product_sku='{product_sku}', has_sku={bool(product_sku)}")
+                            if product_sku:
+                                # DISABLED TRACE - print(f"SYNC TRACE: Taking path 1: product_id=0 AND has SKU")
+                                # Original logic for products with SKU but no ID
+                                # Try to find existing product by SKU
+                                placeholder = get_param_placeholder()
+                                cursor.execute(f"SELECT id as product_id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                existing = cursor.fetchone()
+                                if existing:
+                                    actual_product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
+                                    # DISABLED TRACE - print(f"SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
                             else:
                                 # Create a placeholder product
                                 placeholder = get_param_placeholder()
