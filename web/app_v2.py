@@ -3225,16 +3225,17 @@ async def run_sync():
                 print(f"🔍 API DEBUG: Returns batch size: {len(returns_batch)}, Total available: {total_count}, Limit: {limit}, Offset: {offset}")
                 print(f"🔍 API DEBUG: Returns batch IDs: {[r.get('id') for r in returns_batch[:5]]}")
 
-                # Stop when no more returns available (natural end of data)
-                if len(returns_batch) < limit:
-                    print(f"🛑 STOPPING SYNC: Returns batch ({len(returns_batch)}) < limit ({limit})")
-                    print(f"📊 API RESPONSE: total_count={total_count}, offset={offset}, fetched={len(returns_batch)}")
-                    print(f"🔍 This suggests Warehance API only has {total_count} returns available")
+                # FIXED: Stop only when no returns returned (empty batch)
+                if len(returns_batch) == 0:
+                    print(f"🛑 STOPPING SYNC: Empty batch received - no more returns available")
+                    print(f"📊 FINAL STATS: total_fetched={total_fetched}, total_count={total_count}")
                     print(f"🔢 COLLECTED {len(all_order_ids)} unique order IDs from {total_fetched} returns")
                     if len(all_order_ids) > 0:
                         sample_ids = list(all_order_ids)[:5]
                         print(f"📝 Sample order IDs: {sample_ids}")
                     break
+
+                print(f"✅ CONTINUING: Batch has {len(returns_batch)} returns, fetching next batch...")
 
             except Exception as e:
                 error_str = str(e)
