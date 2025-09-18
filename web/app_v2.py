@@ -2847,50 +2847,51 @@ async def run_sync():
                             pass  # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
 
                     print(f"🔥 POST-API: Completed order API processing for return {return_id}")
-                # Insert order data if we have it
-                if order_data:
-                    try:
-                        # Extract customer name from ship_to_address
-                        ship_addr = order_data.get('ship_to_address', {})
-                        first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
-                        last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
-                        customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
+                    print(f"🚀 PRE-ORDER-INSERT: About to start order insertion for return {return_id}")
+                    # Insert order data if we have it
+                    if order_data:
+                        try:
+                            # Extract customer name from ship_to_address
+                            ship_addr = order_data.get('ship_to_address', {})
+                            first_name = ship_addr.get('first_name', '') if isinstance(ship_addr, dict) else ''
+                            last_name = ship_addr.get('last_name', '') if isinstance(ship_addr, dict) else ''
+                            customer_name = f"{first_name} {last_name}".strip() or "Unknown Customer"
 
-                        # CURSOR ANALYSIS FIX: Debug order date field usage
-                        order_date_field = order_data.get('order_date')
-                        created_at_field = order_data.get('created_at')
+                            # CURSOR ANALYSIS FIX: Debug order date field usage
+                            order_date_field = order_data.get('order_date')
+                            created_at_field = order_data.get('created_at')
 
-                        # Check for other potential date fields
-                        placed_at_field = order_data.get('placed_at')
-                        ordered_at_field = order_data.get('ordered_at')
-                        date_placed_field = order_data.get('date_placed')
+                            # Check for other potential date fields
+                            placed_at_field = order_data.get('placed_at')
+                            ordered_at_field = order_data.get('ordered_at')
+                            date_placed_field = order_data.get('date_placed')
 
-                        print(f"ORDER DATE DEBUG: Order {order_data['id']} - order_date: {order_date_field}, created_at: {created_at_field}")
-                        print(f"ORDER DATE DEBUG: Other date fields - placed_at: {placed_at_field}, ordered_at: {ordered_at_field}, date_placed: {date_placed_field}")
-                        print(f"ORDER DATE DEBUG: All order fields: {list(order_data.keys())}")
+                            print(f"ORDER DATE DEBUG: Order {order_data['id']} - order_date: {order_date_field}, created_at: {created_at_field}")
+                            print(f"ORDER DATE DEBUG: Other date fields - placed_at: {placed_at_field}, ordered_at: {ordered_at_field}, date_placed: {date_placed_field}")
+                            print(f"ORDER DATE DEBUG: All order fields: {list(order_data.keys())}")
 
-                        using_field = order_date_field or created_at_field
-                        print(f"ORDER DATE DEBUG: Using field: {'order_date' if order_date_field else 'created_at'}")
+                            using_field = order_date_field or created_at_field
+                            print(f"ORDER DATE DEBUG: Using field: {'order_date' if order_date_field else 'created_at'}")
 
-                        # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
+                            # print(f"ORDER PROCESSING DEBUG: Processing order {order_data['id']} with customer '{customer_name}'")
 
-                        if USE_AZURE_SQL:
-                            # Check if order exists first
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (str(order_data['id']),))
-                            order_result = cursor.fetchone()
-                            if (order_result['count'] == 0 if USE_AZURE_SQL else order_result[0] == 0):
+                            if USE_AZURE_SQL:
+                                # Check if order exists first
                                 placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                                """, ensure_tuple_params((
-                                    str(order_data['id']),
-                                    order_data.get('order_number', ''),
-                                    customer_name,
-                                    convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
-                                    convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
-                                    convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
+                                cursor.execute(f"SELECT COUNT(*) as count FROM orders WHERE CAST(id AS NVARCHAR(50)) = {placeholder}", (str(order_data['id']),))
+                                order_result = cursor.fetchone()
+                                if (order_result['count'] == 0 if USE_AZURE_SQL else order_result[0] == 0):
+                                    placeholder = get_param_placeholder()
+                                    cursor.execute(f"""
+                                        INSERT INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                                        VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                                    """, ensure_tuple_params((
+                                        str(order_data['id']),
+                                        order_data.get('order_number', ''),
+                                        customer_name,
+                                        convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
+                                        convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
+                                        convert_date_for_sql(datetime.now().isoformat())    # updated_at = current timestamp
                                 )))
                                 sync_status["orders_synced"] += 1
                                 print(f"Inserted order {order_data['id']} with customer '{customer_name}'")
@@ -2911,26 +2912,27 @@ async def run_sync():
                                     str(order_data['id'])
                                 )))
                                 print(f"Updated order {order_data['id']} with customer '{customer_name}'")
-                        else:
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
-                                INSERT OR REPLACE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
-                                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
-                            """, ensure_tuple_params((
-                                str(order_data['id']),
-                                order_data.get('order_number', ''),
-                                customer_name,
-                                convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
-                                convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
-                                datetime.now().isoformat()  # updated_at = current timestamp
-                            )))
-                            sync_status["orders_synced"] += 1
-                    except Exception as e:
-                        import traceback
-                        print(f"ERROR inserting order {str(order_data['id'])}: {e}")
-                        print(f"Full traceback: {traceback.format_exc()}")
-                        print(f"Order data: {order_data}")
-                        print(f"Customer name: {customer_name}")
+                        # TEMP DISABLED SQLite else block for debugging
+                        # else:
+                        #     placeholder = get_param_placeholder()
+                        #     cursor.execute(f"""
+                        #         INSERT OR REPLACE INTO orders (id, order_number, customer_name, order_date, created_at, updated_at)
+                        #         VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                        #     """, ensure_tuple_params((
+                        #         str(order_data['id']),
+                        #         order_data.get('order_number', ''),
+                        #         customer_name,
+                        #         convert_date_for_sql(order_data.get('order_date')),  # order_date = actual order date from API
+                        #         convert_date_for_sql(order_data.get('created_at')),  # created_at = order creation timestamp from API
+                        #         datetime.now().isoformat()  # updated_at = current timestamp
+                        #     )))
+                        #     sync_status["orders_synced"] += 1
+                        except Exception as e:
+                            import traceback
+                            print(f"ERROR inserting order {str(order_data['id'])}: {e}")
+                            print(f"Full traceback: {traceback.format_exc()}")
+                            print(f"Order data: {order_data}")
+                            print(f"Customer name: {customer_name}")
 
                     print(f"🔥 ALMOST-CHECKPOINT: About to start checkpoint messages for return {return_id}")
                     print(f"🔍 DEBUG: Finished order processing, about to reach checkpoint for return {return_id}")
