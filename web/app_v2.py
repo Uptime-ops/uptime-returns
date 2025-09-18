@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.150-ADD-POST-API-DEBUG-TRACE-ORDER-COMPLETION"
+DEPLOYMENT_VERSION = "V87.163-REDEPLOY-PAGINATION-FIX-FETCH-ALL-RETURNS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2643,9 +2643,8 @@ async def run_sync():
                 print(f"Fetched {len(returns_batch)} returns at offset {offset}")
                 sync_status["last_sync_message"] = f"Processing {len(returns_batch)} returns from offset {offset}..."
 
-                if not returns_batch:
-                    print("No more returns to process - breaking loop")
-                    break
+                # NOTE: Removed redundant `if not returns_batch: break`
+                # The proper pagination check is done later after processing
 
                 print(f"🎯 ABOUT TO START: Processing {len(returns_batch)} individual returns in main loop")
                 for ret in returns_batch:
