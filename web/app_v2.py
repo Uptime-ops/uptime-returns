@@ -2974,6 +2974,13 @@ async def run_sync():
                             print(f"❌ FALLBACK ERROR: Return {return_id}: Exception during fallback API call: {items_err}")
                             items_data = []
 
+                    # Final fallback: Use bulk API items data if both individual APIs failed
+                    if not items_data and ret.get('items'):
+                        print(f"🔄 BULK FALLBACK: Return {return_id}: Using items from bulk API response")
+                        items_data = ret.get('items', [])
+                        if items_data:
+                            print(f"✅ BULK SUCCESS: Return {return_id}: Using {len(items_data)} items from bulk API")
+
                     # Process return items if we have them
                     if items_data:
                         items_count = len(items_data)
