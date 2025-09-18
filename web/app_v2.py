@@ -2953,7 +2953,7 @@ async def run_sync():
                     elif error:
                         print(f"❌ ITEMS ERROR: Return {return_id}: {error}")
                         # Fallback: Try separate items API call if individual return didn't work
-                        # # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Fallback to separate items API call")
+                        print(f"🔄 FALLBACK: Return {return_id}: Trying separate items API endpoint")
                         try:
                             items_response = http_session.get(
                                 f"https://api.warehance.com/v1/returns/{return_id}/items",
@@ -2962,22 +2962,22 @@ async def run_sync():
                             )
                             if items_response.status_code == 200:
                                 items_api_data = items_response.json()
-                                # # DISABLED TRACE - print(f"SYNC TRACE: Items API response: {items_api_data}")
+                                print(f"📡 FALLBACK API: Return {return_id}: Items API returned 200 with status: {items_api_data.get('status')}")
                                 if items_api_data.get("status") == "success":
                                     items_data = items_api_data.get("data", [])
-                                    # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Successfully fetched {len(items_data)} return items")
+                                    print(f"✅ FALLBACK SUCCESS: Return {return_id}: Fetched {len(items_data)} items via separate API")
                                 else:
-                                    pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
+                                    print(f"❌ FALLBACK FAILED: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
                             else:
-                                pass  # DISABLED - # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Items API call failed with status {items_response.status_code}")
+                                print(f"❌ FALLBACK FAILED: Return {return_id}: Items API call failed with status {items_response.status_code}")
                         except Exception as items_err:
-                            # DISABLED TRACE - print(f"SYNC TRACE: Return {return_id}: Error fetching return items: {items_err}")
+                            print(f"❌ FALLBACK ERROR: Return {return_id}: Exception during fallback API call: {items_err}")
                             items_data = []
 
                     # Process return items if we have them
                     if items_data:
                         items_count = len(items_data)
-                        # DISABLED TRACE - print(f"SYNC TRACE: Processing {items_count} return items for return {return_id}")
+                        print(f"🎯 ITEMS PROCESSING: Return {return_id}: Processing {items_count} return items")
                         log_sync_activity(f"Processing {items_count} return items for return {return_id}")
                         for item_idx, item in enumerate(items_data, 1):
                             # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count} full structure: {item}")
@@ -3156,7 +3156,7 @@ async def run_sync():
                     # DISABLED TRACE - print(f"SYNC TRACE: Successfully processed return {return_id} with {items_count} items")
                     log_sync_activity(f"Processed return {return_id} with {items_count} items")
                 else:
-                    print(f"⚠️ ITEMS EMPTY: Return {return_id} - no items found via individual API")
+                    print(f"⚠️ ITEMS EMPTY: Return {return_id} - no items found after all API attempts")
                     print(f"⚠️ ITEMS EMPTY: Return {return_id} items field from bulk API: {ret.get('items')}")
                     log_sync_activity(f"Return {return_id} has no items (items field: {ret.get('items')})")
                     # DISABLED TRACE - print(f"SYNC TRACE: Successfully processed return {return_id} (no items)")
