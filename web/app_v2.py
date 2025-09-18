@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.171-DEBUG-RETURN-ITEMS-COUNT-FALSE-POSITIVES"
+DEPLOYMENT_VERSION = "V87.172-DEBUG-CSV-EXPORT-QUERY-MISMATCH"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -1609,7 +1609,9 @@ async def export_returns_csv(request: Request):
                 WHERE CAST(ri.return_id AS NVARCHAR(50)) = {placeholder}
             """, (str(return_id),))
             items = cursor.fetchall()
-            # print(f"CSV EXPORT: Successfully queried return_items for return {return_id}, found {len(items)} items")
+            print(f"🔍 CSV EXPORT DEBUG: Return {return_id} - found {len(items)} return_items in CSV query")
+            if len(items) == 0:
+                print(f"🚨 CSV EXPORT: No items found for return {return_id} - this explains 'Return details not available'")
         except Exception as query_error:
             print(f"CSV EXPORT ERROR: Query failed for return {return_id}: {query_error}")
             items = []  # Continue with empty items instead of crashing
