@@ -2962,6 +2962,7 @@ async def run_sync():
                             product_id = item.get('product', {}).get('id', 0)
                             product_sku = item.get('product', {}).get('sku', '')
                             product_name = item.get('product', {}).get('name', '')
+                            print(f"🔍 PRODUCT DEBUG: Item product_id={product_id}, sku={product_sku}, name={product_name[:30]}...")
                             # DISABLED TRACE - print(f"SYNC TRACE: Item {item_idx}/{items_count}: Product ID={product_id}, SKU='{product_sku}', Name='{product_name}'")
                             log_sync_activity(f"Item {item_idx}/{items_count}: Product ID={product_id}, SKU={product_sku}, Name={product_name[:30]}...")
 
@@ -3005,6 +3006,7 @@ async def run_sync():
                                         cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
                                         existing_product = cursor.fetchone()
                                         if not existing_product:
+                                            print(f"🔧 INSERTING PRODUCT: API_ID={product_id}, SKU={product_sku}")
                                             cursor.execute(f"""
                                                 INSERT INTO products (id, sku, name, created_at, updated_at)
                                                 VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
@@ -3012,7 +3014,7 @@ async def run_sync():
                                             # Use the API product ID we just inserted
                                             actual_product_id = product_id
                                             sync_status["products_synced"] += 1
-                                            print(f"✅ Product created: SKU={product_sku}, ID={actual_product_id}")
+                                            print(f"✅ Product created: API_ID={product_id}, SKU={product_sku}, ACTUAL_ID={actual_product_id}")
                                         else:
                                             actual_product_id = existing_product['id']
                                             print(f"✅ Product exists: SKU={product_sku}, ID={actual_product_id}")
