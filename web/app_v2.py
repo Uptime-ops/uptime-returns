@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.145-ADD-POST-UPDATE-DEBUG-TRACE-EXECUTION"
+DEPLOYMENT_VERSION = "V87.147-CRITICAL-FIX-EXECUTION-FLOW-STRUCTURE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2767,6 +2767,7 @@ async def run_sync():
                         except Exception as update_err:
                             print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
                             continue  # Skip this return and move to next
+
                     else:
                         # Insert new return with duplicate handling
                         print(f"➕ STEP 3: About to INSERT new return {return_id}")
@@ -2802,7 +2803,7 @@ async def run_sync():
                                 print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
                                 raise
 
-                print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
+                    print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
                 # Store order info - always make separate API call for complete data
                 print(f"🎯 STEP 5: Starting order processing for return {return_id}")
                 order_data = None
