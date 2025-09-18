@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.147-CRITICAL-FIX-EXECUTION-FLOW-STRUCTURE"
+DEPLOYMENT_VERSION = "V87.148-ADD-PRE-STEP5-DEBUG-PINPOINT-FAILURE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2805,6 +2805,7 @@ async def run_sync():
 
                     print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
                 # Store order info - always make separate API call for complete data
+                print(f"🔥 PRE-STEP 5: About to start order processing for {return_id}")
                 print(f"🎯 STEP 5: Starting order processing for return {return_id}")
                 order_data = None
                 # Extract order ID from returns API response - use same robust logic as collection
