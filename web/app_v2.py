@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.149-CRITICAL-ORDER-PROCESSING-INSIDE-LOOP"
+DEPLOYMENT_VERSION = "V87.150-ADD-POST-API-DEBUG-TRACE-ORDER-COMPLETION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2846,6 +2846,7 @@ async def run_sync():
                         except Exception as order_err:
                             pass  # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
 
+                    print(f"🔥 POST-API: Completed order API processing for return {return_id}")
                 # Insert order data if we have it
                 if order_data:
                     try:
