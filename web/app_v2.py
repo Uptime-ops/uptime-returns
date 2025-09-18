@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.170-REMOVE-AUTO-DB-RESET-ENABLE-SMART-SYNC"
+DEPLOYMENT_VERSION = "V87.171-DEBUG-RETURN-ITEMS-COUNT-FALSE-POSITIVES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2742,8 +2742,13 @@ async def run_sync():
                     if exists:
                         cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
                         items_result = cursor.fetchone()
-                        items_exist = (items_result['count'] > 0)
-                        print(f"🔍 STEP 2.5: Return {return_id} items exist check: {items_exist}")
+                        items_count = items_result['count'] if USE_AZURE_SQL else items_result[0]
+                        items_exist = (items_count > 0)
+                        print(f"🔍 STEP 2.5: Return {return_id} items exist check: {items_exist} (found {items_count} items)")
+
+                        # If no items found, force partial processing to create them
+                        if items_count == 0:
+                            print(f"🚨 FORCE PARTIAL: Return {return_id} has 0 return_items - needs processing!")
 
                     if exists and items_exist:
                         # Return AND its items already exist - SKIP all processing
