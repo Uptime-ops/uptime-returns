@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.167-SKIP-EXISTING-RETURNS-PERFORMANCE-BOOST"
+DEPLOYMENT_VERSION = "V87.168-FORCE-DEPLOY-SKIP-EXISTING-RETURNS-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2772,6 +2772,7 @@ async def run_sync():
                     if exists:
                         # Return already exists - SKIP all processing to speed up sync
                         print(f"⏭️  SKIPPING: Return {return_id} already exists in database")
+                        print(f"🚀 PERFORMANCE: V87.167 SKIP OPTIMIZATION WORKING!")
                         print(f"🚀 PERFORMANCE: Skipping items/products/orders processing for existing return")
                         sync_status["items_synced"] += 1  # Count as processed
                         continue  # Skip to next return immediately
