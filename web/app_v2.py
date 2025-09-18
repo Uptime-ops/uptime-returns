@@ -3007,10 +3007,13 @@ async def run_sync():
                                         existing_product = cursor.fetchone()
                                         if not existing_product:
                                             print(f"🔧 INSERTING PRODUCT: API_ID={product_id}, SKU={product_sku}")
+                                            # Enable explicit ID insertion for Azure SQL
+                                            cursor.execute("SET IDENTITY_INSERT products ON")
                                             cursor.execute(f"""
                                                 INSERT INTO products (id, sku, name, created_at, updated_at)
                                                 VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                             """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                            cursor.execute("SET IDENTITY_INSERT products OFF")
                                             # Use the API product ID we just inserted
                                             actual_product_id = product_id
                                             sync_status["products_synced"] += 1
@@ -3045,10 +3048,13 @@ async def run_sync():
                                 if USE_AZURE_SQL:
                                     try:
                                         placeholder = get_param_placeholder()
+                                        # Enable explicit ID insertion for Azure SQL
+                                        cursor.execute("SET IDENTITY_INSERT products ON")
                                         cursor.execute(f"""
                                             INSERT INTO products (id, sku, name, created_at, updated_at)
                                             VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                         """, ensure_tuple_params((placeholder_product_id, placeholder_sku, placeholder_name)))
+                                        cursor.execute("SET IDENTITY_INSERT products OFF")
                                         actual_product_id = placeholder_product_id
                                         sync_status["products_synced"] += 1
                                         print(f"✅ Placeholder product created: ID={actual_product_id}, SKU={placeholder_sku}")
