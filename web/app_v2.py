@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.165-TRACE-PAGINATION-LOOP-EXIT-POINT"
+DEPLOYMENT_VERSION = "V87.166-FIX-IDENTITY_INSERT-SYNC-BREAKING-ERROR"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -3022,10 +3022,15 @@ async def run_sync():
                                     placeholder = get_param_placeholder()
                                     if USE_AZURE_SQL:
                                         # 🚨 CRITICAL FIX: Include actual API product ID instead of auto-generated IDENTITY
-                                        cursor.execute(f"""
-                                            INSERT INTO products (id, sku, name, created_at, updated_at)
-                                            VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                        """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
+                                        try:
+                                            cursor.execute("SET IDENTITY_INSERT products ON")
+                                            cursor.execute(f"""
+                                                INSERT INTO products (id, sku, name, created_at, updated_at)
+                                                VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
+                                            conn.commit()  # Commit immediately
+                                        finally:
+                                            cursor.execute("SET IDENTITY_INSERT products OFF")
                                     else:
                                         cursor.execute(f"""
                                             INSERT INTO products (id, sku, name, created_at, updated_at)
@@ -3045,17 +3050,21 @@ async def run_sync():
                                         existing_product = cursor.fetchone()
                                         if not existing_product:
                                             print(f"🔧 INSERTING PRODUCT: API_ID={product_id}, SKU={product_sku}")
-                                            # Enable explicit ID insertion for Azure SQL
-                                            cursor.execute("SET IDENTITY_INSERT products ON")
-                                            cursor.execute(f"""
-                                                INSERT INTO products (id, sku, name, created_at, updated_at)
-                                                VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                            """, ensure_tuple_params((product_id, product_sku, product_name)))
-                                            cursor.execute("SET IDENTITY_INSERT products OFF")
-                                            # Use the API product ID we just inserted
-                                            actual_product_id = product_id
-                                            sync_status["products_synced"] += 1
-                                            print(f"✅ Product created: API_ID={product_id}, SKU={product_sku}, ACTUAL_ID={actual_product_id}")
+                                            try:
+                                                # Enable explicit ID insertion for Azure SQL
+                                                cursor.execute("SET IDENTITY_INSERT products ON")
+                                                cursor.execute(f"""
+                                                    INSERT INTO products (id, sku, name, created_at, updated_at)
+                                                    VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                                """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                                conn.commit()  # Commit immediately
+                                                # Use the API product ID we just inserted
+                                                actual_product_id = product_id
+                                                sync_status["products_synced"] += 1
+                                                print(f"✅ Product created: API_ID={product_id}, SKU={product_sku}, ACTUAL_ID={actual_product_id}")
+                                            finally:
+                                                # ALWAYS turn off IDENTITY_INSERT, even if insertion fails
+                                                cursor.execute("SET IDENTITY_INSERT products OFF")
                                         else:
                                             actual_product_id = existing_product['id']
                                             print(f"✅ Product exists: SKU={product_sku}, ID={actual_product_id}")
@@ -3092,13 +3101,16 @@ async def run_sync():
                                             INSERT INTO products (id, sku, name, created_at, updated_at)
                                             VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
                                         """, ensure_tuple_params((placeholder_product_id, placeholder_sku, placeholder_name)))
-                                        cursor.execute("SET IDENTITY_INSERT products OFF")
+                                        conn.commit()  # Commit immediately
                                         actual_product_id = placeholder_product_id
                                         sync_status["products_synced"] += 1
                                         print(f"✅ Placeholder product created: ID={actual_product_id}, SKU={placeholder_sku}")
                                     except Exception as e:
                                         print(f"❌ Failed to create placeholder product: {e}")
                                         actual_product_id = None
+                                    finally:
+                                        # ALWAYS turn off IDENTITY_INSERT, even if insertion fails
+                                        cursor.execute("SET IDENTITY_INSERT products OFF")
                                 else:
                                     # SQLite version
                                     try:
