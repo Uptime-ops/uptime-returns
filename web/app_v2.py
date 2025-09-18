@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.164-DEBUG-SYNC-EXCEPTIONS-FIND-BREAK-CAUSE"
+DEPLOYMENT_VERSION = "V87.165-TRACE-PAGINATION-LOOP-EXIT-POINT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -3232,6 +3232,7 @@ async def run_sync():
                     if len(all_order_ids) > 0:
                         sample_ids = list(all_order_ids)[:5]
                         print(f"📝 Sample order IDs: {sample_ids}")
+                    print(f"💯 PAGINATION BREAK: This is where sync stops - EMPTY BATCH")
                     break
 
                 print(f"✅ CONTINUING: Batch has {len(returns_batch)} returns, fetching next batch...")
@@ -3261,11 +3262,15 @@ async def run_sync():
 
             # Normal pagination increment (moved outside try block)
             offset += limit
+            print(f"🔄 PAGINATION INCREMENT: offset {offset - limit} -> {offset} (limit={limit})")
+            print(f"🔄 NEXT API CALL WILL BE: offset={offset}, limit={limit}")
             log_sync_activity(f"Page completed - advancing to offset {offset}")
 
             # Removed artificial delay per Cursor's performance optimization
 
         # 🚀 CRITICAL FIX: Commit all products and return items created during batch processing
+        print("🏁 WHILE LOOP EXITED! Pagination loop has ended.")
+        print(f"🏁 FINAL VALUES: offset={offset}, total_fetched={total_fetched}")
         print("🚀 PERFORMANCE: Committing all products and return items from batch processing...")
         conn.commit()
         print(f"Batch commit: {sync_status.get('products_synced', 0)} products, {sync_status.get('return_items_synced', 0)} return items")
