@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.163-REDEPLOY-PAGINATION-FIX-FETCH-ALL-RETURNS"
+DEPLOYMENT_VERSION = "V87.164-DEBUG-SYNC-EXCEPTIONS-FIND-BREAK-CAUSE"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -3238,10 +3238,14 @@ async def run_sync():
 
             except Exception as e:
                 error_str = str(e)
+                print(f"🚨 EXCEPTION IN SYNC LOOP: {error_str}")
+                print(f"🚨 EXCEPTION TYPE: {type(e).__name__}")
+                print(f"🚨 AT OFFSET: {offset}, PROCESSING BATCH OF {len(returns_batch) if 'returns_batch' in locals() else 'UNKNOWN'} RETURNS")
                 log_sync_activity(f"ERROR in sync loop: {error_str}")
 
                 # Check if this is a duplicate key error that we can gracefully handle
                 if "duplicate key" in error_str.lower() or "primary key constraint" in error_str.lower():
+                    print(f"✅ DUPLICATE KEY - CONTINUING: offset {offset} -> {offset + limit}")
                     log_sync_activity(f"Duplicate key detected - continuing sync, advancing to offset {offset + limit}")
                     sync_status["last_sync_message"] = f"Handling duplicate records... ({sync_status['items_synced']} processed)"
                     # Still increment offset even on duplicate key errors to avoid infinite loop
@@ -3249,6 +3253,8 @@ async def run_sync():
                     continue  # Continue processing instead of breaking
                 else:
                     # For other errors, break the sync
+                    print(f"💥 CRITICAL ERROR - BREAKING SYNC: {error_str[:200]}")
+                    print(f"💥 THIS IS WHY SYNC STOPS AFTER 3 RETURNS!")
                     log_sync_activity(f"CRITICAL ERROR - breaking sync: {error_str[:200]}")
                     sync_status["last_sync_message"] = f"Error: {error_str[:100]}"
                     break
