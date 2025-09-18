@@ -2942,44 +2942,14 @@ async def run_sync():
                     print(f"🚀 REACHED: Starting items processing for return {return_id}")
                     items_data = []
 
-                    # 🚀 SPEED OPTIMIZATION: Use the optimized function for faster API calls
-                    print(f"🔍 ITEMS DEBUG: Return {return_id}: Fetching individual return with items data")
-                    return_id_result, items_data, error = fetch_return_items_data(return_id, headers)
+                    # 🎆 OPTIMIZED: Use items directly from bulk API response (individual endpoints don't exist)
+                    print(f"🔍 ITEMS PROCESSING: Return {return_id}: Using items from bulk API response")
+                    items_data = ret.get('items', [])
 
                     if items_data:
-                        print(f"✅ ITEMS SUCCESS: Return {return_id}: Fetched {len(items_data)} items via individual API")
-                        if items_data:
-                            pass  # DISABLED TRACE - print(f"SYNC TRACE: First item structure: {items_data[0]}")
-                    elif error:
-                        print(f"❌ ITEMS ERROR: Return {return_id}: {error}")
-                        # Fallback: Try separate items API call if individual return didn't work
-                        print(f"🔄 FALLBACK: Return {return_id}: Trying separate items API endpoint")
-                        try:
-                            items_response = http_session.get(
-                                f"https://api.warehance.com/v1/returns/{return_id}/items",
-                                headers=headers,
-                                timeout=1.5  # 🚀 SPEED: Reduced from 3s to 1.5s for maximum speed
-                            )
-                            if items_response.status_code == 200:
-                                items_api_data = items_response.json()
-                                print(f"📡 FALLBACK API: Return {return_id}: Items API returned 200 with status: {items_api_data.get('status')}")
-                                if items_api_data.get("status") == "success":
-                                    items_data = items_api_data.get("data", [])
-                                    print(f"✅ FALLBACK SUCCESS: Return {return_id}: Fetched {len(items_data)} items via separate API")
-                                else:
-                                    print(f"❌ FALLBACK FAILED: Return {return_id}: Items API returned non-success status: {items_api_data.get('status')}")
-                            else:
-                                print(f"❌ FALLBACK FAILED: Return {return_id}: Items API call failed with status {items_response.status_code}")
-                        except Exception as items_err:
-                            print(f"❌ FALLBACK ERROR: Return {return_id}: Exception during fallback API call: {items_err}")
-                            items_data = []
-
-                    # Final fallback: Use bulk API items data if both individual APIs failed
-                    if not items_data and ret.get('items'):
-                        print(f"🔄 BULK FALLBACK: Return {return_id}: Using items from bulk API response")
-                        items_data = ret.get('items', [])
-                        if items_data:
-                            print(f"✅ BULK SUCCESS: Return {return_id}: Using {len(items_data)} items from bulk API")
+                        print(f"✅ BULK API SUCCESS: Return {return_id}: Found {len(items_data)} items in bulk response")
+                    else:
+                        print(f"⚠️ NO ITEMS: Return {return_id}: No items found in bulk API response")
 
                     # Process return items if we have them
                     if items_data:
