@@ -2999,84 +2999,84 @@ async def run_sync():
                                 if existing:
                                     actual_product_id = existing['product_id'] if USE_AZURE_SQL else existing[0]
                                     # DISABLED TRACE - print(f"SYNC TRACE: Found existing product: SKU={product_sku}, DB ID={actual_product_id}")
-                            else:
-                                # Create a placeholder product
-                                placeholder = get_param_placeholder()
-                                if USE_AZURE_SQL:
-                                    # 🚨 CRITICAL FIX: Include actual API product ID instead of auto-generated IDENTITY
-                                    cursor.execute(f"""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
                                 else:
-                                    cursor.execute(f"""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                    """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
-                                # Use the API product ID we just inserted
-                                actual_product_id = product_id
-                                sync_status["products_synced"] += 1
-                                # DISABLED TRACE - print(f"SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
-                        elif product_id > 0:
-                            # Ensure product exists - simplified approach
-                            try:
-                                if USE_AZURE_SQL:
-                                    # Check if product exists by SKU, insert if not
+                                    # Create a placeholder product
                                     placeholder = get_param_placeholder()
-                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                    existing_product = cursor.fetchone()
-                                    if not existing_product:
+                                    if USE_AZURE_SQL:
+                                        # 🚨 CRITICAL FIX: Include actual API product ID instead of auto-generated IDENTITY
                                         cursor.execute(f"""
                                             INSERT INTO products (id, sku, name, created_at, updated_at)
                                             VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
-                                        """, ensure_tuple_params((product_id, product_sku, product_name)))
-                                        # Use the API product ID we just inserted
-                                        actual_product_id = product_id
-                                        sync_status["products_synced"] += 1
-                                        print(f"✅ Product created: SKU={product_sku}, ID={actual_product_id}")
+                                        """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
                                     else:
-                                        actual_product_id = existing_product['id']
-                                        print(f"✅ Product exists: SKU={product_sku}, ID={actual_product_id}")
-                                else:
-                                    # SQLite version - can use explicit IDs
-                                    cursor.execute("""
-                                        INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (?, ?, ?, ?, ?)
-                                    """, (product_id, product_sku, product_name, datetime.now().isoformat(), datetime.now().isoformat()))
+                                        cursor.execute(f"""
+                                            INSERT INTO products (id, sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, {placeholder}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                        """, ensure_tuple_params((product_id, product_sku, product_name or 'Unknown Product')))
+                                    # Use the API product ID we just inserted
+                                    actual_product_id = product_id
                                     sync_status["products_synced"] += 1
-                            except Exception as prod_err:
-                                print(f"Product INSERT error for ID {product_id}: {prod_err}")
+                                    # DISABLED TRACE - print(f"SYNC TRACE: Created product: SKU={product_sku}, DB ID={actual_product_id}")
+                            elif product_id > 0:
+                                # Ensure product exists - simplified approach
+                                try:
+                                    if USE_AZURE_SQL:
+                                        # Check if product exists by SKU, insert if not
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                        existing_product = cursor.fetchone()
+                                        if not existing_product:
+                                            cursor.execute(f"""
+                                                INSERT INTO products (id, sku, name, created_at, updated_at)
+                                                VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                            """, ensure_tuple_params((product_id, product_sku, product_name)))
+                                            # Use the API product ID we just inserted
+                                            actual_product_id = product_id
+                                            sync_status["products_synced"] += 1
+                                            print(f"✅ Product created: SKU={product_sku}, ID={actual_product_id}")
+                                        else:
+                                            actual_product_id = existing_product['id']
+                                            print(f"✅ Product exists: SKU={product_sku}, ID={actual_product_id}")
+                                    else:
+                                        # SQLite version - can use explicit IDs
+                                        cursor.execute("""
+                                            INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                                            VALUES (?, ?, ?, ?, ?)
+                                        """, (product_id, product_sku, product_name, datetime.now().isoformat(), datetime.now().isoformat()))
+                                        sync_status["products_synced"] += 1
+                                except Exception as prod_err:
+                                    print(f"Product INSERT error for ID {product_id}: {prod_err}")
                                 # 🚨 CRITICAL FIX: Set actual_product_id to None on error to prevent undefined variable
                                 actual_product_id = None
                                 # Continue processing even if product insert fails
-                        elif product_id == 0 and not product_sku:
-                            # NO FALLBACK DATA - Fail fast with clear error
-                            item_id = item.get('id', 'unknown')
-                            print(f"❌ CRITICAL ERROR: Return item {item_id} has no product_id and no product_sku - cannot create return_item without valid product data")
-                            print(f"❌ Item data: {item}")
-                            actual_product_id = None
-                        else:
-                            # DISABLED TRACE - print(f"SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
-                            # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
-                            if USE_AZURE_SQL:
-                                # Look up the product by SKU to get the actual database ID
-                                try:
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
-                                    existing_product = cursor.fetchone()
-                                    if existing_product:
-                                        actual_product_id = existing_product['id']
-                                        # DISABLED TRACE - print(f"SYNC TRACE: Azure SQL path - found product by SKU: {product_sku}, DB ID: {actual_product_id}")
-                                    else:
-                                        # DISABLED TRACE - print(f"SYNC TRACE: Azure SQL path - product not found for SKU: {product_sku}")
-                                        actual_product_id = None
-                                except Exception as lookup_err:
-                                    # DISABLED TRACE - print(f"SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
-                                    actual_product_id = None
+                            elif product_id == 0 and not product_sku:
+                                # NO FALLBACK DATA - Fail fast with clear error
+                                item_id = item.get('id', 'unknown')
+                                print(f"❌ CRITICAL ERROR: Return item {item_id} has no product_id and no product_sku - cannot create return_item without valid product data")
+                                print(f"❌ Item data: {item}")
+                                actual_product_id = None
                             else:
-                                # For SQLite, we can use the API product_id directly
-                                actual_product_id = product_id
-                                # DISABLED TRACE - print(f"SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
+                                # DISABLED TRACE - print(f"SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
+                                # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
+                                if USE_AZURE_SQL:
+                                    # Look up the product by SKU to get the actual database ID
+                                    try:
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"SELECT id FROM products WHERE sku = {placeholder}", (product_sku,))
+                                        existing_product = cursor.fetchone()
+                                        if existing_product:
+                                            actual_product_id = existing_product['id']
+                                            # DISABLED TRACE - print(f"SYNC TRACE: Azure SQL path - found product by SKU: {product_sku}, DB ID: {actual_product_id}")
+                                        else:
+                                            # DISABLED TRACE - print(f"SYNC TRACE: Azure SQL path - product not found for SKU: {product_sku}")
+                                            actual_product_id = None
+                                    except Exception as lookup_err:
+                                        # DISABLED TRACE - print(f"SYNC TRACE: Error looking up product by SKU {product_sku}: {lookup_err}")
+                                        actual_product_id = None
+                                else:
+                                    # For SQLite, we can use the API product_id directly
+                                    actual_product_id = product_id
+                                    # DISABLED TRACE - print(f"SYNC TRACE: SQLite path - using API product_id: {actual_product_id}")
 
                         # Store return item with proper error handling
                         # DISABLED TRACE - print(f"SYNC TRACE: Preparing to create return_item - return_id={return_id}, actual_product_id={actual_product_id}")
