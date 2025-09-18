@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.143-MAJOR-CLEANUP-REMOVE-SQLITE-AZURE-ONLY"
+DEPLOYMENT_VERSION = "V87.145-ADD-POST-UPDATE-DEBUG-TRACE-EXECUTION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
