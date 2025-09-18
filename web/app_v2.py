@@ -2549,10 +2549,42 @@ async def run_sync():
             # print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
 
-        # STEP 4.5: Database reset temporarily disabled to fix connection issues
-        print("ℹ️ DATABASE RESET: Temporarily disabled to prevent connection issues")
-        print("💡 Manual reset needed: DELETE FROM return_items; DELETE FROM products;")
-        sync_status["last_sync_message"] = "STEP 4.5: Database reset skipped (preventing connection issues)..."
+        # STEP 4.5: Complete database reset for fresh sync
+        print("🔄 COMPLETE RESET: Clearing ALL sync tables for fresh start")
+        sync_status["last_sync_message"] = "STEP 4.5: Complete database reset..."
+        try:
+            # Use a separate connection for reset to avoid conflicts
+            reset_conn = get_db_connection()
+            reset_cursor = reset_conn.cursor()
+
+            # Clear all tables in correct order (foreign keys)
+            tables_to_clear = [
+                "return_items",
+                "products",
+                "orders",
+                "returns",
+                "clients",
+                "warehouses"
+            ]
+
+            total_deleted = 0
+            for table in tables_to_clear:
+                try:
+                    reset_cursor.execute(f"DELETE FROM {table}")
+                    deleted = reset_cursor.rowcount
+                    total_deleted += deleted
+                    print(f"✅ Cleared {table}: {deleted} records")
+                except Exception as table_error:
+                    print(f"⚠️ {table}: {table_error}")
+
+            reset_conn.commit()
+            reset_conn.close()
+
+            print(f"🎯 COMPLETE RESET: Deleted {total_deleted} total records")
+            print("🚀 Fresh sync will rebuild everything from scratch!")
+        except Exception as reset_error:
+            print(f"❌ RESET ERROR: {reset_error}")
+            print("💡 Manual reset recommended if automatic reset failed")
 
         # STEP 5: Fetch ALL returns from API with pagination
         # print("=== SYNC DEBUG: Starting API fetch phase...")
