@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.172-DEBUG-CSV-EXPORT-QUERY-MISMATCH"
+DEPLOYMENT_VERSION = "V87.173-DEBUG-CSV-ROWS-TO-DICT-CONVERSION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -1618,7 +1618,12 @@ async def export_returns_csv(request: Request):
 
         # Convert items to dict for Azure SQL
         if USE_AZURE_SQL:
+            raw_items_count = len(items) if items else 0
             items = rows_to_dict(cursor, items) if items else []
+            converted_items_count = len(items) if items else 0
+            print(f"🔍 CSV CONVERSION DEBUG: Return {return_id} - raw: {raw_items_count} items, converted: {converted_items_count} items")
+            if raw_items_count > 0 and converted_items_count == 0:
+                print(f"🚨 CSV CONVERSION FAILED: rows_to_dict returned empty for return {return_id}!")
 
         if items:
             # Write return items from database
