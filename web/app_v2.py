@@ -2606,6 +2606,8 @@ async def run_sync():
         while True:
             try:
                 url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
+                print(f"🌐 API CALL: {url}")
+                print(f"📊 PAGINATION: limit={limit}, offset={offset}, total_fetched={total_fetched}")
                 log_sync_activity(f"Fetching page: offset={offset}, limit={limit}")
                 response = http_session.get(url, headers=headers)
 
@@ -3220,9 +3222,14 @@ async def run_sync():
 
                 # Check if we've fetched all available returns
                 total_count = data['data'].get('total_count', 0)
+                print(f"🔍 API DEBUG: Returns batch size: {len(returns_batch)}, Total available: {total_count}, Limit: {limit}, Offset: {offset}")
+                print(f"🔍 API DEBUG: Returns batch IDs: {[r.get('id') for r in returns_batch[:5]]}")
+
                 # Stop when no more returns available (natural end of data)
                 if len(returns_batch) < limit:
-                    print(f"Stopping sync: processed {total_fetched} returns - reached end of available data")
+                    print(f"🛑 STOPPING SYNC: Returns batch ({len(returns_batch)}) < limit ({limit})")
+                    print(f"📊 API RESPONSE: total_count={total_count}, offset={offset}, fetched={len(returns_batch)}")
+                    print(f"🔍 This suggests Warehance API only has {total_count} returns available")
                     print(f"🔢 COLLECTED {len(all_order_ids)} unique order IDs from {total_fetched} returns")
                     if len(all_order_ids) > 0:
                         sample_ids = list(all_order_ids)[:5]
