@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.166-FIX-IDENTITY_INSERT-SYNC-BREAKING-ERROR"
+DEPLOYMENT_VERSION = "V87.167-SKIP-EXISTING-RETURNS-PERFORMANCE-BOOST"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2770,41 +2770,11 @@ async def run_sync():
                     print(f"🔍 STEP 2: Return {return_id} exists check: {exists}")
 
                     if exists:
-                        # Update existing return
-                        print(f"📝 STEP 3: About to UPDATE return {return_id}")
-                        try:
-                            placeholder = get_param_placeholder()
-                            cursor.execute(f"""
-                                UPDATE returns SET
-                                    api_id = {placeholder}, paid_by = {placeholder}, status = {placeholder}, created_at = {placeholder},
-                                    updated_at = {placeholder}, processed = {placeholder}, processed_at = {placeholder},
-                                    warehouse_note = {placeholder}, customer_note = {placeholder}, tracking_number = {placeholder},
-                                    tracking_url = {placeholder}, carrier = {placeholder}, service = {placeholder}, label_cost = {placeholder},
-                                    label_pdf_url = {placeholder}, rma_slip_url = {placeholder}, label_voided = {placeholder},
-                                    client_id = {placeholder}, warehouse_id = {placeholder}, order_id = {placeholder},
-                                    return_integration_id = {placeholder}, last_synced_at = {placeholder}
-                                WHERE CAST(id AS NVARCHAR(50)) = {placeholder}
-                            """, (
-                                ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                                ret.get('tracking_number'), ret.get('tracking_url'),
-                                ret.get('carrier', ''), ret.get('service', ''),
-                                ret.get('label_cost'), ret.get('label_pdf_url'),
-                                ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                                str(ret['order']['id']) if ret.get('order') else None,
-                                ret.get('return_integration_id'),
-                                convert_date_for_sql(datetime.now().isoformat()),
-                                return_id  # WHERE clause
-                            ))
-                            print(f"✅ STEP 4: UPDATE completed for return {return_id}")
-                            print(f"🔥 POST-UPDATE: About to exit UPDATE try block for {return_id}")
-                        except Exception as update_err:
-                            print(f"❌ UPDATE ERROR: Failed to update return {return_id}: {update_err}")
-                            continue  # Skip this return and move to next
+                        # Return already exists - SKIP all processing to speed up sync
+                        print(f"⏭️  SKIPPING: Return {return_id} already exists in database")
+                        print(f"🚀 PERFORMANCE: Skipping items/products/orders processing for existing return")
+                        sync_status["items_synced"] += 1  # Count as processed
+                        continue  # Skip to next return immediately
 
                     else:
                         # Insert new return with duplicate handling
