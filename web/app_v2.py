@@ -2549,6 +2549,30 @@ async def run_sync():
             # print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
 
+        # STEP 4.5: Reset products and return_items for clean sync with correct IDs
+        print("🔄 RESET: Clearing products and return_items for clean sync with Warehance IDs")
+        sync_status["last_sync_message"] = "STEP 4.5: Resetting products and return_items tables..."
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+
+            # Clear return_items first (foreign key constraint)
+            cursor.execute("DELETE FROM return_items")
+            return_items_deleted = cursor.rowcount
+
+            # Clear products
+            cursor.execute("DELETE FROM products")
+            products_deleted = cursor.rowcount
+
+            conn.commit()
+            conn.close()
+
+            print(f"✅ RESET COMPLETE: Deleted {return_items_deleted} return_items, {products_deleted} products")
+            print("🎯 Next sync will create products with correct Warehance IDs!")
+        except Exception as reset_error:
+            print(f"❌ RESET ERROR: {reset_error}")
+            # Continue anyway - sync might still work
+
         # STEP 5: Fetch ALL returns from API with pagination
         # print("=== SYNC DEBUG: Starting API fetch phase...")
         sync_status["last_sync_message"] = "STEP 5: Fetching returns from Warehance API..."
