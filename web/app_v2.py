@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.168-FORCE-DEPLOY-SKIP-EXISTING-RETURNS-FIX"
+DEPLOYMENT_VERSION = "V87.169-CRITICAL-FIX-PROCESS-MISSING-RETURN-ITEMS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2769,15 +2769,27 @@ async def run_sync():
                     exists = (return_result['count'] > 0)
                     print(f"🔍 STEP 2: Return {return_id} exists check: {exists}")
 
+                    # CRITICAL FIX: Also check if return_items exist for this return
+                    items_exist = False
                     if exists:
-                        # Return already exists - SKIP all processing to speed up sync
-                        print(f"⏭️  SKIPPING: Return {return_id} already exists in database")
+                        cursor.execute(f"SELECT COUNT(*) as count FROM return_items WHERE CAST(return_id AS NVARCHAR(50)) = {placeholder}", ensure_tuple_params((return_id,)))
+                        items_result = cursor.fetchone()
+                        items_exist = (items_result['count'] > 0)
+                        print(f"🔍 STEP 2.5: Return {return_id} items exist check: {items_exist}")
+
+                    if exists and items_exist:
+                        # Return AND its items already exist - SKIP all processing
+                        print(f"⏭️  SKIPPING: Return {return_id} and its items already exist in database")
                         print(f"🚀 PERFORMANCE: V87.167 SKIP OPTIMIZATION WORKING!")
-                        print(f"🚀 PERFORMANCE: Skipping items/products/orders processing for existing return")
                         sync_status["items_synced"] += 1  # Count as processed
                         continue  # Skip to next return immediately
+                    elif exists and not items_exist:
+                        # Return exists but items missing - PROCESS ITEMS ONLY
+                        print(f"🔄 PARTIAL PROCESSING: Return {return_id} exists but missing items - processing items only")
+                        print(f"🚀 PERFORMANCE: Skipping return insert/update, processing items only")
+                        # Don't skip - continue to items processing below
 
-                    else:
+                    elif not exists:
                         # Insert new return with duplicate handling
                         print(f"➕ STEP 3: About to INSERT new return {return_id}")
                         try:
@@ -2811,6 +2823,8 @@ async def run_sync():
                             else:
                                 print(f"Unexpected INSERT error for return {return_id}: {insert_error}")
                                 raise
+
+                    # Continue to items processing for both new returns and existing returns missing items
 
                     print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
                     # Store order info - always make separate API call for complete data
