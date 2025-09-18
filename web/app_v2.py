@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.148-ADD-PRE-STEP5-DEBUG-PINPOINT-FAILURE"
+DEPLOYMENT_VERSION = "V87.149-CRITICAL-ORDER-PROCESSING-INSIDE-LOOP"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2804,47 +2804,47 @@ async def run_sync():
                                 raise
 
                     print(f"🚀 BRIDGE: Reached end of returns processing for {return_id}")
-                # Store order info - always make separate API call for complete data
-                print(f"🔥 PRE-STEP 5: About to start order processing for {return_id}")
-                print(f"🎯 STEP 5: Starting order processing for return {return_id}")
-                order_data = None
-                # Extract order ID from returns API response - use same robust logic as collection
-                order_id = None
-                if ret.get('order'):
-                    if isinstance(ret['order'], dict):
-                        # Nested object format: {"order": {"id": "123"}}
-                        order_id = str(ret['order'].get('id')) if ret['order'].get('id') else None
-                    else:
-                        # Direct ID format: {"order": "123"}
-                        order_id = str(ret['order'])
-                elif ret.get('order_id'):  # Alternative field name: {"order_id": "123"}
-                    order_id = str(ret['order_id'])
+                    # Store order info - always make separate API call for complete data
+                    print(f"🔥 PRE-STEP 5: About to start order processing for {return_id}")
+                    print(f"🎯 STEP 5: Starting order processing for return {return_id}")
+                    order_data = None
+                    # Extract order ID from returns API response - use same robust logic as collection
+                    order_id = None
+                    if ret.get('order'):
+                        if isinstance(ret['order'], dict):
+                            # Nested object format: {"order": {"id": "123"}}
+                            order_id = str(ret['order'].get('id')) if ret['order'].get('id') else None
+                        else:
+                            # Direct ID format: {"order": "123"}
+                            order_id = str(ret['order'])
+                    elif ret.get('order_id'):  # Alternative field name: {"order_id": "123"}
+                        order_id = str(ret['order_id'])
 
-                # Always make separate API call to get complete order details with customer name
-                print(f"📞 STEP 6: About to make order API call for return {return_id}, order_id: {order_id}")
-                if order_id:
-                    # Make separate API call to fetch order details
-                    try:
-                        print(f"🔄 Return {return_id}: Making API call for order {order_id}")
-                        sync_status["last_sync_message"] = f"Fetching order {order_id} for return {return_id}"
-                        order_response = requests.get(
-                            f"https://api.warehance.com/v1/orders/{order_id}",
+                    # Always make separate API call to get complete order details with customer name
+                    print(f"📞 STEP 6: About to make order API call for return {return_id}, order_id: {order_id}")
+                    if order_id:
+                        # Make separate API call to fetch order details
+                        try:
+                            print(f"🔄 Return {return_id}: Making API call for order {order_id}")
+                            sync_status["last_sync_message"] = f"Fetching order {order_id} for return {return_id}"
+                            order_response = requests.get(
+                                f"https://api.warehance.com/v1/orders/{order_id}",
                             headers=headers,
                             timeout=3  # 🚀 PERFORMANCE: Reduced from 10s to 3s for speed
-                        )
+                            )
 
-                        if order_response.status_code == 200:
-                            order_api_data = order_response.json()
-                            if order_api_data.get("status") == "success":
-                                order_data = order_api_data.get("data", {})
-                                pass  # DISABLED - print(f"SUCCESS: Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
-                                # print(f"ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')}")
+                            if order_response.status_code == 200:
+                                order_api_data = order_response.json()
+                                if order_api_data.get("status") == "success":
+                                    order_data = order_api_data.get("data", {})
+                                    pass  # DISABLED - print(f"SUCCESS: Return {return_id}: Successfully fetched order {order_id} - Customer: {order_data.get('ship_to_address', {}).get('first_name', '')} {order_data.get('ship_to_address', {}).get('last_name', '')}")
+                                    # print(f"ORDER DATA DEBUG: Order {order_id} created_at: {order_data.get('created_at')}")
+                                else:
+                                    pass  # DISABLED - print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
                             else:
-                                pass  # DISABLED - print(f"Return {return_id}: Order API returned non-success status: {order_api_data.get('status')}")
-                        else:
-                            pass  # DISABLED - print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
-                    except Exception as order_err:
-                        pass  # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
+                                pass  # DISABLED - print(f"Return {return_id}: Order API call failed with status {order_response.status_code}")
+                        except Exception as order_err:
+                            pass  # DISABLED - print(f"Return {return_id}: Error fetching order {order_id}: {order_err}")
 
                 # Insert order data if we have it
                 if order_data:
