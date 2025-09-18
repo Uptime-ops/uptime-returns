@@ -3031,11 +3031,44 @@ async def run_sync():
                                 actual_product_id = None
                                 # Continue processing even if product insert fails
                             elif product_id == 0 and not product_sku:
-                                # NO FALLBACK DATA - Fail fast with clear error
+                                # FALLBACK: Create placeholder product for items with no product data
                                 item_id = item.get('id', 'unknown')
-                                print(f"❌ CRITICAL ERROR: Return item {item_id} has no product_id and no product_sku - cannot create return_item without valid product data")
-                                print(f"❌ Item data: {item}")
-                                actual_product_id = None
+                                print(f"⚠️ EMPTY PRODUCT DATA: Return item {item_id} has no product info - creating placeholder")
+
+                                # Create placeholder product using return item ID
+                                placeholder_sku = f"UNKNOWN-ITEM-{item_id}"
+                                placeholder_name = f"Unknown Product (Return Item {item_id})"
+                                placeholder_product_id = int(item_id)  # Use return item ID as product ID
+
+                                print(f"🔧 CREATING PLACEHOLDER: ID={placeholder_product_id}, SKU={placeholder_sku}")
+
+                                if USE_AZURE_SQL:
+                                    try:
+                                        placeholder = get_param_placeholder()
+                                        cursor.execute(f"""
+                                            INSERT INTO products (id, sku, name, created_at, updated_at)
+                                            VALUES ({placeholder}, {placeholder}, {placeholder}, GETDATE(), GETDATE())
+                                        """, ensure_tuple_params((placeholder_product_id, placeholder_sku, placeholder_name)))
+                                        actual_product_id = placeholder_product_id
+                                        sync_status["products_synced"] += 1
+                                        print(f"✅ Placeholder product created: ID={actual_product_id}, SKU={placeholder_sku}")
+                                    except Exception as e:
+                                        print(f"❌ Failed to create placeholder product: {e}")
+                                        actual_product_id = None
+                                else:
+                                    # SQLite version
+                                    try:
+                                        cursor.execute("""
+                                            INSERT OR IGNORE INTO products (id, sku, name, created_at, updated_at)
+                                            VALUES (?, ?, ?, ?, ?)
+                                        """, (placeholder_product_id, placeholder_sku, placeholder_name,
+                                             datetime.now().isoformat(), datetime.now().isoformat()))
+                                        actual_product_id = placeholder_product_id
+                                        sync_status["products_synced"] += 1
+                                        print(f"✅ Placeholder product created: ID={actual_product_id}, SKU={placeholder_sku}")
+                                    except Exception as e:
+                                        print(f"❌ Failed to create placeholder product: {e}")
+                                        actual_product_id = None
                             else:
                                 # DISABLED TRACE - print(f"SYNC TRACE: Taking path 3: product_id > 0 ({product_id})")
                                 # 🚨 CRITICAL FIX: For Azure SQL, we need to look up the actual DB ID since we can't use API IDs
