@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.169-CRITICAL-FIX-PROCESS-MISSING-RETURN-ITEMS"
+DEPLOYMENT_VERSION = "V87.170-REMOVE-AUTO-DB-RESET-ENABLE-SMART-SYNC"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 # Trigger V87.10 deployment retry
 print(f"Starting app v2 - Version: {DEPLOYMENT_VERSION}")
@@ -2549,42 +2549,10 @@ async def run_sync():
             # print(f"SYNC DEBUG: Database test query failed: {db_test_error}")
             raise Exception(f"STEP 4 FAILED: Database test query failed: {db_test_error}")
 
-        # STEP 4.5: Complete database reset for fresh sync
-        print("🔄 COMPLETE RESET: Clearing ALL sync tables for fresh start")
-        sync_status["last_sync_message"] = "STEP 4.5: Complete database reset..."
-        try:
-            # Use a separate connection for reset to avoid conflicts
-            reset_conn = get_db_connection()
-            reset_cursor = reset_conn.cursor()
-
-            # Clear all tables in correct order (foreign keys)
-            tables_to_clear = [
-                "return_items",
-                "products",
-                "orders",
-                "returns",
-                "clients",
-                "warehouses"
-            ]
-
-            total_deleted = 0
-            for table in tables_to_clear:
-                try:
-                    reset_cursor.execute(f"DELETE FROM {table}")
-                    deleted = reset_cursor.rowcount
-                    total_deleted += deleted
-                    print(f"✅ Cleared {table}: {deleted} records")
-                except Exception as table_error:
-                    print(f"⚠️ {table}: {table_error}")
-
-            reset_conn.commit()
-            reset_conn.close()
-
-            print(f"🎯 COMPLETE RESET: Deleted {total_deleted} total records")
-            print("🚀 Fresh sync will rebuild everything from scratch!")
-        except Exception as reset_error:
-            print(f"❌ RESET ERROR: {reset_error}")
-            print("💡 Manual reset recommended if automatic reset failed")
+        # STEP 4.5: REMOVED AUTOMATIC DATABASE RESET
+        # Smart sync no longer clears existing data - uses skip optimization instead
+        print("🚀 SMART SYNC: Using existing data with skip optimization (no reset needed)")
+        sync_status["last_sync_message"] = "STEP 4.5: Smart sync - preserving existing data..."
 
         # STEP 5: Fetch ALL returns from API with pagination
         # print("=== SYNC DEBUG: Starting API fetch phase...")
