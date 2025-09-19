@@ -536,7 +536,7 @@ async def search_returns(filter_params: dict):
     
     # Get total count for pagination
     count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
-    cursor.execute(count_query, params)
+    cursor.execute(count_query, tuple(params))
     row = cursor.fetchone()
     total = row['total_count'] if row else 0
     
@@ -547,8 +547,8 @@ async def search_returns(filter_params: dict):
     else:
         query += " ORDER BY r.created_at DESC LIMIT %s OFFSET %s"
         params.extend([limit, (page - 1) * limit])
-    
-    cursor.execute(query, params)
+
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     
     returns = []
@@ -788,8 +788,8 @@ async def export_returns_csv(filter_params: dict):
         params.extend([search_param, search_param, search_param])
     
     query += " ORDER BY r.created_at DESC"
-    
-    cursor.execute(query, params)
+
+    cursor.execute(query, tuple(params))
     returns = cursor.fetchall()
     
     # Convert rows to dict for Azure SQL
@@ -1969,12 +1969,12 @@ async def send_returns_email(request_data: dict):
             params.append(client_id)
         
         # Total returns
-        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", params)
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", tuple(params))
         row = cursor.fetchone()
         total_returns = row[0] if row else 0
-        
+
         # Processed returns
-        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", params)
+        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", tuple(params))
         row = cursor.fetchone()
         processed_returns = row[0] if row else 0
         
@@ -2154,8 +2154,8 @@ async def get_email_history(client_id: Optional[int] = None):
         params.append(client_id)
     
     query += " ORDER BY sent_date DESC"
-    
-    cursor.execute(query, params)
+
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     
     if USE_AZURE_SQL:
