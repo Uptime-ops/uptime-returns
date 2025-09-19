@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.180-MINIMAL-CRITICAL-SYNC-FIXES"
+DEPLOYMENT_VERSION = "V87.181-FIX-TRANSACTION-COMMIT-ERRORS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1558,9 +1558,13 @@ async def run_sync():
                                 # Use simple INSERT with ignore duplicate errors
                                 try:
                                     placeholder = get_param_placeholder()
-                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", 
+                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})",
                                                  (client_id, client_name))
-                                    conn.commit()
+                                    try:
+                                        conn.commit()
+                                    except Exception as commit_err:
+                                        if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
+                                            raise
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
@@ -1588,7 +1592,11 @@ async def run_sync():
                                     placeholder = get_param_placeholder()
                                     cursor.execute(f"INSERT INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})",
                                                  (warehouse_id, warehouse_name))
-                                    conn.commit()
+                                    try:
+                                        conn.commit()
+                                    except Exception as commit_err:
+                                        if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
+                                            raise
                                 except Exception as insert_err:
                                     # Ignore duplicate key errors, log others
                                     if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
@@ -1900,7 +1908,14 @@ async def run_sync():
             # Update progress
             sync_status["last_sync_message"] = f"Fetched {i+len(batch)} of {min(len(orders_needing_update), 500)} orders..."
         
-        conn.commit()
+        try:
+            conn.commit()
+        except Exception as commit_err:
+            if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
+                print(f"⚠️ Final commit error: {commit_err}")
+                raise
+            else:
+                print(f"⚠️ Ignoring final commit transaction state error")
         conn.close()
         
         # Only mark as success if we actually synced something
