@@ -2810,6 +2810,16 @@ async def reset_database_get():
     """GET version of database reset for browser testing"""
     return await reset_database()
 
+@app.get("/api/test-deployment")
+async def test_deployment():
+    """Test if new deployments are working"""
+    return {
+        "status": "success",
+        "version": "V87.190-TEST",
+        "timestamp": datetime.now().isoformat(),
+        "message": "New deployment working"
+    }
+
 @app.get("/api/sync/trigger-get")
 async def trigger_sync_get():
     """GET version of sync trigger for browser testing"""
