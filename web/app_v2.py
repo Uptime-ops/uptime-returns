@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.222-CSV-INDENTATION-FIX"
+DEPLOYMENT_VERSION = "V87.223-CSV-DICT-TUPLE-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -894,23 +894,40 @@ async def export_returns_csv(filter_params: dict = None):
 
         returns = cursor.fetchall()
 
-        # Convert tuples to dictionaries for Azure SQL - ROBUST VERSION
+        # Handle Azure SQL row format - SMART CONVERSION
         if USE_AZURE_SQL:
-            if returns and columns:
-                # Convert tuples to dictionaries with explicit column mapping
-                converted_returns = []
-                for row in returns:
-                    row_dict = {}
-                    for i, col_name in enumerate(columns):
-                        if i < len(row):
-                            row_dict[col_name] = row[i]
+            if returns:
+                print(f"DEBUG CSV: Processing {len(returns)} returns from Azure SQL")
+                # Check if first row is already a dictionary or tuple
+                first_row = returns[0] if returns else None
+                if isinstance(first_row, dict):
+                    print("DEBUG CSV: Azure SQL returned dictionaries - using directly")
+                    # Already dictionaries, use as-is
+                    pass
+                elif columns:
+                    print("DEBUG CSV: Azure SQL returned tuples - converting to dictionaries")
+                    # Convert tuples to dictionaries with explicit column mapping
+                    converted_returns = []
+                    for row in returns:
+                        if isinstance(row, dict):
+                            # Already a dictionary, use as-is
+                            converted_returns.append(row)
                         else:
-                            row_dict[col_name] = None
-                    converted_returns.append(row_dict)
-                returns = converted_returns
-                print(f"DEBUG CSV: Converted {len(returns)} returns from tuples to dictionaries")
+                            # Convert tuple to dictionary
+                            row_dict = {}
+                            for i, col_name in enumerate(columns):
+                                if i < len(row):
+                                    row_dict[col_name] = row[i]
+                                else:
+                                    row_dict[col_name] = None
+                            converted_returns.append(row_dict)
+                    returns = converted_returns
+                    print(f"DEBUG CSV: Converted {len(returns)} returns from tuples to dictionaries")
+                else:
+                    print("DEBUG CSV: No columns available for conversion")
+                    returns = []
             else:
-                print(f"DEBUG CSV: No conversion - returns: {len(returns) if returns else 0}, columns: {len(columns) if columns else 0}")
+                print("DEBUG CSV: No returns data to process")
                 returns = []
     
         # Create CSV in memory
@@ -943,22 +960,35 @@ async def export_returns_csv(filter_params: dict = None):
             """, (return_id,))
             items = cursor.fetchall()
         
-            # Convert items to dict for Azure SQL
+            # Convert items to dict for Azure SQL - SMART CONVERSION
             if USE_AZURE_SQL:
                 raw_items_count = len(items) if items else 0
-                # Use explicit column names from the query instead of relying on cursor.description
                 if items:
-                    columns = ['id', 'sku', 'name', 'order_quantity', 'return_quantity', 'return_reasons', 'condition_on_arrival']
-                    converted_items = []
-                    for row in items:
-                        item_dict = {}
-                        for i, col_name in enumerate(columns):
-                            if i < len(row):
-                                item_dict[col_name] = row[i]
+                    # Check if first item is already a dictionary or tuple
+                    first_item = items[0] if items else None
+                    if isinstance(first_item, dict):
+                        print(f"DEBUG CSV: Items already dictionaries for return {return_id}")
+                        # Already dictionaries, use as-is
+                        pass
+                    else:
+                        print(f"DEBUG CSV: Converting items tuples to dictionaries for return {return_id}")
+                        # Use explicit column names from the query instead of relying on cursor.description
+                        columns = ['id', 'sku', 'name', 'order_quantity', 'return_quantity', 'return_reasons', 'condition_on_arrival']
+                        converted_items = []
+                        for row in items:
+                            if isinstance(row, dict):
+                                # Already a dictionary, use as-is
+                                converted_items.append(row)
                             else:
-                                item_dict[col_name] = None
-                        converted_items.append(item_dict)
-                    items = converted_items
+                                # Convert tuple to dictionary
+                                item_dict = {}
+                                for i, col_name in enumerate(columns):
+                                    if i < len(row):
+                                        item_dict[col_name] = row[i]
+                                    else:
+                                        item_dict[col_name] = None
+                                converted_items.append(item_dict)
+                        items = converted_items
                 converted_items_count = len(items) if items else 0
                 print(f"🔍 CSV CONVERSION DEBUG: Return {return_id} - raw: {raw_items_count} items, converted: {converted_items_count} items")
                 if raw_items_count > 0 and converted_items_count == 0:
@@ -2945,7 +2975,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.222-CSV-INDENTATION-FIX",
+        "version": "V87.223-CSV-DICT-TUPLE-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
