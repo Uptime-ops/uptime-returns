@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.226-CSV-BIGINT-CAST-FIX"
+DEPLOYMENT_VERSION = "V87.227-SYNTAX-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -621,6 +621,7 @@ async def search_returns(filter_params: dict):
             if isinstance(first_row, dict):
                 # print(f"DEBUG search_returns - rows already dictionaries, no conversion needed")
                 # Rows are already dictionaries, no conversion needed
+                pass
             else:
                 # print(f"DEBUG search_returns - converting tuples to dictionaries")
                 # Convert tuple rows to dictionaries
@@ -2984,7 +2985,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.226-CSV-BIGINT-CAST-FIX",
+        "version": "V87.227-SYNTAX-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
