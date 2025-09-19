@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.220-CSV-ROBUST-CONVERSION"
+DEPLOYMENT_VERSION = "V87.221-CSV-METHOD-NOT-ALLOWED-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -834,13 +834,18 @@ async def get_return_detail(return_id: int):
     return return_data
 
 @app.post("/api/returns/export/csv")
-async def export_returns_csv(filter_params: dict):
+@app.get("/api/returns/export/csv")
+async def export_returns_csv(filter_params: dict = None):
     """Export returns with product details to CSV"""
+    # Handle None filter_params for GET requests
+    if filter_params is None:
+        filter_params = {}
+
     conn = get_db_connection()
     if not USE_AZURE_SQL:
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    
+
     # First get all returns matching the filter
     query = """
     SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number,
@@ -852,7 +857,7 @@ async def export_returns_csv(filter_params: dict):
     LEFT JOIN orders o ON CAST(r.order_id as BIGINT) = CAST(o.id as BIGINT)
     WHERE 1=1
     """
-    
+
     params = []
     client_id = filter_params.get('client_id')
     status = filter_params.get('status')
@@ -2928,7 +2933,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.220-CSV-ROBUST-CONVERSION",
+        "version": "V87.221-CSV-METHOD-NOT-ALLOWED-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
