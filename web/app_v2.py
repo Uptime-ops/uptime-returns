@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.215-DROPDOWNS-DASHBOARD-FIX"
+DEPLOYMENT_VERSION = "V87.216-CSV-EXPORT-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -872,9 +872,10 @@ async def export_returns_csv(filter_params: dict):
 
     returns = cursor.fetchall()
 
-    # Convert rows to dict for Azure SQL
+    # Azure SQL returns dictionaries already, no conversion needed
     if USE_AZURE_SQL:
-        returns = [dict(zip(columns, row)) for row in returns] if returns and columns else []
+        # Returns are already dictionaries, no conversion needed
+        pass
     
     # Create CSV in memory
     output = io.StringIO()
