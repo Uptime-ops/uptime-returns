@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.223-CSV-DICT-TUPLE-FIX"
+DEPLOYMENT_VERSION = "V87.224-CSV-MULTI-ITEM-DEBUG"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -942,6 +942,7 @@ async def export_returns_csv(filter_params: dict = None):
         ])
 
         # Process each return - using data from database including customer names
+        total_csv_rows = 0
         for return_row in returns:
             return_id = return_row['return_id']
             order_id = return_row['order_id']
@@ -959,7 +960,8 @@ async def export_returns_csv(filter_params: dict = None):
                 WHERE CAST(ri.return_id as BIGINT) = CAST(%s as BIGINT)
             """, (return_id,))
             items = cursor.fetchall()
-        
+            print(f"DEBUG CSV: Found {len(items) if items else 0} items for return {return_id}")
+
             # Convert items to dict for Azure SQL - SMART CONVERSION
             if USE_AZURE_SQL:
                 raw_items_count = len(items) if items else 0
@@ -995,8 +997,10 @@ async def export_returns_csv(filter_params: dict = None):
                     print(f"🚨 CSV CONVERSION FAILED: Manual conversion returned empty for return {return_id}!")
         
             if items:
+                print(f"DEBUG CSV: Writing {len(items)} items for return {return_id}")
                 # Write return items from database
-                for item in items:
+                for item_index, item in enumerate(items):
+                    print(f"DEBUG CSV: Processing item {item_index + 1}/{len(items)} for return {return_id}: {item.get('name', 'Unknown')}")
                     reasons = ''
                     if item['return_reasons']:
                         try:
@@ -1005,7 +1009,7 @@ async def export_returns_csv(filter_params: dict = None):
                         except:
                             reasons = str(item['return_reasons'])
                 
-                    writer.writerow([
+                    csv_row = [
                         return_row['client_name'] or '',
                         customer_name,
                         return_row['order_date'] or '',
@@ -1015,7 +1019,10 @@ async def export_returns_csv(filter_params: dict = None):
                         item['order_quantity'] or 0,  # Order Qty
                         item['return_quantity'] or 0,  # Return Qty
                         reasons
-                    ])
+                    ]
+                    print(f"DEBUG CSV: Writing row for return {return_id}, item: {item['name']}")
+                    writer.writerow(csv_row)
+                    total_csv_rows += 1
             else:
                 # For returns without return_items, write a single row with basic info
                 writer.writerow([
@@ -1029,8 +1036,10 @@ async def export_returns_csv(filter_params: dict = None):
                     0,
                     'Return items not in database'
                 ])
+                total_csv_rows += 1
     
         conn.close()
+        print(f"DEBUG CSV: Total CSV rows written: {total_csv_rows} (excluding header)")
 
         # Return CSV as downloadable file
         output.seek(0)
@@ -2975,7 +2984,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.223-CSV-DICT-TUPLE-FIX",
+        "version": "V87.224-CSV-MULTI-ITEM-DEBUG",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
