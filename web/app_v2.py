@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.174-FIX-CSV-CONVERSION-ROWS-TO-DICT"
+DEPLOYMENT_VERSION = "V87.180-MINIMAL-CRITICAL-SYNC-FIXES"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1437,11 +1437,13 @@ def convert_date_for_sql(date_string):
             except ValueError:
                 continue
         
-        # If no format matches, return None to avoid SQL errors
-        return None
+        # If no format matches, return default date instead of None for SQL Server
+        print(f"⚠️ Could not parse date '{date_string}', using default")
+        return "1900-01-01 00:00:00"
     except Exception:
-        # If all else fails, return None to avoid SQL errors
-        return None
+        # If all else fails, return default date instead of None for SQL Server
+        print(f"⚠️ Date conversion error for '{date_string}', using default")
+        return "1900-01-01 00:00:00"
 
 async def run_sync():
     """Run the actual sync process"""
@@ -1850,7 +1852,7 @@ async def run_sync():
                 SELECT id FROM orders 
                 WHERE id IN ({}) 
                 AND (customer_name IS NULL OR customer_name = '')
-            """.format(format_in_clause(len(all_order_ids))), list(all_order_ids))
+            """.format(format_in_clause(len(all_order_ids))), tuple(all_order_ids))
             orders_needing_update = [row[0] for row in cursor.fetchall()]
         else:
             orders_needing_update = []
