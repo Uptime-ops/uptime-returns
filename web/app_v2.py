@@ -538,7 +538,7 @@ async def search_returns(filter_params: dict):
     count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
     cursor.execute(count_query, params)
     row = cursor.fetchone()
-    total = row[0] if row else 0
+    total = row['total_count'] if row else 0
     
     # Add pagination (different syntax for Azure SQL vs SQLite)
     if USE_AZURE_SQL:
