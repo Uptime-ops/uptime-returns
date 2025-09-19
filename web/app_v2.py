@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.183-FIX-SQLITE-FALLBACK-DATE-CONVERSION"
+DEPLOYMENT_VERSION = "V87.184-REMOVE-SQLITE-AZURE-ONLY"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1619,22 +1619,19 @@ async def run_sync():
                     if isinstance(return_id, int) and return_id > 2147483647:
                         return_id = str(return_id)
                     
-                    if USE_AZURE_SQL:
-                        # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                        cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
-                        return_result = cursor.fetchone()
-                        exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
+                    # Always use Azure SQL (SQLite logic removed)
+                    # Use IF EXISTS for Azure SQL (simpler than MERGE)
+                    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
+                    return_result = cursor.fetchone()
+                    exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
 
-                        print(f"🔍 Return {return_id}: USE_AZURE_SQL={USE_AZURE_SQL}, exists={exists}")
-                        if USE_AZURE_SQL:
-                            print(f"   Taking Azure SQL path for return {return_id}")
-                        else:
-                            print(f"   Taking SQLite path for return {return_id}")
+                    print(f"🔍 Return {return_id}: USE_AZURE_SQL={USE_AZURE_SQL}, exists={exists}")
+                    print(f"   Taking Azure SQL path for return {return_id}")
 
-                        if exists:
-                            # Update existing return
-                            print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                            cursor.execute("""
+                    if exists:
+                        # Update existing return
+                        print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
+                        cursor.execute("""
                                 UPDATE returns SET
                                     api_id = %s, paid_by = %s, status = %s, created_at = %s,
                                     updated_at = %s, processed = %s, processed_at = %s,
@@ -1660,10 +1657,10 @@ async def run_sync():
                                 convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
                             ))
-                        else:
-                            # Insert new return
-                            print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                            cursor.execute("""
+                    else:
+                        # Insert new return
+                        print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
+                        cursor.execute("""
                                 INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                         processed, processed_at, warehouse_note, customer_note,
                                         tracking_number, tracking_url, carrier, service,
@@ -1686,33 +1683,6 @@ async def run_sync():
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat())
                             ))
-                else:
-                    # Use INSERT OR REPLACE for SQLite
-                    print(f"⚠️  UNEXPECTED: Taking SQLite fallback path for return {return_id} despite USE_AZURE_SQL={USE_AZURE_SQL}")
-                    cursor.execute("""
-                        INSERT INTO returns (
-                        id, api_id, paid_by, status, created_at, updated_at,
-                        processed, processed_at, warehouse_note, customer_note,
-                        tracking_number, tracking_url, carrier, service,
-                        label_cost, label_pdf_url, rma_slip_url, label_voided,
-                        client_id, warehouse_id, order_id, return_integration_id,
-                        last_synced_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                    return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                    ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                    ret.get('tracking_number'), ret.get('tracking_url'),
-                    ret.get('carrier', ''), ret.get('service', ''),
-                    ret.get('label_cost'), ret.get('label_pdf_url'),
-                    ret.get('rma_slip_url'), ret.get('label_voided', False),
-                    str(ret['client']['id']) if ret.get('client') else None,
-                    str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                    str(ret['order']['id']) if ret.get('order') else None,
-                    ret.get('return_integration_id'),
-                    datetime.now().isoformat()
-                ))
                 
                 # Also store basic order info from return data
                 if ret.get('order'):
