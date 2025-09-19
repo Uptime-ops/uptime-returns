@@ -2637,42 +2637,127 @@ async def migrate_to_bigint():
     try:
         if not USE_AZURE_SQL:
             return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         migrations = []
-        
-        # Migration commands to change INT to BIGINT
-        migration_commands = [
-            "ALTER TABLE clients ALTER COLUMN id BIGINT",
-            "ALTER TABLE warehouses ALTER COLUMN id BIGINT", 
-            "ALTER TABLE orders ALTER COLUMN id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN client_id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN warehouse_id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN order_id BIGINT",
-            "ALTER TABLE return_items ALTER COLUMN return_id BIGINT",
-            "ALTER TABLE email_history ALTER COLUMN client_id BIGINT",
-            "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT"
+
+        # SQL Server migration commands that properly handle constraints
+        migration_steps = [
+            {
+                "description": "Drop primary key constraint on clients",
+                "command": "ALTER TABLE clients DROP CONSTRAINT PK__clients__3213E83F6F2C7259",
+                "ignore_error": True
+            },
+            {
+                "description": "Alter clients.id to BIGINT",
+                "command": "ALTER TABLE clients ALTER COLUMN id BIGINT NOT NULL"
+            },
+            {
+                "description": "Recreate primary key on clients.id",
+                "command": "ALTER TABLE clients ADD CONSTRAINT PK_clients_id PRIMARY KEY (id)"
+            },
+            {
+                "description": "Drop primary key constraint on warehouses",
+                "command": "ALTER TABLE warehouses DROP CONSTRAINT PK__warehous__3213E83FF88C1B96",
+                "ignore_error": True
+            },
+            {
+                "description": "Alter warehouses.id to BIGINT",
+                "command": "ALTER TABLE warehouses ALTER COLUMN id BIGINT NOT NULL"
+            },
+            {
+                "description": "Recreate primary key on warehouses.id",
+                "command": "ALTER TABLE warehouses ADD CONSTRAINT PK_warehouses_id PRIMARY KEY (id)"
+            },
+            {
+                "description": "Drop primary key constraint on orders",
+                "command": "ALTER TABLE orders DROP CONSTRAINT PK__orders__3213E83F89CDD820",
+                "ignore_error": True
+            },
+            {
+                "description": "Alter orders.id to BIGINT",
+                "command": "ALTER TABLE orders ALTER COLUMN id BIGINT NOT NULL"
+            },
+            {
+                "description": "Recreate primary key on orders.id",
+                "command": "ALTER TABLE orders ADD CONSTRAINT PK_orders_id PRIMARY KEY (id)"
+            },
+            {
+                "description": "Drop primary key constraint on returns",
+                "command": "ALTER TABLE returns DROP CONSTRAINT PK__returns__3213E83FA1C16B80",
+                "ignore_error": True
+            },
+            {
+                "description": "Alter returns.id to BIGINT",
+                "command": "ALTER TABLE returns ALTER COLUMN id BIGINT NOT NULL"
+            },
+            {
+                "description": "Recreate primary key on returns.id",
+                "command": "ALTER TABLE returns ADD CONSTRAINT PK_returns_id PRIMARY KEY (id)"
+            },
+            {
+                "description": "Alter returns foreign key columns to BIGINT",
+                "command": "ALTER TABLE returns ALTER COLUMN client_id BIGINT"
+            },
+            {
+                "description": "Alter returns.warehouse_id to BIGINT",
+                "command": "ALTER TABLE returns ALTER COLUMN warehouse_id BIGINT"
+            },
+            {
+                "description": "Alter returns.order_id to BIGINT",
+                "command": "ALTER TABLE returns ALTER COLUMN order_id BIGINT"
+            },
+            {
+                "description": "Alter return_items.return_id to BIGINT",
+                "command": "ALTER TABLE return_items ALTER COLUMN return_id BIGINT"
+            },
+            {
+                "description": "Alter email_history.client_id to BIGINT",
+                "command": "ALTER TABLE email_history ALTER COLUMN client_id BIGINT"
+            },
+            {
+                "description": "Alter email_share_items.return_id to BIGINT",
+                "command": "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT"
+            }
         ]
-        
-        for cmd in migration_commands:
+
+        for step in migration_steps:
             try:
-                cursor.execute(cmd)
+                cursor.execute(step["command"])
                 conn.commit()
-                migrations.append({"command": cmd, "status": "success"})
+                migrations.append({
+                    "description": step["description"],
+                    "command": step["command"],
+                    "status": "success"
+                })
             except Exception as e:
-                migrations.append({"command": cmd, "status": "error", "error": str(e)})
-        
+                error_msg = str(e)
+                if step.get("ignore_error", False) and ("does not exist" in error_msg or "is not a constraint" in error_msg):
+                    migrations.append({
+                        "description": step["description"],
+                        "command": step["command"],
+                        "status": "skipped",
+                        "error": "Constraint already dropped or doesn't exist"
+                    })
+                else:
+                    migrations.append({
+                        "description": step["description"],
+                        "command": step["command"],
+                        "status": "error",
+                        "error": error_msg
+                    })
+
         conn.close()
-        
+
+        success_count = len([m for m in migrations if m['status'] == 'success'])
         return {
             "status": "success",
             "migrations": migrations,
-            "message": f"Completed {len([m for m in migrations if m['status'] == 'success'])} migrations"
+            "message": f"Completed {success_count} migrations successfully"
         }
-        
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
