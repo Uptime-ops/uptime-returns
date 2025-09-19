@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.206-COMPREHENSIVE-DATATABLES-FIX"
+DEPLOYMENT_VERSION = "V87.207-DEBUG-ROWS-DICT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -309,14 +309,35 @@ def row_to_dict(cursor, row):
     if row is None:
         return None
     columns = [column[0] for column in cursor.description]
-    return dict(zip(columns, row))
+
+    # Debug logging to identify the issue
+    print(f"DEBUG row_to_dict - columns: {columns}")
+    print(f"DEBUG row_to_dict - row: {row}")
+    print(f"DEBUG row_to_dict - row type: {type(row)}")
+
+    result = dict(zip(columns, row))
+    print(f"DEBUG row_to_dict - result: {result}")
+
+    return result
 
 def rows_to_dict(cursor, rows):
     """Convert multiple database rows to list of dictionaries"""
     if not rows:
         return []
     columns = [column[0] for column in cursor.description]
-    return [dict(zip(columns, row)) for row in rows]
+
+    # Debug logging to identify the issue
+    print(f"DEBUG rows_to_dict - columns: {columns}")
+    print(f"DEBUG rows_to_dict - rows count: {len(rows)}")
+    if rows:
+        print(f"DEBUG rows_to_dict - first row: {rows[0]}")
+        print(f"DEBUG rows_to_dict - first row type: {type(rows[0])}")
+
+    result = [dict(zip(columns, row)) for row in rows]
+    if result:
+        print(f"DEBUG rows_to_dict - first result: {result[0]}")
+
+    return result
 
 @app.get("/")
 async def root():
@@ -561,7 +582,7 @@ async def search_returns(filter_params: dict):
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
-                "created_at": row['created_at'],
+                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
                 "tracking_number": row['tracking_number'],
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
@@ -574,7 +595,7 @@ async def search_returns(filter_params: dict):
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
-                "created_at": row['created_at'],
+                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
                 "tracking_number": row['tracking_number'],
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
@@ -1388,9 +1409,15 @@ async def get_sync_status():
     
         conn.close()
         
+        # Determine current status
+        current_status = "running" if sync_status["is_running"] else "completed"
+        if sync_status["last_sync_status"] == "error" and not sync_status["is_running"]:
+            # If last sync was error but not currently running, show as completed
+            current_status = "completed"
+        
         return {
             "current_sync": {
-                "status": "running" if sync_status["is_running"] else "completed",
+                "status": current_status,
                 "items_synced": sync_status["items_synced"]
             },
             "last_sync": sync_status["last_sync"],
