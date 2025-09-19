@@ -510,10 +510,11 @@ async def search_returns(filter_params: dict):
     query = """
     SELECT r.id, r.status, r.created_at, r.tracking_number,
            r.processed, r.api_id, c.name as client_name,
-           w.name as warehouse_name, r.client_id
+           w.name as warehouse_name, r.client_id, o.customer_name
     FROM returns r
     LEFT JOIN clients c ON CAST(r.client_id as BIGINT) = CAST(c.id as BIGINT)
     LEFT JOIN warehouses w ON CAST(r.warehouse_id as BIGINT) = CAST(w.id as BIGINT)
+    LEFT JOIN orders o ON CAST(r.order_id as BIGINT) = CAST(o.id as BIGINT)
     WHERE 1=1
     """
     
@@ -565,6 +566,7 @@ async def search_returns(filter_params: dict):
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
                 "client_name": row['client_name'],
+                "customer_name": row['customer_name'] or '',
                 "warehouse_name": row['warehouse_name'],
                 "is_shared": False
             }
@@ -577,6 +579,7 @@ async def search_returns(filter_params: dict):
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
                 "client_name": row['client_name'],
+                "customer_name": row['customer_name'] or '',
                 "warehouse_name": row['warehouse_name'],
                 "is_shared": False
             }
