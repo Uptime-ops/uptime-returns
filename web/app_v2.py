@@ -508,12 +508,12 @@ async def search_returns(filter_params: dict):
     
     # Build query with filters
     query = """
-    SELECT r.id, r.status, r.created_at, r.tracking_number, 
-           r.processed, r.api_id, c.name as client_name, 
+    SELECT r.id, r.status, r.created_at, r.tracking_number,
+           r.processed, r.api_id, c.name as client_name,
            w.name as warehouse_name, r.client_id
     FROM returns r
-    LEFT JOIN clients c ON r.client_id = c.id
-    LEFT JOIN warehouses w ON r.warehouse_id = w.id
+    LEFT JOIN clients c ON CAST(r.client_id as BIGINT) = CAST(c.id as BIGINT)
+    LEFT JOIN warehouses w ON CAST(r.warehouse_id as BIGINT) = CAST(w.id as BIGINT)
     WHERE 1=1
     """
     
@@ -756,13 +756,13 @@ async def export_returns_csv(filter_params: dict):
     
     # First get all returns matching the filter
     query = """
-    SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number, 
+    SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number,
            r.processed, c.name as client_name, w.name as warehouse_name,
            r.order_id, o.order_number, o.created_at as order_date, o.customer_name
     FROM returns r
-    LEFT JOIN clients c ON r.client_id = c.id
-    LEFT JOIN warehouses w ON r.warehouse_id = w.id
-    LEFT JOIN orders o ON r.order_id = o.id
+    LEFT JOIN clients c ON CAST(r.client_id as BIGINT) = CAST(c.id as BIGINT)
+    LEFT JOIN warehouses w ON CAST(r.warehouse_id as BIGINT) = CAST(w.id as BIGINT)
+    LEFT JOIN orders o ON CAST(r.order_id as BIGINT) = CAST(o.id as BIGINT)
     WHERE 1=1
     """
     
