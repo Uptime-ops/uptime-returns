@@ -2820,6 +2820,47 @@ async def test_deployment():
         "message": "New deployment working"
     }
 
+@app.get("/api/database/migrate-remaining-columns")
+async def migrate_remaining_columns():
+    """Convert remaining INT columns that might store large API IDs"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL"}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        results = []
+
+        # Convert remaining columns that might store large API IDs
+        remaining_migrations = [
+            "ALTER TABLE products ALTER COLUMN id BIGINT",
+            "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
+        ]
+
+        for cmd in remaining_migrations:
+            try:
+                cursor.execute(cmd)
+                conn.commit()
+                results.append({"command": cmd, "status": "success"})
+            except Exception as e:
+                error_msg = str(e)
+                if "does not exist" in error_msg or "Invalid column name" in error_msg:
+                    results.append({"command": cmd, "status": "skipped", "error": "Column doesn't exist"})
+                else:
+                    results.append({"command": cmd, "status": "error", "error": error_msg})
+
+        conn.close()
+
+        success_count = len([r for r in results if r['status'] == 'success'])
+        return {
+            "status": "success",
+            "results": results,
+            "message": f"Remaining column migration completed {success_count} conversions"
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/database/check-remaining-int-columns")
 async def check_remaining_int_columns():
     """Check for any remaining INT columns that need BIGINT conversion"""
