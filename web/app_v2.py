@@ -821,8 +821,8 @@ async def export_returns_csv(filter_params: dict):
                    ri.quantity_received as return_quantity,
                    ri.return_reasons, ri.condition_on_arrival
             FROM return_items ri
-            LEFT JOIN products p ON ri.product_id = p.id
-            WHERE ri.return_id = %s
+            LEFT JOIN products p ON CAST(ri.product_id as BIGINT) = CAST(p.id as BIGINT)
+            WHERE CAST(ri.return_id as BIGINT) = CAST(%s as BIGINT)
         """, (return_id,))
         items = cursor.fetchall()
         
@@ -1719,7 +1719,7 @@ async def run_sync():
                 if ret.get('items'):
                     for item in ret['items']:
                         # Get or create product
-                        product_id = item.get('product', {}).get('id', 0)
+                        product_id = int(item.get('product', {}).get('id', 0)) if item.get('product', {}).get('id') else 0
                         product_sku = item.get('product', {}).get('sku', '')
                         product_name = item.get('product', {}).get('name', '')
                         
@@ -1740,7 +1740,7 @@ async def run_sync():
                         elif product_id > 0:
                             # Ensure product exists
                             if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (product_id,))
+                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (int(product_id),))
                                 product_result = cursor.fetchone()
                                 if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
                                     # Need separate statements for IDENTITY_INSERT
@@ -1748,13 +1748,13 @@ async def run_sync():
                                     cursor.execute("""
                                         INSERT INTO products (id, sku, name, created_at, updated_at)
                                         VALUES (%s, %s, %s, GETDATE(), GETDATE())
-                                    """, (product_id, product_sku, product_name))
+                                    """, (int(product_id), product_sku, product_name))
                                     cursor.execute("SET IDENTITY_INSERT products OFF")
                             else:
                                 cursor.execute("""
                                     INSERT INTO products (id, sku, name, created_at, updated_at)
                                     VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, (product_id, product_sku, product_name))
+                                """, (int(product_id), product_sku, product_name))
                         
                         # Store return item
                         import json
@@ -1773,7 +1773,7 @@ async def run_sync():
                                             created_at, updated_at
                                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
                                     """, (
-                                        item.get('id'),
+                                        int(item.get('id')) if item.get('id') else None,
                                         return_id,
                                         product_id if product_id > 0 else None,
                                         item.get('quantity', 0),
