@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.225-CSV-DEBUG-CLEAN"
+DEPLOYMENT_VERSION = "V87.226-CSV-BIGINT-CAST-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -957,7 +957,7 @@ async def export_returns_csv(filter_params: dict = None):
                        ri.return_reasons, ri.condition_on_arrival
                 FROM return_items ri
                 LEFT JOIN products p ON CAST(ri.product_id as BIGINT) = CAST(p.id as BIGINT)
-                WHERE CAST(ri.return_id as BIGINT) = CAST(%s as BIGINT)
+                WHERE ri.return_id = %s
             """, (return_id,))
             items = cursor.fetchall()
             print(f"DEBUG CSV: Found {len(items) if items else 0} items for return {return_id}")
@@ -2984,7 +2984,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.225-CSV-DEBUG-CLEAN",
+        "version": "V87.226-CSV-BIGINT-CAST-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
