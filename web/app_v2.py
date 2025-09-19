@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.184-REMOVE-SQLITE-AZURE-ONLY"
+DEPLOYMENT_VERSION = "V87.185-DEBUG-INTEGER-OVERFLOW-IDS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1631,6 +1631,7 @@ async def run_sync():
                     if exists:
                         # Update existing return
                         print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
+                        print(f"   🔢 Return {return_id} IDs: client_id='{ret.get('client', {}).get('id')}', warehouse_id='{ret.get('warehouse', {}).get('id')}', order_id='{ret.get('order', {}).get('id')}'")
                         cursor.execute("""
                                 UPDATE returns SET
                                     api_id = %s, paid_by = %s, status = %s, created_at = %s,
@@ -1660,6 +1661,7 @@ async def run_sync():
                     else:
                         # Insert new return
                         print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
+                        print(f"   🔢 Return {return_id} IDs: client_id='{ret.get('client', {}).get('id')}', warehouse_id='{ret.get('warehouse', {}).get('id')}', order_id='{ret.get('order', {}).get('id')}'")
                         cursor.execute("""
                                 INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                         processed, processed_at, warehouse_note, customer_note,
