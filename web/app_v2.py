@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.213-DEFENSIVE-DATE-PARSING"
+DEPLOYMENT_VERSION = "V87.214-AZURE-SQL-DICT-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -597,13 +597,23 @@ async def search_returns(filter_params: dict):
 
     returns = []
     if USE_AZURE_SQL:
-        # Use pre-captured columns instead of cursor.description
-        if rows and columns:
-            rows = [dict(zip(columns, row)) for row in rows]
-            print(f"DEBUG search_returns - first converted row: {rows[0] if rows else 'none'}")
+        # Check if rows are already dictionaries (Azure SQL with pymssql may return dict-like objects)
+        if rows:
+            first_row = rows[0]
+            if isinstance(first_row, dict):
+                print(f"DEBUG search_returns - rows already dictionaries, no conversion needed")
+                # Rows are already dictionaries, no conversion needed
+            else:
+                print(f"DEBUG search_returns - converting tuples to dictionaries")
+                # Convert tuple rows to dictionaries
+                if columns:
+                    rows = [dict(zip(columns, row)) for row in rows]
+                else:
+                    rows = []
+            print(f"DEBUG search_returns - first final row: {rows[0] if rows else 'none'}")
         else:
             rows = []
-            print(f"DEBUG search_returns - no rows or columns to convert")
+            print(f"DEBUG search_returns - no rows to process")
     
     for row in rows:
         if USE_AZURE_SQL:
