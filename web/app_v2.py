@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.181-FIX-TRANSACTION-COMMIT-ERRORS"
+DEPLOYMENT_VERSION = "V87.182-DEBUG-DATE-CONVERSION-PATH"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1624,9 +1624,16 @@ async def run_sync():
                         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
                         return_result = cursor.fetchone()
                         exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
-                        
+
+                        print(f"🔍 Return {return_id}: USE_AZURE_SQL={USE_AZURE_SQL}, exists={exists}")
+                        if USE_AZURE_SQL:
+                            print(f"   Taking Azure SQL path for return {return_id}")
+                        else:
+                            print(f"   Taking SQLite path for return {return_id}")
+
                         if exists:
                             # Update existing return
+                            print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
                             cursor.execute("""
                                 UPDATE returns SET
                                     api_id = %s, paid_by = %s, status = %s, created_at = %s,
@@ -1655,6 +1662,7 @@ async def run_sync():
                             ))
                         else:
                             # Insert new return
+                            print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
                             cursor.execute("""
                                 INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                         processed, processed_at, warehouse_note, customer_note,
