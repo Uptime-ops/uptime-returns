@@ -1631,7 +1631,11 @@ async def run_sync():
                     if exists:
                         # Update existing return
                         print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                        print(f"   🔢 Return {return_id} IDs: client_id='{ret.get('client', {}).get('id')}', warehouse_id='{ret.get('warehouse', {}).get('id')}', order_id='{ret.get('order', {}).get('id')}'")
+                        # Safe access to nested objects with null checks
+                        client_id = ret.get('client', {}).get('id') if ret.get('client') else None
+                        warehouse_id = ret.get('warehouse', {}).get('id') if ret.get('warehouse') else None
+                        order_id = ret.get('order', {}).get('id') if ret.get('order') else None
+                        print(f"   🔢 Return {return_id} IDs: client_id='{client_id}', warehouse_id='{warehouse_id}', order_id='{order_id}'")
                         cursor.execute("""
                                 UPDATE returns SET
                                     api_id = %s, paid_by = %s, status = %s, created_at = %s,
@@ -1651,9 +1655,9 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                                str(ret['order']['id']) if ret.get('order') else None,
+                                str(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
+                                str(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
+                                str(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
@@ -1661,7 +1665,11 @@ async def run_sync():
                     else:
                         # Insert new return
                         print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                        print(f"   🔢 Return {return_id} IDs: client_id='{ret.get('client', {}).get('id')}', warehouse_id='{ret.get('warehouse', {}).get('id')}', order_id='{ret.get('order', {}).get('id')}'")
+                        # Safe access to nested objects with null checks
+                        client_id = ret.get('client', {}).get('id') if ret.get('client') else None
+                        warehouse_id = ret.get('warehouse', {}).get('id') if ret.get('warehouse') else None
+                        order_id = ret.get('order', {}).get('id') if ret.get('order') else None
+                        print(f"   🔢 Return {return_id} IDs: client_id='{client_id}', warehouse_id='{warehouse_id}', order_id='{order_id}'")
                         cursor.execute("""
                                 INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
                                         processed, processed_at, warehouse_note, customer_note,
@@ -1679,9 +1687,9 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') else None,
-                                str(ret['order']['id']) if ret.get('order') else None,
+                                str(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
+                                str(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
+                                str(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat())
                             ))
