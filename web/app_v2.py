@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.209-CURSOR-DESCRIPTION-FIX"
+DEPLOYMENT_VERSION = "V87.210-ISOFORMAT-STRING-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -603,7 +603,7 @@ async def search_returns(filter_params: dict):
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
-                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                "created_at": row['created_at'] if row['created_at'] else None,
                 "tracking_number": row['tracking_number'],
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
@@ -616,7 +616,7 @@ async def search_returns(filter_params: dict):
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
-                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                "created_at": row['created_at'] if row['created_at'] else None,
                 "tracking_number": row['tracking_number'],
                 "processed": bool(row['processed']),
                 "api_id": row['api_id'],
