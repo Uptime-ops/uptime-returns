@@ -1655,9 +1655,9 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
-                                str(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
+                                int(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
+                                int(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
+                                int(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat()),
                                 return_id  # WHERE clause
@@ -1687,9 +1687,9 @@ async def run_sync():
                                 ret.get('carrier', ''), ret.get('service', ''),
                                 ret.get('label_cost'), ret.get('label_pdf_url'),
                                 ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                str(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
-                                str(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
-                                str(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
+                                int(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
+                                int(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
+                                int(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
                                 ret.get('return_integration_id'),
                                 convert_date_for_sql(datetime.now().isoformat())
                             ))
@@ -1700,20 +1700,20 @@ async def run_sync():
                     try:
                         if USE_AZURE_SQL:
                             # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (str(order['id']),))
+                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (int(order['id']),))
                             order_result = cursor.fetchone()
                             if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES (%s, %s, GETDATE(), GETDATE())
-                                """, (str(order['id']), order.get('order_number', '')))
+                                """, (int(order['id']), order.get('order_number', '')))
                         else:
                             cursor.execute("""
                                 INSERT INTO orders (id, order_number, created_at, updated_at)
                                 VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (str(order['id']), order.get('order_number', '')))
+                            """, (int(order['id']), order.get('order_number', '')))
                     except Exception as e:
-                        print(f"Error inserting order {str(order['id'])}: {e}")
+                        print(f"Error inserting order {int(order['id'])}: {e}")
                 
                 # Store return items if present
                 if ret.get('items'):
