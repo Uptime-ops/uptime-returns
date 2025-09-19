@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.224-CSV-MULTI-ITEM-DEBUG"
+DEPLOYMENT_VERSION = "V87.225-CSV-DEBUG-CLEAN"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -605,13 +605,13 @@ async def search_returns(filter_params: dict):
     columns = None
     if USE_AZURE_SQL:
         columns = [column[0] for column in cursor.description] if cursor.description else []
-        print(f"DEBUG search_returns - USE_AZURE_SQL: {USE_AZURE_SQL}")
-        print(f"DEBUG search_returns - columns captured: {columns}")
+        # print(f"DEBUG search_returns - USE_AZURE_SQL: {USE_AZURE_SQL}")
+        # print(f"DEBUG search_returns - columns captured: {columns}")
 
     rows = cursor.fetchall()
-    print(f"DEBUG search_returns - rows count: {len(rows) if rows else 0}")
-    if rows:
-        print(f"DEBUG search_returns - first raw row: {rows[0]}")
+    # print(f"DEBUG search_returns - rows count: {len(rows) if rows else 0}")
+    # if rows:
+        # print(f"DEBUG search_returns - first raw row: {rows[0]}")
 
     returns = []
     if USE_AZURE_SQL:
@@ -619,23 +619,23 @@ async def search_returns(filter_params: dict):
         if rows:
             first_row = rows[0]
             if isinstance(first_row, dict):
-                print(f"DEBUG search_returns - rows already dictionaries, no conversion needed")
+                # print(f"DEBUG search_returns - rows already dictionaries, no conversion needed")
                 # Rows are already dictionaries, no conversion needed
             else:
-                print(f"DEBUG search_returns - converting tuples to dictionaries")
+                # print(f"DEBUG search_returns - converting tuples to dictionaries")
                 # Convert tuple rows to dictionaries
                 if columns:
                     rows = [dict(zip(columns, row)) for row in rows]
                 else:
                     rows = []
-            print(f"DEBUG search_returns - first final row: {rows[0] if rows else 'none'}")
+            # print(f"DEBUG search_returns - first final row: {rows[0] if rows else 'none'}")
         else:
             rows = []
-            print(f"DEBUG search_returns - no rows to process")
+            # print(f"DEBUG search_returns - no rows to process")
     
     for row in rows:
         if USE_AZURE_SQL:
-            print(f"DEBUG search_returns - processing row: {row}")
+            # print(f"DEBUG search_returns - processing row: {row}")
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
@@ -648,7 +648,7 @@ async def search_returns(filter_params: dict):
                 "warehouse_name": row['warehouse_name'],
                 "is_shared": False
             }
-            print(f"DEBUG search_returns - created return_dict: {return_dict}")
+            # print(f"DEBUG search_returns - created return_dict: {return_dict}")
         else:
             return_dict = {
                 "id": row['id'],
@@ -2984,7 +2984,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.224-CSV-MULTI-ITEM-DEBUG",
+        "version": "V87.225-CSV-DEBUG-CLEAN",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
