@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.219-CSV-EXPORT-FINAL-FIX"
+DEPLOYMENT_VERSION = "V87.220-CSV-ROBUST-CONVERSION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -884,9 +884,24 @@ async def export_returns_csv(filter_params: dict):
 
     returns = cursor.fetchall()
 
-    # Convert tuples to dictionaries for Azure SQL
-    if USE_AZURE_SQL and columns:
-        returns = [dict(zip(columns, row)) for row in returns]
+    # Convert tuples to dictionaries for Azure SQL - ROBUST VERSION
+    if USE_AZURE_SQL:
+        if returns and columns:
+            # Convert tuples to dictionaries with explicit column mapping
+            converted_returns = []
+            for row in returns:
+                row_dict = {}
+                for i, col_name in enumerate(columns):
+                    if i < len(row):
+                        row_dict[col_name] = row[i]
+                    else:
+                        row_dict[col_name] = None
+                converted_returns.append(row_dict)
+            returns = converted_returns
+            print(f"DEBUG CSV: Converted {len(returns)} returns from tuples to dictionaries")
+        else:
+            print(f"DEBUG CSV: No conversion - returns: {len(returns) if returns else 0}, columns: {len(columns) if columns else 0}")
+            returns = []
     
     # Create CSV in memory
     output = io.StringIO()
@@ -2913,7 +2928,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.219-CSV-EXPORT-FINAL-FIX",
+        "version": "V87.220-CSV-ROBUST-CONVERSION",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
