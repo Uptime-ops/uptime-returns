@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.217-VERSION-CONSISTENCY-FIX"
+DEPLOYMENT_VERSION = "V87.218-ROWS-TO-DICT-COMPREHENSIVE-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -324,17 +324,34 @@ def get_single_value(row, column_name, index=0):
     """Get single value from database row, handling both dict and tuple formats"""
     if row is None:
         return None
-    if isinstance(row, dict):
+
+    # Try dictionary access first (Azure SQL fetchall case)
+    if hasattr(row, 'get'):
         return row.get(column_name)
-    else:
+
+    # Try dictionary-like access (some row factories)
+    try:
+        return row[column_name]
+    except (KeyError, TypeError):
+        pass
+
+    # Fall back to index access (tuple case)
+    try:
         return row[index] if index < len(row) else None
+    except (IndexError, TypeError):
+        return None
 
 def rows_to_dict(cursor, rows, columns=None):
-    """Convert multiple database rows to list of dictionaries"""
+    """Convert multiple database rows to list of dictionaries - Azure SQL compatible"""
     if not rows:
         return []
 
-    # Use provided columns or get from cursor.description
+    # Check if rows are already dictionaries (Azure SQL case)
+    if rows and isinstance(rows[0], dict):
+        print(f"DEBUG rows_to_dict - rows already dictionaries, returning as-is")
+        return rows
+
+    # For tuple rows (SQLite case), convert to dictionaries
     if columns is None:
         if cursor.description:
             columns = [column[0] for column in cursor.description]
@@ -342,17 +359,11 @@ def rows_to_dict(cursor, rows, columns=None):
             print(f"WARNING: cursor.description is None, cannot convert rows to dict")
             return []
 
-    # Debug logging to identify the issue
+    print(f"DEBUG rows_to_dict - converting tuples to dictionaries")
     print(f"DEBUG rows_to_dict - columns: {columns}")
     print(f"DEBUG rows_to_dict - rows count: {len(rows)}")
-    if rows:
-        print(f"DEBUG rows_to_dict - first row: {rows[0]}")
-        print(f"DEBUG rows_to_dict - first row type: {type(rows[0])}")
 
     result = [dict(zip(columns, row)) for row in rows]
-    if result:
-        print(f"DEBUG rows_to_dict - first result: {result[0]}")
-
     return result
 
 @app.get("/")
@@ -415,34 +426,34 @@ async def get_dashboard_stats():
             # Azure SQL syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE CAST(created_at AS DATE) = CAST(GETDATE() AS DATE)")
             row = cursor.fetchone()
-            stats['returns_today'] = row[0] if row else 0
-            
+            stats['returns_today'] = get_single_value(row, 'count', 0)
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -7, GETDATE())")
             row = cursor.fetchone()
-            stats['returns_this_week'] = row[0] if row else 0
-            
+            stats['returns_this_week'] = get_single_value(row, 'count', 0)
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE created_at >= DATEADD(day, -30, GETDATE())")
             row = cursor.fetchone()
-            stats['returns_this_month'] = row[0] if row else 0
+            stats['returns_this_month'] = get_single_value(row, 'count', 0)
         else:
             # SQLite syntax
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) = DATE('now')")
             row = cursor.fetchone()
-            stats['returns_today'] = row[0] if row else 0
-            
+            stats['returns_today'] = get_single_value(row, 'count', 0)
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-7 days')")
             row = cursor.fetchone()
-            stats['returns_this_week'] = row[0] if row else 0
-            
+            stats['returns_this_week'] = get_single_value(row, 'count', 0)
+
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE DATE(created_at) >= DATE('now', '-30 days')")
             row = cursor.fetchone()
-            stats['returns_this_month'] = row[0] if row else 0
+            stats['returns_this_month'] = get_single_value(row, 'count', 0)
     
         # Count of unshared returns
         try:
             cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id NOT IN (SELECT return_id FROM email_share_items)")
             row = cursor.fetchone()
-            stats['unshared_returns'] = row[0] if row else 0
+            stats['unshared_returns'] = get_single_value(row, 'count', 0)
         except:
             # Table might not exist yet
             stats['unshared_returns'] = stats['total_returns']
@@ -451,7 +462,7 @@ async def get_dashboard_stats():
         try:
             cursor.execute("SELECT MAX(completed_at) as last_sync FROM sync_logs WHERE status = 'completed'")
             row = cursor.fetchone()
-            stats['last_sync'] = row[0] if row else None
+            stats['last_sync'] = get_single_value(row, 'last_sync', 0)
         except:
             stats['last_sync'] = None
         
@@ -459,21 +470,21 @@ async def get_dashboard_stats():
         try:
             cursor.execute("SELECT COUNT(*) as count FROM products")
             row = cursor.fetchone()
-            stats['total_products'] = row[0] if row else 0
+            stats['total_products'] = get_single_value(row, 'count', 0)
         except:
             stats['total_products'] = 0
         
         try:
             cursor.execute("SELECT COUNT(*) as count FROM return_items")
             row = cursor.fetchone()
-            stats['total_return_items'] = row[0] if row else 0
+            stats['total_return_items'] = get_single_value(row, 'count', 0)
         except:
             stats['total_return_items'] = 0
         
         try:
             cursor.execute("SELECT SUM(quantity) as total FROM return_items")
             row = cursor.fetchone()
-            stats['total_returned_quantity'] = row[0] if row else 0
+            stats['total_returned_quantity'] = get_single_value(row, 'total', 0)
         except:
             stats['total_returned_quantity'] = 0
     
@@ -578,7 +589,7 @@ async def search_returns(filter_params: dict):
     count_query = f"SELECT COUNT(*) as total_count FROM ({query}) as filtered"
     cursor.execute(count_query, tuple(params))
     row = cursor.fetchone()
-    total = row['total_count'] if row else 0
+    total = get_single_value(row, 'total_count', 0)
     
     # Add pagination (different syntax for Azure SQL vs SQLite)
     if USE_AZURE_SQL:
@@ -668,7 +679,8 @@ async def search_returns(filter_params: dict):
 
             item_rows = cursor.fetchall()
             if USE_AZURE_SQL:
-                item_rows = [dict(zip(columns, row)) for row in item_rows] if item_rows and columns else []
+                # Azure SQL returns dictionaries already, no conversion needed
+                pass
             
             items = []
             for item_row in item_rows:
@@ -813,7 +825,7 @@ async def get_return_detail(return_id: int):
             
             order_row = cursor.fetchone()
             if order_row:
-                return_data['order_number'] = order_row['order_number']
+                return_data['order_number'] = get_single_value(order_row, 'order_number', 0)
                 return_data['items_note'] = "Return items not available from API. Order reference shown."
     
     return_data['items'] = items
@@ -1189,7 +1201,7 @@ async def migrate_database():
                 """, (table_name, column_name))
                 
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = get_single_value(result, 'count', 0) > 0
                 
                 if not exists:
                     # Add the column
@@ -1400,7 +1412,7 @@ async def initialize_database():
                 """, (table_name,))
                 
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = get_single_value(result, 'count', 0) > 0
                 
                 if not exists:
                     cursor.execute(create_sql)
@@ -1710,7 +1722,7 @@ async def run_sync():
                     # Use IF EXISTS for Azure SQL (simpler than MERGE)
                     cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
                     return_result = cursor.fetchone()
-                    exists = (return_result['count'] if USE_AZURE_SQL else return_result[0]) > 0
+                    exists = get_single_value(return_result, 'count', 0) > 0
 
                     print(f"🔍 Return {return_id}: USE_AZURE_SQL={USE_AZURE_SQL}, exists={exists}")
                     print(f"   Taking Azure SQL path for return {return_id}")
@@ -1789,7 +1801,7 @@ async def run_sync():
                             # Check if order exists first
                             cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (int(order['id']),))
                             order_result = cursor.fetchone()
-                            if (order_result['count'] if USE_AZURE_SQL else order_result[0]) == 0:
+                            if get_single_value(order_result, 'count', 0) == 0:
                                 cursor.execute("""
                                     INSERT INTO orders (id, order_number, created_at, updated_at)
                                     VALUES (%s, %s, GETDATE(), GETDATE())
@@ -1829,7 +1841,7 @@ async def run_sync():
                             if USE_AZURE_SQL:
                                 cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (int(product_id),))
                                 product_result = cursor.fetchone()
-                                if (product_result['count'] if USE_AZURE_SQL else product_result[0]) == 0:
+                                if get_single_value(product_result, 'count', 0) == 0:
                                     # Need separate statements for IDENTITY_INSERT
                                     cursor.execute("SET IDENTITY_INSERT products ON")
                                     cursor.execute("""
@@ -1850,7 +1862,7 @@ async def run_sync():
                             if item.get('id'):
                                 cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
                                 item_result = cursor.fetchone()
-                                if (item_result['count'] if USE_AZURE_SQL else item_result[0]) == 0:
+                                if get_single_value(item_result, 'count', 0) == 0:
                                     cursor.execute("SET IDENTITY_INSERT return_items ON")
                                     cursor.execute("""
                                         INSERT INTO return_items (
@@ -2314,7 +2326,7 @@ async def get_settings():
             WHERE TABLE_NAME = 'settings'
         """)
         settings_result = cursor.fetchone()
-        if (settings_result['count'] if USE_AZURE_SQL else settings_result[0]) == 0:
+        if get_single_value(settings_result, 'count', 0) == 0:
             cursor.execute("""
                 CREATE TABLE settings (
                     [key] NVARCHAR(100) PRIMARY KEY,
@@ -2379,7 +2391,7 @@ async def save_settings(settings: dict):
             WHERE TABLE_NAME = 'settings'
         """)
         settings_result = cursor.fetchone()
-        if (settings_result['count'] if USE_AZURE_SQL else settings_result[0]) == 0:
+        if get_single_value(settings_result, 'count', 0) == 0:
             cursor.execute("""
                 CREATE TABLE settings (
                     [key] NVARCHAR(100) PRIMARY KEY,
@@ -2409,7 +2421,7 @@ async def save_settings(settings: dict):
             # Check if setting exists
             cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
             setting_result = cursor.fetchone()
-            if (setting_result['count'] if USE_AZURE_SQL else setting_result[0]) > 0:
+            if get_single_value(setting_result, 'count', 0) > 0:
                 # Update existing
                 cursor.execute("""
                     UPDATE settings 
@@ -2636,7 +2648,7 @@ async def diagnose_azure_sql():
             # Get current user
             cursor.execute("SELECT USER_NAME() as user_name")
             result = cursor.fetchone()
-            diagnostics["current_user"] = result['user_name'] if result else "No result"
+            diagnostics["current_user"] = get_single_value(result, 'user_name', 0) if result else "No result"
         except Exception as e:
             import traceback
             error_details = f"USER_NAME() error: {type(e).__name__}: {str(e)}"
@@ -2649,7 +2661,7 @@ async def diagnose_azure_sql():
             # Get database name
             cursor.execute("SELECT DB_NAME() as database_name")
             result = cursor.fetchone()
-            diagnostics["database_name"] = result['database_name'] if result else "No result"
+            diagnostics["database_name"] = get_single_value(result, 'database_name', 0) if result else "No result"
         except Exception as e:
             import traceback
             error_details = f"DB_NAME() error: {type(e).__name__}: {str(e)}"
@@ -2662,7 +2674,7 @@ async def diagnose_azure_sql():
             # Check schema permissions
             cursor.execute("SELECT SCHEMA_NAME() as schema_name")
             schema_result = cursor.fetchone()
-            diagnostics["schema_info"]["current_schema"] = (schema_result['schema_name'] if USE_AZURE_SQL else schema_result[0])
+            diagnostics["schema_info"]["current_schema"] = get_single_value(schema_result, 'schema_name', 0)
         except Exception as e:
             diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
         
@@ -2902,7 +2914,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.217-VERSION-CONSISTENCY-FIX",
+        "version": "V87.218-ROWS-TO-DICT-COMPREHENSIVE-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
@@ -3142,7 +3154,7 @@ async def test_direct_sync():
                 # Check if return exists
                 cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (str(return_id),))
                 result = cursor.fetchone()
-                exists = (result['count'] if USE_AZURE_SQL else result[0]) > 0
+                exists = get_single_value(result, 'count', 0) > 0
                 print(f"Return {return_id} exists in DB: {exists}")
                 
                 conn.close()
