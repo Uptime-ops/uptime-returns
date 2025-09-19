@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.214-AZURE-SQL-DICT-FIX"
+DEPLOYMENT_VERSION = "V87.215-DROPDOWNS-DASHBOARD-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -320,6 +320,15 @@ def row_to_dict(cursor, row):
 
     return result
 
+def get_single_value(row, column_name, index=0):
+    """Get single value from database row, handling both dict and tuple formats"""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(column_name)
+    else:
+        return row[index] if index < len(row) else None
+
 def rows_to_dict(cursor, rows, columns=None):
     """Convert multiple database rows to list of dictionaries"""
     if not rows:
@@ -383,23 +392,23 @@ async def get_dashboard_stats():
         
         cursor.execute("SELECT COUNT(*) as count FROM returns")
         row = cursor.fetchone()
-        stats['total_returns'] = (row[0] if USE_AZURE_SQL else row['count']) if row else 0
+        stats['total_returns'] = get_single_value(row, 'count', 0)
 
         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
         row = cursor.fetchone()
-        stats['pending_returns'] = (row[0] if USE_AZURE_SQL else row['count']) if row else 0
+        stats['pending_returns'] = get_single_value(row, 'count', 0)
 
         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
         row = cursor.fetchone()
-        stats['processed_returns'] = (row[0] if USE_AZURE_SQL else row['count']) if row else 0
+        stats['processed_returns'] = get_single_value(row, 'count', 0)
 
         cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
         row = cursor.fetchone()
-        stats['total_clients'] = (row[0] if USE_AZURE_SQL else row['count']) if row else 0
+        stats['total_clients'] = get_single_value(row, 'count', 0)
 
         cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
         row = cursor.fetchone()
-        stats['total_warehouses'] = (row[0] if USE_AZURE_SQL else row['count']) if row else 0
+        stats['total_warehouses'] = get_single_value(row, 'count', 0)
     
         # Get return counts by time period
         if USE_AZURE_SQL:
@@ -484,10 +493,9 @@ async def get_clients():
         cursor.execute("SELECT id, name FROM clients ORDER BY name")
 
         if USE_AZURE_SQL:
-            # Capture columns before fetchall()
-            columns = [column[0] for column in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            clients = [dict(zip(columns, row)) for row in rows] if rows and columns else []
+            # Azure SQL returns dictionaries already, no conversion needed
+            clients = rows if rows else []
         else:
             clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
         
@@ -507,10 +515,9 @@ async def get_warehouses():
         cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
 
         if USE_AZURE_SQL:
-            # Capture columns before fetchall()
-            columns = [column[0] for column in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            warehouses = [dict(zip(columns, row)) for row in rows] if rows and columns else []
+            # Azure SQL returns dictionaries already, no conversion needed
+            warehouses = rows if rows else []
         else:
             warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
         
