@@ -2820,6 +2820,89 @@ async def test_deployment():
         "message": "New deployment working"
     }
 
+@app.get("/api/database/migrate-primary-keys")
+async def migrate_primary_keys():
+    """Migrate primary key columns to BIGINT using exact constraint names"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        results = []
+
+        # Step-by-step migration with exact constraint names
+        pk_migrations = [
+            {
+                "table": "clients",
+                "constraint": "PK__clients__3213E83F6F2C7259"
+            },
+            {
+                "table": "warehouses",
+                "constraint": "PK__warehous__3213E83FF88C1B96"
+            },
+            {
+                "table": "orders",
+                "constraint": "PK__orders__3213E83F89CDD820"
+            },
+            {
+                "table": "returns",
+                "constraint": "PK__returns__3213E83FA1C16B80"
+            }
+        ]
+
+        for migration in pk_migrations:
+            table = migration["table"]
+            constraint = migration["constraint"]
+
+            try:
+                # Drop primary key constraint
+                cursor.execute(f"ALTER TABLE {table} DROP CONSTRAINT {constraint}")
+                conn.commit()
+                results.append({
+                    "step": f"Drop PK on {table}",
+                    "command": f"DROP CONSTRAINT {constraint}",
+                    "status": "success"
+                })
+
+                # Convert column to BIGINT
+                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN id BIGINT NOT NULL")
+                conn.commit()
+                results.append({
+                    "step": f"Convert {table}.id to BIGINT",
+                    "command": f"ALTER COLUMN id BIGINT NOT NULL",
+                    "status": "success"
+                })
+
+                # Recreate primary key
+                cursor.execute(f"ALTER TABLE {table} ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)")
+                conn.commit()
+                results.append({
+                    "step": f"Recreate PK on {table}",
+                    "command": f"ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)",
+                    "status": "success"
+                })
+
+            except Exception as e:
+                results.append({
+                    "step": f"Error migrating {table}",
+                    "command": f"Full PK migration of {table}",
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        conn.close()
+
+        success_count = len([r for r in results if r['status'] == 'success'])
+        return {
+            "status": "success",
+            "results": results,
+            "message": f"Primary key migration completed {success_count} steps"
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/sync/trigger-get")
 async def trigger_sync_get():
     """GET version of sync trigger for browser testing"""
