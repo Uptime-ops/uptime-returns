@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.216-CSV-EXPORT-FIX"
+DEPLOYMENT_VERSION = "V87.217-VERSION-CONSISTENCY-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -2902,7 +2902,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.190-TEST",
+        "version": "V87.217-VERSION-CONSISTENCY-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
