@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.207-DEBUG-ROWS-DICT"
+DEPLOYMENT_VERSION = "V87.208-DEBUG-TEST-ENDPOINT"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -3111,6 +3111,36 @@ async def test_direct_sync():
             "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
             "traceback": traceback.format_exc()
         }
+
+@app.get("/api/debug/test-query")
+async def debug_test_query():
+    """Test endpoint to debug database query results"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Simple test query
+        cursor.execute("SELECT TOP 1 id, status, created_at FROM returns")
+        raw_result = cursor.fetchone()
+
+        print(f"DEBUG - Raw result: {raw_result}")
+        print(f"DEBUG - Raw result type: {type(raw_result)}")
+        print(f"DEBUG - Cursor description: {cursor.description}")
+
+        # Convert using our function
+        converted_result = row_to_dict(cursor, raw_result)
+
+        conn.close()
+
+        return {
+            "raw_result": str(raw_result),
+            "raw_result_type": str(type(raw_result)),
+            "cursor_description": [col[0] for col in cursor.description],
+            "converted_result": converted_result
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 if __name__ == "__main__":
     import uvicorn
