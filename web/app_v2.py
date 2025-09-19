@@ -355,23 +355,23 @@ async def get_dashboard_stats():
         
         cursor.execute("SELECT COUNT(*) as count FROM returns")
         row = cursor.fetchone()
-        stats['total_returns'] = row[0] if row else 0
-        
+        stats['total_returns'] = row['count'] if row else 0
+
         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 0")
         row = cursor.fetchone()
-        stats['pending_returns'] = row[0] if row else 0
-        
+        stats['pending_returns'] = row['count'] if row else 0
+
         cursor.execute("SELECT COUNT(*) as count FROM returns WHERE processed = 1")
         row = cursor.fetchone()
-        stats['processed_returns'] = row[0] if row else 0
-    
+        stats['processed_returns'] = row['count'] if row else 0
+
         cursor.execute("SELECT COUNT(DISTINCT client_id) as count FROM returns WHERE client_id IS NOT NULL")
         row = cursor.fetchone()
-        stats['total_clients'] = row[0] if row else 0
-        
+        stats['total_clients'] = row['count'] if row else 0
+
         cursor.execute("SELECT COUNT(DISTINCT warehouse_id) as count FROM returns WHERE warehouse_id IS NOT NULL")
         row = cursor.fetchone()
-        stats['total_warehouses'] = row[0] if row else 0
+        stats['total_warehouses'] = row['count'] if row else 0
     
         # Get return counts by time period
         if USE_AZURE_SQL:
