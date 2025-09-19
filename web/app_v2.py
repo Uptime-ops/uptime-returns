@@ -2766,6 +2766,105 @@ async def migrate_to_bigint_get():
     """GET version of BIGINT migration for browser testing"""
     return await migrate_to_bigint()
 
+@app.get("/api/database/migrate-bigint-v2")
+async def migrate_to_bigint_v2():
+    """V2 migration with dynamic constraint detection"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        migrations = []
+
+        # Tables to migrate
+        tables = ['clients', 'warehouses', 'orders', 'returns']
+
+        for table in tables:
+            try:
+                # Step 1: Find and drop primary key constraint
+                cursor.execute(f"""
+                    SELECT CONSTRAINT_NAME
+                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+                    WHERE TABLE_NAME = '{table}' AND CONSTRAINT_TYPE = 'PRIMARY KEY'
+                """)
+                pk_constraint = cursor.fetchone()
+
+                if pk_constraint:
+                    pk_name = pk_constraint[0]
+                    cursor.execute(f"ALTER TABLE {table} DROP CONSTRAINT {pk_name}")
+                    conn.commit()
+                    migrations.append({
+                        "description": f"Drop primary key on {table}",
+                        "command": f"DROP CONSTRAINT {pk_name}",
+                        "status": "success"
+                    })
+
+                # Step 2: Alter column to BIGINT
+                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN id BIGINT NOT NULL")
+                conn.commit()
+                migrations.append({
+                    "description": f"Alter {table}.id to BIGINT",
+                    "command": f"ALTER COLUMN id BIGINT NOT NULL",
+                    "status": "success"
+                })
+
+                # Step 3: Recreate primary key
+                cursor.execute(f"ALTER TABLE {table} ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)")
+                conn.commit()
+                migrations.append({
+                    "description": f"Recreate primary key on {table}",
+                    "command": f"ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)",
+                    "status": "success"
+                })
+
+            except Exception as e:
+                migrations.append({
+                    "description": f"Error migrating {table}",
+                    "command": f"Full migration of {table}",
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        # Step 4: Migrate foreign key columns
+        fk_migrations = [
+            ("returns", "client_id"),
+            ("returns", "warehouse_id"),
+            ("returns", "order_id"),
+            ("return_items", "return_id"),
+            ("email_history", "client_id"),
+            ("email_share_items", "return_id")
+        ]
+
+        for table, column in fk_migrations:
+            try:
+                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN {column} BIGINT")
+                conn.commit()
+                migrations.append({
+                    "description": f"Alter {table}.{column} to BIGINT",
+                    "command": f"ALTER COLUMN {column} BIGINT",
+                    "status": "success"
+                })
+            except Exception as e:
+                migrations.append({
+                    "description": f"Error migrating {table}.{column}",
+                    "command": f"ALTER COLUMN {column} BIGINT",
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        conn.close()
+
+        success_count = len([m for m in migrations if m['status'] == 'success'])
+        return {
+            "status": "success",
+            "migrations": migrations,
+            "message": f"V2 Migration: Completed {success_count} steps successfully"
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/database/reset-get")
 async def reset_database_get():
     """GET version of database reset for browser testing"""
