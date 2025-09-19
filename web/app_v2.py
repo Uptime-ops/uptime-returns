@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.210-ISOFORMAT-STRING-FIX"
+DEPLOYMENT_VERSION = "V87.211-DEBUG-SEARCH-RETURNS"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -587,19 +587,27 @@ async def search_returns(filter_params: dict):
     columns = None
     if USE_AZURE_SQL:
         columns = [column[0] for column in cursor.description] if cursor.description else []
+        print(f"DEBUG search_returns - USE_AZURE_SQL: {USE_AZURE_SQL}")
+        print(f"DEBUG search_returns - columns captured: {columns}")
 
     rows = cursor.fetchall()
+    print(f"DEBUG search_returns - rows count: {len(rows) if rows else 0}")
+    if rows:
+        print(f"DEBUG search_returns - first raw row: {rows[0]}")
 
     returns = []
     if USE_AZURE_SQL:
         # Use pre-captured columns instead of cursor.description
         if rows and columns:
             rows = [dict(zip(columns, row)) for row in rows]
+            print(f"DEBUG search_returns - first converted row: {rows[0] if rows else 'none'}")
         else:
             rows = []
+            print(f"DEBUG search_returns - no rows or columns to convert")
     
     for row in rows:
         if USE_AZURE_SQL:
+            print(f"DEBUG search_returns - processing row: {row}")
             return_dict = {
                 "id": row['id'],
                 "status": row['status'] or '',
@@ -612,6 +620,7 @@ async def search_returns(filter_params: dict):
                 "warehouse_name": row['warehouse_name'],
                 "is_shared": False
             }
+            print(f"DEBUG search_returns - created return_dict: {return_dict}")
         else:
             return_dict = {
                 "id": row['id'],
