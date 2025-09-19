@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.208-DEBUG-TEST-ENDPOINT"
+DEPLOYMENT_VERSION = "V87.209-CURSOR-DESCRIPTION-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -320,11 +320,18 @@ def row_to_dict(cursor, row):
 
     return result
 
-def rows_to_dict(cursor, rows):
+def rows_to_dict(cursor, rows, columns=None):
     """Convert multiple database rows to list of dictionaries"""
     if not rows:
         return []
-    columns = [column[0] for column in cursor.description]
+
+    # Use provided columns or get from cursor.description
+    if columns is None:
+        if cursor.description:
+            columns = [column[0] for column in cursor.description]
+        else:
+            print(f"WARNING: cursor.description is None, cannot convert rows to dict")
+            return []
 
     # Debug logging to identify the issue
     print(f"DEBUG rows_to_dict - columns: {columns}")
@@ -475,10 +482,12 @@ async def get_clients():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM clients ORDER BY name")
-        
+
         if USE_AZURE_SQL:
+            # Capture columns before fetchall()
+            columns = [column[0] for column in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            clients = rows_to_dict(cursor, rows) if rows else []
+            clients = [dict(zip(columns, row)) for row in rows] if rows and columns else []
         else:
             clients = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
         
@@ -496,10 +505,12 @@ async def get_warehouses():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM warehouses ORDER BY name")
-        
+
         if USE_AZURE_SQL:
+            # Capture columns before fetchall()
+            columns = [column[0] for column in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            warehouses = rows_to_dict(cursor, rows) if rows else []
+            warehouses = [dict(zip(columns, row)) for row in rows] if rows and columns else []
         else:
             warehouses = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
         
@@ -571,11 +582,21 @@ async def search_returns(filter_params: dict):
         params.extend([limit, (page - 1) * limit])
 
     cursor.execute(query, tuple(params))
+
+    # Capture column description BEFORE fetchall() for Azure SQL
+    columns = None
+    if USE_AZURE_SQL:
+        columns = [column[0] for column in cursor.description] if cursor.description else []
+
     rows = cursor.fetchall()
-    
+
     returns = []
     if USE_AZURE_SQL:
-        rows = rows_to_dict(cursor, rows) if rows else []
+        # Use pre-captured columns instead of cursor.description
+        if rows and columns:
+            rows = [dict(zip(columns, row)) for row in rows]
+        else:
+            rows = []
     
     for row in rows:
         if USE_AZURE_SQL:
@@ -614,10 +635,14 @@ async def search_returns(filter_params: dict):
                 LEFT JOIN products p ON ri.product_id = p.id
                 WHERE ri.return_id = %s
             """, (return_id,))
-            
+
+            if USE_AZURE_SQL:
+                # Capture columns before fetchall()
+                columns = [column[0] for column in cursor.description] if cursor.description else []
+
             item_rows = cursor.fetchall()
             if USE_AZURE_SQL:
-                item_rows = rows_to_dict(cursor, item_rows) if item_rows else []
+                item_rows = [dict(zip(columns, row)) for row in item_rows] if item_rows and columns else []
             
             items = []
             for item_row in item_rows:
@@ -814,11 +839,16 @@ async def export_returns_csv(filter_params: dict):
     query += " ORDER BY r.created_at DESC"
 
     cursor.execute(query, tuple(params))
+
+    # Capture columns before fetchall() for Azure SQL
+    if USE_AZURE_SQL:
+        columns = [column[0] for column in cursor.description] if cursor.description else []
+
     returns = cursor.fetchall()
-    
+
     # Convert rows to dict for Azure SQL
     if USE_AZURE_SQL:
-        returns = rows_to_dict(cursor, returns) if returns else []
+        returns = [dict(zip(columns, row)) for row in returns] if returns and columns else []
     
     # Create CSV in memory
     output = io.StringIO()
