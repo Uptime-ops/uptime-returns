@@ -2820,6 +2820,53 @@ async def test_deployment():
         "message": "New deployment working"
     }
 
+@app.get("/api/database/check-remaining-int-columns")
+async def check_remaining_int_columns():
+    """Check for any remaining INT columns that need BIGINT conversion"""
+    try:
+        if not USE_AZURE_SQL:
+            return {"status": "skipped", "message": "Not using Azure SQL"}
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Find all INT columns that might need conversion
+        cursor.execute("""
+            SELECT
+                TABLE_NAME,
+                COLUMN_NAME,
+                DATA_TYPE,
+                IS_NULLABLE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE DATA_TYPE = 'int'
+            AND TABLE_NAME IN ('clients', 'warehouses', 'orders', 'returns', 'return_items', 'products', 'email_history', 'email_share_items')
+            ORDER BY TABLE_NAME, COLUMN_NAME
+        """)
+
+        int_columns = cursor.fetchall()
+
+        # Convert to list of dicts for JSON response
+        columns_list = []
+        for row in int_columns:
+            columns_list.append({
+                "table": row[0],
+                "column": row[1],
+                "data_type": row[2],
+                "is_nullable": row[3]
+            })
+
+        conn.close()
+
+        return {
+            "status": "success",
+            "remaining_int_columns": columns_list,
+            "count": len(columns_list),
+            "message": f"Found {len(columns_list)} INT columns that may need BIGINT conversion"
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/database/migrate-primary-keys")
 async def migrate_primary_keys():
     """Migrate primary key columns to BIGINT using exact constraint names"""
