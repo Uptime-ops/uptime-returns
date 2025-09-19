@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.182-DEBUG-DATE-CONVERSION-PATH"
+DEPLOYMENT_VERSION = "V87.183-FIX-SQLITE-FALLBACK-DATE-CONVERSION"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1688,6 +1688,7 @@ async def run_sync():
                             ))
                 else:
                     # Use INSERT OR REPLACE for SQLite
+                    print(f"⚠️  UNEXPECTED: Taking SQLite fallback path for return {return_id} despite USE_AZURE_SQL={USE_AZURE_SQL}")
                     cursor.execute("""
                         INSERT INTO returns (
                         id, api_id, paid_by, status, created_at, updated_at,
@@ -1699,8 +1700,8 @@ async def run_sync():
                         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                     return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                    ret.get('status', ''), ret.get('created_at'), ret.get('updated_at'),
-                    ret.get('processed', False), ret.get('processed_at'),
+                    ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
+                    ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
                     ret.get('warehouse_note', ''), ret.get('customer_note', ''),
                     ret.get('tracking_number'), ret.get('tracking_url'),
                     ret.get('carrier', ''), ret.get('service', ''),
