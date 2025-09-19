@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.221-CSV-METHOD-NOT-ALLOWED-FIX"
+DEPLOYMENT_VERSION = "V87.222-CSV-INDENTATION-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -837,176 +837,188 @@ async def get_return_detail(return_id: int):
 @app.get("/api/returns/export/csv")
 async def export_returns_csv(filter_params: dict = None):
     """Export returns with product details to CSV"""
-    # Handle None filter_params for GET requests
-    if filter_params is None:
-        filter_params = {}
+    try:
+        print(f"DEBUG CSV: Starting export with filter_params: {filter_params}")
 
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+        # Handle None filter_params for GET requests
+        if filter_params is None:
+            filter_params = {}
 
-    # First get all returns matching the filter
-    query = """
-    SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number,
-           r.processed, c.name as client_name, w.name as warehouse_name,
-           r.order_id, o.order_number, o.created_at as order_date, o.customer_name
-    FROM returns r
-    LEFT JOIN clients c ON CAST(r.client_id as BIGINT) = CAST(c.id as BIGINT)
-    LEFT JOIN warehouses w ON CAST(r.warehouse_id as BIGINT) = CAST(w.id as BIGINT)
-    LEFT JOIN orders o ON CAST(r.order_id as BIGINT) = CAST(o.id as BIGINT)
-    WHERE 1=1
-    """
+        conn = get_db_connection()
+        if not USE_AZURE_SQL:
+            conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-    params = []
-    client_id = filter_params.get('client_id')
-    status = filter_params.get('status')
-    search = filter_params.get('search') or ''
-    search = search.strip() if search else ''
-    
-    if client_id:
-        query += " AND r.client_id = %s"
-        params.append(client_id)
-    
-    if status:
-        if status == 'pending':
-            query += " AND r.processed = 0"
-        elif status == 'processed':
-            query += " AND r.processed = 1"
-    
-    if search:
-        query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
-        search_param = f"%{search}%"
-        params.extend([search_param, search_param, search_param])
-    
-    query += " ORDER BY r.created_at DESC"
+        print(f"DEBUG CSV: Database connection established, USE_AZURE_SQL: {USE_AZURE_SQL}")
 
-    cursor.execute(query, tuple(params))
+        # First get all returns matching the filter
+        query = """
+        SELECT r.id as return_id, r.status, r.created_at as return_date, r.tracking_number,
+               r.processed, c.name as client_name, w.name as warehouse_name,
+               r.order_id, o.order_number, o.created_at as order_date, o.customer_name
+        FROM returns r
+        LEFT JOIN clients c ON CAST(r.client_id as BIGINT) = CAST(c.id as BIGINT)
+        LEFT JOIN warehouses w ON CAST(r.warehouse_id as BIGINT) = CAST(w.id as BIGINT)
+        LEFT JOIN orders o ON CAST(r.order_id as BIGINT) = CAST(o.id as BIGINT)
+        WHERE 1=1
+        """
 
-    # Capture columns before fetchall() for Azure SQL
-    if USE_AZURE_SQL:
-        columns = [column[0] for column in cursor.description] if cursor.description else []
+        params = []
+        client_id = filter_params.get('client_id')
+        status = filter_params.get('status')
+        search = filter_params.get('search') or ''
+        search = search.strip() if search else ''
 
-    returns = cursor.fetchall()
+        if client_id:
+            query += " AND r.client_id = %s"
+            params.append(client_id)
 
-    # Convert tuples to dictionaries for Azure SQL - ROBUST VERSION
-    if USE_AZURE_SQL:
-        if returns and columns:
-            # Convert tuples to dictionaries with explicit column mapping
-            converted_returns = []
-            for row in returns:
-                row_dict = {}
-                for i, col_name in enumerate(columns):
-                    if i < len(row):
-                        row_dict[col_name] = row[i]
-                    else:
-                        row_dict[col_name] = None
-                converted_returns.append(row_dict)
-            returns = converted_returns
-            print(f"DEBUG CSV: Converted {len(returns)} returns from tuples to dictionaries")
-        else:
-            print(f"DEBUG CSV: No conversion - returns: {len(returns) if returns else 0}, columns: {len(columns) if columns else 0}")
-            returns = []
-    
-    # Create CSV in memory
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Write header with your requested columns
-    writer.writerow([
-        'Client', 'Customer Name', 'Order Date', 'Return Date', 
-        'Order Number', 'Item Name', 'Order Qty', 'Return Qty', 
-        'Reason for Return'
-    ])
-    
-    # Process each return - using data from database including customer names
-    for return_row in returns:
-        return_id = return_row['return_id']
-        order_id = return_row['order_id']
-        customer_name = return_row['customer_name'] if return_row['customer_name'] else ''
-        
-        # Check for return items first (LEFT JOIN to handle NULL product_ids)
-        cursor.execute("""
-            SELECT ri.id, COALESCE(p.sku, 'N/A') as sku,
-                   COALESCE(p.name, 'Unknown Product') as name,
-                   ri.quantity as order_quantity,
-                   ri.quantity_received as return_quantity,
-                   ri.return_reasons, ri.condition_on_arrival
-            FROM return_items ri
-            LEFT JOIN products p ON CAST(ri.product_id as BIGINT) = CAST(p.id as BIGINT)
-            WHERE CAST(ri.return_id as BIGINT) = CAST(%s as BIGINT)
-        """, (return_id,))
-        items = cursor.fetchall()
-        
-        # Convert items to dict for Azure SQL
+        if status:
+            if status == 'pending':
+                query += " AND r.processed = 0"
+            elif status == 'processed':
+                query += " AND r.processed = 1"
+
+        if search:
+            query += " AND (r.tracking_number LIKE %s OR r.id LIKE %s OR c.name LIKE %s)"
+            search_param = f"%{search}%"
+            params.extend([search_param, search_param, search_param])
+
+        query += " ORDER BY r.created_at DESC"
+
+        cursor.execute(query, tuple(params))
+
+        # Capture columns before fetchall() for Azure SQL
         if USE_AZURE_SQL:
-            raw_items_count = len(items) if items else 0
-            # Use explicit column names from the query instead of relying on cursor.description
-            if items:
-                columns = ['id', 'sku', 'name', 'order_quantity', 'return_quantity', 'return_reasons', 'condition_on_arrival']
-                converted_items = []
-                for row in items:
-                    item_dict = {}
+            columns = [column[0] for column in cursor.description] if cursor.description else []
+
+        returns = cursor.fetchall()
+
+        # Convert tuples to dictionaries for Azure SQL - ROBUST VERSION
+        if USE_AZURE_SQL:
+            if returns and columns:
+                # Convert tuples to dictionaries with explicit column mapping
+                converted_returns = []
+                for row in returns:
+                    row_dict = {}
                     for i, col_name in enumerate(columns):
                         if i < len(row):
-                            item_dict[col_name] = row[i]
+                            row_dict[col_name] = row[i]
                         else:
-                            item_dict[col_name] = None
-                    converted_items.append(item_dict)
-                items = converted_items
-            converted_items_count = len(items) if items else 0
-            print(f"🔍 CSV CONVERSION DEBUG: Return {return_id} - raw: {raw_items_count} items, converted: {converted_items_count} items")
-            if raw_items_count > 0 and converted_items_count == 0:
-                print(f"🚨 CSV CONVERSION FAILED: Manual conversion returned empty for return {return_id}!")
+                            row_dict[col_name] = None
+                    converted_returns.append(row_dict)
+                returns = converted_returns
+                print(f"DEBUG CSV: Converted {len(returns)} returns from tuples to dictionaries")
+            else:
+                print(f"DEBUG CSV: No conversion - returns: {len(returns) if returns else 0}, columns: {len(columns) if columns else 0}")
+                returns = []
+    
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header with your requested columns
+        writer.writerow([
+            'Client', 'Customer Name', 'Order Date', 'Return Date',
+            'Order Number', 'Item Name', 'Order Qty', 'Return Qty',
+            'Reason for Return'
+        ])
+
+        # Process each return - using data from database including customer names
+        for return_row in returns:
+            return_id = return_row['return_id']
+            order_id = return_row['order_id']
+            customer_name = return_row['customer_name'] if return_row['customer_name'] else ''
+
+            # Check for return items first (LEFT JOIN to handle NULL product_ids)
+            cursor.execute("""
+                SELECT ri.id, COALESCE(p.sku, 'N/A') as sku,
+                       COALESCE(p.name, 'Unknown Product') as name,
+                       ri.quantity as order_quantity,
+                       ri.quantity_received as return_quantity,
+                       ri.return_reasons, ri.condition_on_arrival
+                FROM return_items ri
+                LEFT JOIN products p ON CAST(ri.product_id as BIGINT) = CAST(p.id as BIGINT)
+                WHERE CAST(ri.return_id as BIGINT) = CAST(%s as BIGINT)
+            """, (return_id,))
+            items = cursor.fetchall()
         
-        if items:
-            # Write return items from database
-            for item in items:
-                reasons = ''
-                if item['return_reasons']:
-                    try:
-                        reasons_data = json.loads(item['return_reasons'])
-                        reasons = ', '.join(reasons_data) if isinstance(reasons_data, list) else str(reasons_data)
-                    except:
-                        reasons = str(item['return_reasons'])
+            # Convert items to dict for Azure SQL
+            if USE_AZURE_SQL:
+                raw_items_count = len(items) if items else 0
+                # Use explicit column names from the query instead of relying on cursor.description
+                if items:
+                    columns = ['id', 'sku', 'name', 'order_quantity', 'return_quantity', 'return_reasons', 'condition_on_arrival']
+                    converted_items = []
+                    for row in items:
+                        item_dict = {}
+                        for i, col_name in enumerate(columns):
+                            if i < len(row):
+                                item_dict[col_name] = row[i]
+                            else:
+                                item_dict[col_name] = None
+                        converted_items.append(item_dict)
+                    items = converted_items
+                converted_items_count = len(items) if items else 0
+                print(f"🔍 CSV CONVERSION DEBUG: Return {return_id} - raw: {raw_items_count} items, converted: {converted_items_count} items")
+                if raw_items_count > 0 and converted_items_count == 0:
+                    print(f"🚨 CSV CONVERSION FAILED: Manual conversion returned empty for return {return_id}!")
+        
+            if items:
+                # Write return items from database
+                for item in items:
+                    reasons = ''
+                    if item['return_reasons']:
+                        try:
+                            reasons_data = json.loads(item['return_reasons'])
+                            reasons = ', '.join(reasons_data) if isinstance(reasons_data, list) else str(reasons_data)
+                        except:
+                            reasons = str(item['return_reasons'])
                 
+                    writer.writerow([
+                        return_row['client_name'] or '',
+                        customer_name,
+                        return_row['order_date'] or '',
+                        return_row['return_date'],
+                        return_row['order_number'] or '',
+                        item['name'] or '',
+                        item['order_quantity'] or 0,  # Order Qty
+                        item['return_quantity'] or 0,  # Return Qty
+                        reasons
+                    ])
+            else:
+                # For returns without return_items, write a single row with basic info
                 writer.writerow([
                     return_row['client_name'] or '',
                     customer_name,
                     return_row['order_date'] or '',
                     return_row['return_date'],
                     return_row['order_number'] or '',
-                    item['name'] or '',
-                    item['order_quantity'] or 0,  # Order Qty
-                    item['return_quantity'] or 0,  # Return Qty
-                    reasons
+                    'Return details not available',
+                    0,
+                    0,
+                    'Return items not in database'
                 ])
-        else:
-            # For returns without return_items, write a single row with basic info
-            writer.writerow([
-                return_row['client_name'] or '',
-                customer_name,
-                return_row['order_date'] or '',
-                return_row['return_date'],
-                return_row['order_number'] or '',
-                'Return details not available',
-                0,
-                0,
-                'Return items not in database'
-            ])
     
-    conn.close()
-    
-    # Return CSV as downloadable file
-    output.seek(0)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"returns_export_{timestamp}.csv"
-    
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+        conn.close()
+
+        # Return CSV as downloadable file
+        output.seek(0)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"returns_export_{timestamp}.csv"
+
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode()),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except Exception as e:
+        print(f"DEBUG CSV ERROR: {str(e)}")
+        print(f"DEBUG CSV ERROR TYPE: {type(e)}")
+        import traceback
+        print(f"DEBUG CSV TRACEBACK: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"CSV export failed: {str(e)}")
 
 @app.get("/api/analytics/return-reasons")
 async def get_return_reasons():
@@ -2933,7 +2945,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.221-CSV-METHOD-NOT-ALLOWED-FIX",
+        "version": "V87.222-CSV-INDENTATION-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
