@@ -636,10 +636,26 @@
                             return `<span class="status-badge ${badgeClass}">${data}</span>`;
                         }
                     },
-                    { 
+                    {
                         data: 'created_at',
                         render: function(data) {
-                            return moment(data).format('YYYY-MM-DD HH:mm');
+                            // Defensive date parsing to handle various formats
+                            if (!data || data === 'created_at' || typeof data !== 'string') {
+                                return 'N/A';
+                            }
+
+                            // Try to parse the date with moment
+                            const parsedDate = moment(data);
+                            if (parsedDate.isValid()) {
+                                return parsedDate.format('YYYY-MM-DD HH:mm');
+                            } else {
+                                // If moment can't parse it, try native Date parsing
+                                const nativeDate = new Date(data);
+                                if (!isNaN(nativeDate.getTime())) {
+                                    return moment(nativeDate).format('YYYY-MM-DD HH:mm');
+                                }
+                                return data; // Return raw data if all parsing fails
+                            }
                         }
                     },
                     { data: 'tracking_number' },
