@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.218-ROWS-TO-DICT-COMPREHENSIVE-FIX"
+DEPLOYMENT_VERSION = "V87.219-CSV-EXPORT-FINAL-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -884,10 +884,9 @@ async def export_returns_csv(filter_params: dict):
 
     returns = cursor.fetchall()
 
-    # Azure SQL returns dictionaries already, no conversion needed
-    if USE_AZURE_SQL:
-        # Returns are already dictionaries, no conversion needed
-        pass
+    # Convert tuples to dictionaries for Azure SQL
+    if USE_AZURE_SQL and columns:
+        returns = [dict(zip(columns, row)) for row in returns]
     
     # Create CSV in memory
     output = io.StringIO()
@@ -2914,7 +2913,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.218-ROWS-TO-DICT-COMPREHENSIVE-FIX",
+        "version": "V87.219-CSV-EXPORT-FINAL-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
