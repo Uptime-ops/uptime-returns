@@ -116,31 +116,31 @@ class CleanSyncService:
             warehouse = return_data['warehouse']
             self._upsert_warehouse(cursor, warehouse['id'], warehouse.get('name', ''))
 
-        # Store the return (match existing schema - no notes column)
+        # Store the return using simple INSERT (same as old app)
         placeholder = get_placeholder()
-        cursor.execute(f"""
-            MERGE returns AS target
-            USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
-            AS source (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id)
-            ON target.id = source.id
-            WHEN MATCHED THEN
-                UPDATE SET status = source.status, tracking_number = source.tracking_number,
-                          updated_at = source.updated_at, client_id = source.client_id,
-                          warehouse_id = source.warehouse_id, order_id = source.order_id
-            WHEN NOT MATCHED THEN
-                INSERT (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id)
-                VALUES (source.id, source.status, source.tracking_number, source.created_at, source.updated_at,
-                       source.client_id, source.warehouse_id, source.order_id);
-        """, (
-            return_id,
-            return_data.get('status', ''),
-            return_data.get('tracking_number', ''),
-            self._parse_date(return_data.get('created_at')),
-            self._parse_date(return_data.get('updated_at')),
-            return_data.get('client', {}).get('id'),
-            return_data.get('warehouse', {}).get('id'),
-            return_data.get('order_id')
-        ))
+
+        # Check if return already exists
+        cursor.execute(f"SELECT id FROM returns WHERE id = {placeholder}", (return_id,))
+        exists = cursor.fetchone()
+
+        if not exists:
+            # Insert new return (match existing schema columns)
+            cursor.execute(f"""
+                INSERT INTO returns (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+            """, (
+                return_id,
+                return_data.get('status', ''),
+                return_data.get('tracking_number', ''),
+                self._parse_date(return_data.get('created_at')),
+                self._parse_date(return_data.get('updated_at')),
+                return_data.get('client', {}).get('id'),
+                return_data.get('warehouse', {}).get('id'),
+                return_data.get('order_id')
+            ))
+            print(f"  ✅ Inserted new return {return_id}")
+        else:
+            print(f"  ℹ️ Return {return_id} already exists, skipping")
 
         # Store return items (embedded in return response)
         items = return_data.get('items', [])
@@ -150,30 +150,25 @@ class CleanSyncService:
                 self.stats["return_items_processed"] += 1
 
     def _store_return_item(self, cursor, return_id: int, item_data: Dict):
-        """Store a return item"""
+        """Store a return item (simple INSERT approach)"""
         placeholder = get_placeholder()
-        cursor.execute(f"""
-            MERGE return_items AS target
-            USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
-            AS source (id, return_id, product_id, quantity, quantity_received, return_reasons, condition_on_arrival)
-            ON target.id = source.id
-            WHEN MATCHED THEN
-                UPDATE SET return_id = source.return_id, product_id = source.product_id,
-                          quantity = source.quantity, quantity_received = source.quantity_received,
-                          return_reasons = source.return_reasons, condition_on_arrival = source.condition_on_arrival
-            WHEN NOT MATCHED THEN
-                INSERT (id, return_id, product_id, quantity, quantity_received, return_reasons, condition_on_arrival)
-                VALUES (source.id, source.return_id, source.product_id, source.quantity, source.quantity_received,
-                       source.return_reasons, source.condition_on_arrival);
-        """, (
-            item_data.get('id'),
-            return_id,
-            item_data.get('product_id'),
-            item_data.get('quantity', 0),
-            item_data.get('quantity_received', 0),
-            json.dumps(item_data.get('return_reasons', [])),
-            item_data.get('condition_on_arrival', '')
-        ))
+        item_id = item_data.get('id')
+
+        # Check if item already exists
+        cursor.execute(f"SELECT id FROM return_items WHERE id = {placeholder}", (item_id,))
+        if not cursor.fetchone():
+            cursor.execute(f"""
+                INSERT INTO return_items (id, return_id, product_id, quantity, quantity_received, return_reasons, condition_on_arrival)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+            """, (
+                item_id,
+                return_id,
+                item_data.get('product_id'),
+                item_data.get('quantity', 0),
+                item_data.get('quantity_received', 0),
+                json.dumps(item_data.get('return_reasons', [])),
+                item_data.get('condition_on_arrival', '')
+            ))
 
     def _sync_orders(self):
         """Get unique order IDs from returns and fetch order details"""
@@ -214,31 +209,28 @@ class CleanSyncService:
 
             order_data = response.json().get('data', {})
 
-            # Store the order
+            # Store the order (simple INSERT approach)
             placeholder = get_placeholder()
-            cursor.execute(f"""
-                MERGE orders AS target
-                USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
-                AS source (id, order_number, status, created_at, updated_at, customer_name, ship_to_address, total_amount)
-                ON target.id = source.id
-                WHEN MATCHED THEN
-                    UPDATE SET order_number = source.order_number, status = source.status,
-                              updated_at = source.updated_at, customer_name = source.customer_name,
-                              ship_to_address = source.ship_to_address, total_amount = source.total_amount
-                WHEN NOT MATCHED THEN
-                    INSERT (id, order_number, status, created_at, updated_at, customer_name, ship_to_address, total_amount)
-                    VALUES (source.id, source.order_number, source.status, source.created_at, source.updated_at,
-                           source.customer_name, source.ship_to_address, source.total_amount);
-            """, (
-                order_id,
-                order_data.get('order_number', ''),
-                order_data.get('status', ''),
-                self._parse_date(order_data.get('created_at')),
-                self._parse_date(order_data.get('updated_at')),
-                self._extract_customer_name(order_data),
-                json.dumps(order_data.get('ship_to_address', {})),
-                order_data.get('total_amount', 0)
-            ))
+
+            # Check if order already exists
+            cursor.execute(f"SELECT id FROM orders WHERE id = {placeholder}", (order_id,))
+            if not cursor.fetchone():
+                cursor.execute(f"""
+                    INSERT INTO orders (id, order_number, status, created_at, updated_at, customer_name, ship_to_address, total_amount)
+                    VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+                """, (
+                    order_id,
+                    order_data.get('order_number', ''),
+                    order_data.get('status', ''),
+                    self._parse_date(order_data.get('created_at')),
+                    self._parse_date(order_data.get('updated_at')),
+                    self._extract_customer_name(order_data),
+                    json.dumps(order_data.get('ship_to_address', {})),
+                    order_data.get('total_amount', 0)
+                ))
+                print(f"  ✅ Inserted new order {order_id}")
+            else:
+                print(f"  ℹ️ Order {order_id} already exists, skipping")
 
             # Store order items (embedded in order response)
             items = order_data.get('items', [])
@@ -251,53 +243,40 @@ class CleanSyncService:
             self.stats["errors"] += 1
 
     def _store_order_item(self, cursor, order_id: int, item_data: Dict):
-        """Store an order item"""
+        """Store an order item (simple INSERT approach)"""
         placeholder = get_placeholder()
-        cursor.execute(f"""
-            MERGE order_items AS target
-            USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
-            AS source (id, order_id, product_id, quantity, price, sku, name, bundle_order_item_id)
-            ON target.id = source.id
-            WHEN MATCHED THEN
-                UPDATE SET order_id = source.order_id, product_id = source.product_id,
-                          quantity = source.quantity, price = source.price, sku = source.sku,
-                          name = source.name, bundle_order_item_id = source.bundle_order_item_id
-            WHEN NOT MATCHED THEN
-                INSERT (id, order_id, product_id, quantity, price, sku, name, bundle_order_item_id)
-                VALUES (source.id, source.order_id, source.product_id, source.quantity, source.price,
-                       source.sku, source.name, source.bundle_order_item_id);
-        """, (
-            item_data.get('id'),
-            order_id,
-            item_data.get('product_id'),
-            item_data.get('quantity', 0),
-            item_data.get('price', 0),
-            item_data.get('sku', ''),
-            item_data.get('name', ''),
-            item_data.get('bundle_order_item_id')
-        ))
+        item_id = item_data.get('id')
+
+        # Check if order item already exists
+        cursor.execute(f"SELECT id FROM order_items WHERE id = {placeholder}", (item_id,))
+        if not cursor.fetchone():
+            cursor.execute(f"""
+                INSERT INTO order_items (id, order_id, product_id, quantity, price, sku, name, bundle_order_item_id)
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+            """, (
+                item_id,
+                order_id,
+                item_data.get('product_id'),
+                item_data.get('quantity', 0),
+                item_data.get('price', 0),
+                item_data.get('sku', ''),
+                item_data.get('name', ''),
+                item_data.get('bundle_order_item_id')
+            ))
 
     def _upsert_client(self, cursor, client_id: int, name: str):
-        """Insert or update client"""
+        """Insert client if not exists (simple approach)"""
         placeholder = get_placeholder()
-        cursor.execute(f"""
-            MERGE clients AS target
-            USING (VALUES ({placeholder}, {placeholder})) AS source (id, name)
-            ON target.id = source.id
-            WHEN MATCHED THEN UPDATE SET name = source.name
-            WHEN NOT MATCHED THEN INSERT (id, name) VALUES (source.id, source.name);
-        """, (client_id, name))
+        cursor.execute(f"SELECT id FROM clients WHERE id = {placeholder}", (client_id,))
+        if not cursor.fetchone():
+            cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})", (client_id, name))
 
     def _upsert_warehouse(self, cursor, warehouse_id: int, name: str):
-        """Insert or update warehouse"""
+        """Insert warehouse if not exists (simple approach)"""
         placeholder = get_placeholder()
-        cursor.execute(f"""
-            MERGE warehouses AS target
-            USING (VALUES ({placeholder}, {placeholder})) AS source (id, name)
-            ON target.id = source.id
-            WHEN MATCHED THEN UPDATE SET name = source.name
-            WHEN NOT MATCHED THEN INSERT (id, name) VALUES (source.id, source.name);
-        """, (warehouse_id, name))
+        cursor.execute(f"SELECT id FROM warehouses WHERE id = {placeholder}", (warehouse_id,))
+        if not cursor.fetchone():
+            cursor.execute(f"INSERT INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})", (warehouse_id, name))
 
     def _parse_date(self, date_string: str) -> str:
         """Parse API date to SQL Server format"""
