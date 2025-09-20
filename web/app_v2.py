@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.230-SYNC-CONTROL-OVERHAUL"
+DEPLOYMENT_VERSION = "V87.231-UNMISTAKABLE-SYNC-LOGGING"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -261,6 +261,9 @@ from datetime import datetime
 import asyncio
 import requests
 import sys
+
+# Import the new sync class with progress tracking
+from scripts.sync_returns import WarehanceAPISync
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1221,21 +1224,47 @@ async def test_warehance_api():
 
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
-    """Trigger a sync with Warehance API"""
+    """Trigger a sync with Warehance API using the new progress tracking system"""
     global sync_status
 
-    if sync_status["is_running"]:
-        current_sync_id = sync_status.get("sync_id", "unknown")
+    # Check if a sync is already running using the new system
+    try:
+        # Import database models for checking sync status
+        from database.models import SessionLocal, SyncLog
+        
+        db = SessionLocal()
+        running_sync = db.query(SyncLog).filter(SyncLog.status == "running").first()
+        
+        if running_sync:
+            db.close()
+            return {
+                "message": f"Sync already in progress (ID: {running_sync.id})",
+                "status": "running",
+                "sync_id": running_sync.id
+            }
+        
+        # Start new sync using the enhanced sync system
+        sync_type = request_data.get("sync_type", "full")
+        
+        def run_new_sync():
+            syncer = WarehanceAPISync()
+            syncer.run_sync(sync_type)
+        
+        # Run sync in background
+        asyncio.create_task(asyncio.get_event_loop().run_in_executor(None, run_new_sync))
+        
+        db.close()
         return {
-            "message": f"Sync already in progress (ID: {current_sync_id})",
-            "status": "running",
-            "current_sync_id": current_sync_id
+            "message": f"{sync_type.capitalize()} sync started with real-time progress tracking",
+            "status": "started"
         }
-
-    # Start sync in background
-    asyncio.create_task(run_sync())
-
-    return {"message": "Sync started", "status": "started"}
+        
+    except Exception as e:
+        print(f"Error triggering sync: {e}")
+        return {
+            "message": f"Error starting sync: {str(e)}",
+            "status": "error"
+        }
 
 @app.post("/api/database/migrate")
 async def migrate_database():
@@ -1521,71 +1550,33 @@ async def initialize_database():
 
 @app.get("/api/sync/status")
 async def get_sync_status():
-    """Get current sync status"""
-    global sync_status
-    
+    """Get current sync status using new database system"""
     try:
-        # Get last sync from database
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        # Import database models for checking sync status
+        from database.models import SessionLocal, SyncLog
         
-        # Check if last_synced_at column exists
-        try:
-            cursor.execute("""
-                SELECT MAX(last_synced_at) as last_sync
-                FROM returns
-                WHERE last_synced_at IS NOT NULL
-            """)
-        except Exception as e:
-            # Column doesn't exist, try to add it
-            if "Invalid column name" in str(e):
-                try:
-                    cursor.execute("ALTER TABLE returns ADD last_synced_at DATETIME")
-                    conn.commit()
-                    cursor.execute("SELECT NULL as last_sync")
-                except:
-                    cursor.execute("SELECT NULL as last_sync")
-            else:
-                cursor.execute("SELECT NULL as last_sync")
-        result = cursor.fetchone()
+        db = SessionLocal()
         
-        # Handle both SQLite and Azure SQL
-        last_sync_value = None
-        if result:
-            if USE_AZURE_SQL:
-                last_sync_value = result[0] if result else None
-            else:
-                last_sync_value = result[0] if result else None
+        # Get current/latest sync
+        latest_sync = db.query(SyncLog).order_by(SyncLog.started_at.desc()).first()
         
-        if last_sync_value:
-            sync_status["last_sync"] = last_sync_value
-    
-        conn.close()
+        # Get sync history
+        history = db.query(SyncLog).filter(SyncLog.status.in_(["completed", "failed"])).order_by(SyncLog.started_at.desc()).limit(10).all()
         
-        # Determine current status
-        current_status = "running" if sync_status["is_running"] else "completed"
-        if sync_status["last_sync_status"] == "error" and not sync_status["is_running"]:
-            # If last sync was error but not currently running, show as completed
-            current_status = "completed"
+        db.close()
         
         return {
-            "current_sync": {
-                "status": current_status,
-                "items_synced": sync_status["items_synced"]
-            },
-            "last_sync": sync_status["last_sync"],
-            "last_sync_status": sync_status["last_sync_status"],
-            "last_sync_message": sync_status["last_sync_message"],
+            "current_sync": latest_sync.to_dict() if latest_sync else None,
+            "history": [sync.to_dict() for sync in history],
             "deployment_version": DEPLOYMENT_VERSION,
             "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
+        
     except Exception as e:
-        print(f"Error in sync status: {str(e)}")
-        if 'conn' in locals():
-            conn.close()
+        print(f"Error getting sync status: {e}")
         return {
             "current_sync": {"status": "error", "items_synced": 0},
-            "last_sync": None,
+            "history": [],
             "last_sync_status": "error",
             "last_sync_message": str(e),
             "deployment_version": DEPLOYMENT_VERSION,
@@ -1594,40 +1585,67 @@ async def get_sync_status():
 
 @app.get("/api/sync/progress")
 async def get_sync_progress():
-    """Get real-time sync progress with ETA calculation"""
-    global sync_status
-
+    """Get real-time sync progress with ETA calculation using new database system"""
     try:
-        if not sync_status["is_running"]:
+        # Import database models for checking sync status
+        from database.models import SessionLocal, SyncLog
+        from datetime import datetime
+        
+        db = SessionLocal()
+        current_sync = db.query(SyncLog).filter(SyncLog.status == "running").order_by(SyncLog.started_at.desc()).first()
+        
+        if not current_sync:
+            db.close()
             return {
                 "is_running": False,
                 "message": "No sync currently running"
             }
-
-        # Return progress data from global sync_status
-        return {
-            "is_running": True,
-            "current_phase": "processing",
-            "current_operation": sync_status.get("last_sync_message", "Processing..."),
-            "processed_count": sync_status.get("items_synced", 0),
-            "total_to_process": sync_status.get("total_returns", 0),
-            "progress_percentage": round((sync_status.get("items_synced", 0) / max(sync_status.get("total_returns", 1), 1)) * 100, 1),
-            "new_returns": sync_status.get("new_returns", 0),
-            "updated_returns": sync_status.get("updated_returns", 0),
-            "items_per_minute": sync_status.get("items_per_minute", 0),
-            "eta_text": sync_status.get("eta_text", "Calculating..."),
-            "elapsed_seconds": sync_status.get("elapsed_seconds", 0),
-            "metadata": {
-                "error_count": sync_status.get("error_count", 0)
-            }
-        }
-
+        
+        # Calculate progress metrics
+        progress_data = current_sync.to_dict()
+        
+        # Calculate ETA if we have enough data
+        if current_sync.processed_count > 0 and current_sync.total_to_process > 0:
+            elapsed_seconds = (datetime.utcnow() - current_sync.started_at).total_seconds()
+            items_per_second = current_sync.processed_count / elapsed_seconds if elapsed_seconds > 0 else 0
+            
+            remaining_items = current_sync.total_to_process - current_sync.processed_count
+            eta_seconds = remaining_items / items_per_second if items_per_second > 0 else 0
+            
+            # Format ETA
+            if eta_seconds < 60:
+                eta_text = f"{int(eta_seconds)}s"
+            elif eta_seconds < 3600:
+                eta_text = f"{int(eta_seconds/60)}m {int(eta_seconds%60)}s"
+            else:
+                hours = int(eta_seconds/3600)
+                minutes = int((eta_seconds%3600)/60)
+                eta_text = f"{hours}h {minutes}m"
+            
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": round(items_per_second, 2),
+                "items_per_minute": round(items_per_second * 60, 1),
+                "eta_seconds": int(eta_seconds),
+                "eta_text": eta_text,
+                "elapsed_seconds": int(elapsed_seconds)
+            })
+        else:
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": 0,
+                "items_per_minute": 0,
+                "eta_seconds": 0,
+                "eta_text": "Calculating...",
+                "elapsed_seconds": int((datetime.utcnow() - current_sync.started_at).total_seconds())
+            })
+        
+        db.close()
+        return progress_data
+        
     except Exception as e:
         print(f"Error getting sync progress: {e}")
-        return {
-            "is_running": False,
-            "error": str(e)
-        }
+        return {"is_running": False, "error": str(e)}
 
 @app.get("/api/sync/history")
 async def get_sync_history():
@@ -1727,14 +1745,15 @@ async def run_sync():
     import sys
     sync_id = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    print("=" * 80, flush=True)
-    print("🚀 ================ WAREHANCE SYNC STARTING ================", flush=True)
+    print("!" * 100, flush=True)
+    print("🚀🚀🚀 APP_V2.PY ENHANCED SYNC STARTING - THIS IS THE NEW SYNC! 🚀🚀🚀", flush=True)
+    print("!" * 100, flush=True)
     print(f"🆔 Sync ID: {sync_id}", flush=True)
     print(f"🕐 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
     print(f"🔑 API Key: {WAREHANCE_API_KEY[:15]}...", flush=True)
     print(f"🗄️  Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}", flush=True)
     print("🎯 Target: Fetch all returns, products, orders, and return_items", flush=True)
-    print("=" * 80, flush=True)
+    print("!" * 100, flush=True)
     sys.stdout.flush()
 
     # Store sync start in database for history
@@ -2211,8 +2230,9 @@ async def run_sync():
         end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         sync_id = sync_status.get('sync_id', 'unknown')
 
-        print("=" * 80, flush=True)
-        print("✅ ================ WAREHANCE SYNC COMPLETED ================", flush=True)
+        print("!" * 100, flush=True)
+        print("✅✅✅ APP_V2.PY ENHANCED SYNC COMPLETED - THIS WAS THE NEW SYNC! ✅✅✅", flush=True)
+        print("!" * 100, flush=True)
         print(f"🆔 Sync ID: {sync_id}", flush=True)
         print(f"🕐 End Time: {end_time}", flush=True)
         print(f"📊 Returns Synced: {sync_status['items_synced']}", flush=True)
