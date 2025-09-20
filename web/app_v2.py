@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.228-ENHANCED-SYNC-LOGGING"
+DEPLOYMENT_VERSION = "V87.229-PROGRESS-ENDPOINT-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -300,7 +300,15 @@ sync_status = {
     "last_sync": None,
     "last_sync_status": None,
     "last_sync_message": None,
-    "items_synced": 0
+    "items_synced": 0,
+    "total_returns": 0,
+    "new_returns": 0,
+    "updated_returns": 0,
+    "return_items_synced": 0,
+    "products_synced": 0,
+    "orders_synced": 0,
+    "error_count": 0,
+    "sync_start_time": None
 }
 
 # Helper functions for database row conversion
@@ -1579,6 +1587,43 @@ async def get_sync_status():
             "sql_fix_applied": "YES - parameterized queries use ? not %s"
         }
 
+@app.get("/api/sync/progress")
+async def get_sync_progress():
+    """Get real-time sync progress with ETA calculation"""
+    global sync_status
+
+    try:
+        if not sync_status["is_running"]:
+            return {
+                "is_running": False,
+                "message": "No sync currently running"
+            }
+
+        # Return progress data from global sync_status
+        return {
+            "is_running": True,
+            "current_phase": "processing",
+            "current_operation": sync_status.get("last_sync_message", "Processing..."),
+            "processed_count": sync_status.get("items_synced", 0),
+            "total_to_process": sync_status.get("total_returns", 0),
+            "progress_percentage": round((sync_status.get("items_synced", 0) / max(sync_status.get("total_returns", 1), 1)) * 100, 1),
+            "new_returns": sync_status.get("new_returns", 0),
+            "updated_returns": sync_status.get("updated_returns", 0),
+            "items_per_minute": sync_status.get("items_per_minute", 0),
+            "eta_text": sync_status.get("eta_text", "Calculating..."),
+            "elapsed_seconds": sync_status.get("elapsed_seconds", 0),
+            "metadata": {
+                "error_count": sync_status.get("error_count", 0)
+            }
+        }
+
+    except Exception as e:
+        print(f"Error getting sync progress: {e}")
+        return {
+            "is_running": False,
+            "error": str(e)
+        }
+
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
     if not date_string:
@@ -1630,6 +1675,14 @@ async def run_sync():
 
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
+    sync_status["total_returns"] = 0
+    sync_status["new_returns"] = 0
+    sync_status["updated_returns"] = 0
+    sync_status["return_items_synced"] = 0
+    sync_status["products_synced"] = 0
+    sync_status["orders_synced"] = 0
+    sync_status["error_count"] = 0
+    sync_status["sync_start_time"] = datetime.now()
     
     try:
         # Initialize database tables if using Azure SQL
@@ -3016,7 +3069,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.228-ENHANCED-SYNC-LOGGING",
+        "version": "V87.229-PROGRESS-ENDPOINT-FIX",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
