@@ -13,14 +13,22 @@ def get_table_counts():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    tables = ['clients', 'warehouses', 'returns', 'products', 'return_items', 'orders', 'order_items']
-    counts = {}
-
+    # First, let's see what tables actually exist
     try:
-        for table in tables:
-            cursor.execute(f"SELECT COUNT(*) FROM {table}")
-            count = cursor.fetchone()[0]
-            counts[table] = count
+        cursor.execute("SELECT name FROM sysobjects WHERE xtype='U' ORDER BY name")
+        actual_tables = [row[0] if isinstance(row, tuple) else row['name'] for row in cursor.fetchall()]
+        print(f"Actual tables in database: {actual_tables}")
+
+        counts = {}
+        for table in actual_tables:
+            try:
+                cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                result = cursor.fetchone()
+                count = result[0] if isinstance(result, tuple) else result['count']
+                counts[table] = count
+            except Exception as table_error:
+                print(f"Error counting {table}: {table_error}")
+                counts[table] = 0
 
         return counts
     except Exception as e:
