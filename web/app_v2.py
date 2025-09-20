@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.231-UNMISTAKABLE-SYNC-LOGGING"
+DEPLOYMENT_VERSION = "V87.232-EMERGENCY-IMPORT-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -262,8 +262,15 @@ import asyncio
 import requests
 import sys
 
-# Import the new sync class with progress tracking
-from scripts.sync_returns import WarehanceAPISync
+# Try to import the new sync class with progress tracking - SAFE IMPORT
+try:
+    from scripts.sync_returns import WarehanceAPISync
+    ENHANCED_SYNC_AVAILABLE = True
+    print("✅ Enhanced sync system loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Enhanced sync import failed: {e}")
+    ENHANCED_SYNC_AVAILABLE = False
+    WarehanceAPISync = None
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -1224,43 +1231,68 @@ async def test_warehance_api():
 
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
-    """Trigger a sync with Warehance API using the new progress tracking system"""
+    """Trigger a sync with Warehance API - with fallback for import failures"""
     global sync_status
 
-    # Check if a sync is already running using the new system
-    try:
-        # Import database models for checking sync status
-        from database.models import SessionLocal, SyncLog
-        
-        db = SessionLocal()
-        running_sync = db.query(SyncLog).filter(SyncLog.status == "running").first()
-        
-        if running_sync:
-            db.close()
-            return {
-                "message": f"Sync already in progress (ID: {running_sync.id})",
-                "status": "running",
-                "sync_id": running_sync.id
-            }
-        
-        # Start new sync using the enhanced sync system
-        sync_type = request_data.get("sync_type", "full")
-        
-        def run_new_sync():
-            syncer = WarehanceAPISync()
-            syncer.run_sync(sync_type)
-        
-        # Run sync in background
-        asyncio.create_task(asyncio.get_event_loop().run_in_executor(None, run_new_sync))
-        
-        db.close()
+    # Check if already running
+    if sync_status["is_running"]:
+        current_sync_id = sync_status.get("sync_id", "unknown")
         return {
-            "message": f"{sync_type.capitalize()} sync started with real-time progress tracking",
+            "message": f"Sync already in progress (ID: {current_sync_id})",
+            "status": "running",
+            "current_sync_id": current_sync_id
+        }
+
+    try:
+        # Try enhanced sync if available
+        if ENHANCED_SYNC_AVAILABLE:
+            print("🚀 Using enhanced sync system with progress tracking")
+
+            # Try to use database models
+            try:
+                from database.models import SessionLocal, SyncLog
+
+                db = SessionLocal()
+                running_sync = db.query(SyncLog).filter(SyncLog.status == "running").first()
+
+                if running_sync:
+                    db.close()
+                    return {
+                        "message": f"Sync already in progress (ID: {running_sync.id})",
+                        "status": "running",
+                        "sync_id": running_sync.id
+                    }
+
+                # Start enhanced sync
+                sync_type = request_data.get("sync_type", "full")
+
+                def run_enhanced_sync():
+                    syncer = WarehanceAPISync()
+                    syncer.run_sync(sync_type)
+
+                asyncio.create_task(asyncio.get_event_loop().run_in_executor(None, run_enhanced_sync))
+                db.close()
+
+                return {
+                    "message": f"Enhanced sync started with progress tracking",
+                    "status": "started"
+                }
+
+            except Exception as db_error:
+                print(f"⚠️ Database sync failed, falling back to basic sync: {db_error}")
+                # Fall through to basic sync
+
+        # Fallback to basic sync
+        print("🔄 Using basic sync system (fallback)")
+        asyncio.create_task(run_sync())
+
+        return {
+            "message": "Basic sync started (enhanced sync unavailable)",
             "status": "started"
         }
-        
+
     except Exception as e:
-        print(f"Error triggering sync: {e}")
+        print(f"❌ All sync methods failed: {e}")
         return {
             "message": f"Error starting sync: {str(e)}",
             "status": "error"
@@ -1550,56 +1582,76 @@ async def initialize_database():
 
 @app.get("/api/sync/status")
 async def get_sync_status():
-    """Get current sync status using new database system"""
+    """Get current sync status - with fallback for import failures"""
+    global sync_status
+
     try:
-        # Import database models for checking sync status
-        from database.models import SessionLocal, SyncLog
-        
-        db = SessionLocal()
-        
-        # Get current/latest sync
-        latest_sync = db.query(SyncLog).order_by(SyncLog.started_at.desc()).first()
-        
-        # Get sync history
-        history = db.query(SyncLog).filter(SyncLog.status.in_(["completed", "failed"])).order_by(SyncLog.started_at.desc()).limit(10).all()
-        
-        db.close()
-        
+        # Try enhanced database system if available
+        if ENHANCED_SYNC_AVAILABLE:
+            try:
+                from database.models import SessionLocal, SyncLog
+
+                db = SessionLocal()
+                latest_sync = db.query(SyncLog).order_by(SyncLog.started_at.desc()).first()
+                history = db.query(SyncLog).filter(SyncLog.status.in_(["completed", "failed"])).order_by(SyncLog.started_at.desc()).limit(10).all()
+                db.close()
+
+                return {
+                    "current_sync": latest_sync.to_dict() if latest_sync else None,
+                    "history": [sync.to_dict() for sync in history],
+                    "deployment_version": DEPLOYMENT_VERSION,
+                    "enhanced_sync": True
+                }
+            except Exception as db_error:
+                print(f"⚠️ Database sync status failed, using fallback: {db_error}")
+
+        # Fallback to basic sync status
+        current_status = "running" if sync_status["is_running"] else "completed"
         return {
-            "current_sync": latest_sync.to_dict() if latest_sync else None,
-            "history": [sync.to_dict() for sync in history],
+            "current_sync": {
+                "status": current_status,
+                "items_synced": sync_status["items_synced"],
+                "sync_id": sync_status.get("sync_id", "unknown")
+            },
+            "last_sync": sync_status["last_sync"],
+            "last_sync_status": sync_status["last_sync_status"],
+            "last_sync_message": sync_status["last_sync_message"],
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not %s"
+            "enhanced_sync": False,
+            "fallback_mode": True
         }
-        
+
     except Exception as e:
-        print(f"Error getting sync status: {e}")
+        print(f"❌ All sync status methods failed: {e}")
         return {
             "current_sync": {"status": "error", "items_synced": 0},
-            "history": [],
             "last_sync_status": "error",
             "last_sync_message": str(e),
             "deployment_version": DEPLOYMENT_VERSION,
-            "sql_fix_applied": "YES - parameterized queries use ? not %s"
+            "emergency_mode": True
         }
 
 @app.get("/api/sync/progress")
 async def get_sync_progress():
-    """Get real-time sync progress with ETA calculation using new database system"""
+    """Get real-time sync progress - with fallback for import failures"""
+    global sync_status
+
     try:
-        # Import database models for checking sync status
-        from database.models import SessionLocal, SyncLog
-        from datetime import datetime
-        
-        db = SessionLocal()
-        current_sync = db.query(SyncLog).filter(SyncLog.status == "running").order_by(SyncLog.started_at.desc()).first()
-        
-        if not current_sync:
-            db.close()
-            return {
-                "is_running": False,
-                "message": "No sync currently running"
-            }
+        # Try enhanced database system if available
+        if ENHANCED_SYNC_AVAILABLE:
+            try:
+                from database.models import SessionLocal, SyncLog
+                from datetime import datetime
+
+                db = SessionLocal()
+                current_sync = db.query(SyncLog).filter(SyncLog.status == "running").order_by(SyncLog.started_at.desc()).first()
+
+                if not current_sync:
+                    db.close()
+                    return {
+                        "is_running": False,
+                        "message": "No enhanced sync currently running"
+                    }
         
         # Calculate progress metrics
         progress_data = current_sync.to_dict()
@@ -1640,11 +1692,32 @@ async def get_sync_progress():
                 "elapsed_seconds": int((datetime.utcnow() - current_sync.started_at).total_seconds())
             })
         
-        db.close()
-        return progress_data
-        
+                db.close()
+                return progress_data
+
+            except Exception as db_error:
+                print(f"⚠️ Database progress failed, using fallback: {db_error}")
+
+        # Fallback to basic progress
+        if not sync_status["is_running"]:
+            return {
+                "is_running": False,
+                "message": "No basic sync currently running"
+            }
+
+        return {
+            "is_running": True,
+            "current_phase": "processing",
+            "current_operation": sync_status.get("last_sync_message", "Processing..."),
+            "processed_count": sync_status.get("items_synced", 0),
+            "total_to_process": sync_status.get("total_returns", 0),
+            "progress_percentage": round((sync_status.get("items_synced", 0) / max(sync_status.get("total_returns", 1), 1)) * 100, 1),
+            "enhanced_sync": False,
+            "fallback_mode": True
+        }
+
     except Exception as e:
-        print(f"Error getting sync progress: {e}")
+        print(f"❌ All progress methods failed: {e}")
         return {"is_running": False, "error": str(e)}
 
 @app.get("/api/sync/history")
