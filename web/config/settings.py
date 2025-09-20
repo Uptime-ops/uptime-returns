@@ -12,7 +12,7 @@ WAREHANCE_BASE_URL = "https://api.warehance.com/v1"
 DATABASE_URL = os.getenv("DATABASE_URL", "mssql+pyodbc://server/database?driver=ODBC+Driver+17+for+SQL+Server")
 
 # App Configuration
-APP_VERSION = "V1.5-CLEAN-PYMSSQL-DICT"
+APP_VERSION = "V1.6-CLEAN-DEBUG-LOGS"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Sync Configuration

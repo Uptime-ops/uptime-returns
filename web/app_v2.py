@@ -191,17 +191,28 @@ async def trigger_sync():
     try:
         sync_status["is_running"] = True
 
-        # Run sync in background
+        # Run sync with immediate logging
+        print("🚀 STARTING CLEAN SYNC - This should appear in logs immediately")
+        print(f"📊 Current sync status: {sync_status}")
+
         async def run_sync():
             try:
+                print("🔄 Background sync task started")
                 sync_service = CleanSyncService()
+                print("🔧 CleanSyncService created")
+
                 result = sync_service.run_full_sync()
+                print(f"✅ Sync completed with result: {result}")
+
                 sync_status["last_sync"] = datetime.now().isoformat()
                 sync_status["is_running"] = False
-                print(f"✅ Background sync completed: {result}")
+                print(f"📊 Updated sync status: {sync_status}")
+
             except Exception as e:
                 sync_status["is_running"] = False
                 print(f"❌ Background sync failed: {e}")
+                import traceback
+                print(f"🔍 Full traceback: {traceback.format_exc()}")
 
         asyncio.create_task(run_sync())
 
@@ -254,11 +265,57 @@ async def export_csv():
 async def get_database_stats():
     """Get database table statistics"""
     try:
+        print("📊 Getting database stats...")
         stats = get_table_counts()
+        print(f"📊 Database stats result: {stats}")
         return stats
     except Exception as e:
         print(f"❌ Failed to get stats: {e}")
+        import traceback
+        print(f"🔍 Stats error traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+
+@app.get("/api/debug/connection")
+async def debug_connection():
+    """Debug database connection and basic queries"""
+    try:
+        print("🔍 Testing database connection...")
+
+        from config.database import get_db_connection
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        print("✅ Database connection successful")
+
+        # Test basic query
+        cursor.execute("SELECT 1 as test")
+        result = cursor.fetchone()
+        print(f"✅ Basic query result: {result}")
+
+        # Check returns table
+        cursor.execute("SELECT COUNT(*) as count FROM returns")
+        count_result = cursor.fetchone()
+        print(f"✅ Returns count query result: {count_result}")
+
+        conn.close()
+
+        return {
+            "status": "success",
+            "connection": "working",
+            "basic_query": str(result),
+            "returns_accessible": True,
+            "count_result": str(count_result)
+        }
+
+    except Exception as e:
+        print(f"❌ Connection debug failed: {e}")
+        import traceback
+        print(f"🔍 Connection debug traceback: {traceback.format_exc()}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 @app.get("/api/health")
 async def health_check():
