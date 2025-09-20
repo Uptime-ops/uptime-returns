@@ -116,21 +116,21 @@ class CleanSyncService:
             warehouse = return_data['warehouse']
             self._upsert_warehouse(cursor, warehouse['id'], warehouse.get('name', ''))
 
-        # Store the return
+        # Store the return (match existing schema - no notes column)
         placeholder = get_placeholder()
         cursor.execute(f"""
             MERGE returns AS target
-            USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
-            AS source (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id, notes)
+            USING (VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}))
+            AS source (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id)
             ON target.id = source.id
             WHEN MATCHED THEN
                 UPDATE SET status = source.status, tracking_number = source.tracking_number,
                           updated_at = source.updated_at, client_id = source.client_id,
-                          warehouse_id = source.warehouse_id, order_id = source.order_id, notes = source.notes
+                          warehouse_id = source.warehouse_id, order_id = source.order_id
             WHEN NOT MATCHED THEN
-                INSERT (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id, notes)
+                INSERT (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id)
                 VALUES (source.id, source.status, source.tracking_number, source.created_at, source.updated_at,
-                       source.client_id, source.warehouse_id, source.order_id, source.notes);
+                       source.client_id, source.warehouse_id, source.order_id);
         """, (
             return_id,
             return_data.get('status', ''),
@@ -139,8 +139,7 @@ class CleanSyncService:
             self._parse_date(return_data.get('updated_at')),
             return_data.get('client', {}).get('id'),
             return_data.get('warehouse', {}).get('id'),
-            return_data.get('order_id'),
-            return_data.get('notes', '')
+            return_data.get('order_id')
         ))
 
         # Store return items (embedded in return response)
