@@ -3,22 +3,16 @@ import pyodbc
 import os
 from typing import Optional
 
-# Azure SQL Connection Configuration
-AZURE_SQL_SERVER = os.getenv("AZURE_SQL_SERVER", "uptime-returns-sql.database.windows.net")
-AZURE_SQL_DATABASE = os.getenv("AZURE_SQL_DATABASE", "uptime-returns")
-AZURE_SQL_USERNAME = os.getenv("AZURE_SQL_USERNAME", "uptime-admin")
-AZURE_SQL_PASSWORD = os.getenv("AZURE_SQL_PASSWORD", "")
+# Use the same DATABASE_URL environment variable as the old app
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
 def get_connection_string() -> str:
-    """Get Azure SQL connection string"""
-    return (
-        f"Driver={{ODBC Driver 17 for SQL Server}};"
-        f"Server=tcp:{AZURE_SQL_SERVER},1433;"
-        f"Database={AZURE_SQL_DATABASE};"
-        f"Uid={AZURE_SQL_USERNAME};"
-        f"Pwd={AZURE_SQL_PASSWORD};"
-        f"Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
-    )
+    """Get Azure SQL connection string from DATABASE_URL environment variable"""
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable must be set")
+
+    # DATABASE_URL is already a complete connection string from Azure
+    return DATABASE_URL
 
 def get_db_connection():
     """Get database connection (Azure SQL only)"""
