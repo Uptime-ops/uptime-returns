@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.229-PROGRESS-ENDPOINT-FIX"
+DEPLOYMENT_VERSION = "V87.230-SYNC-CONTROL-OVERHAUL"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1223,13 +1223,18 @@ async def test_warehance_api():
 async def trigger_sync(request_data: dict):
     """Trigger a sync with Warehance API"""
     global sync_status
-    
+
     if sync_status["is_running"]:
-        return {"message": "Sync already in progress", "status": "running"}
-    
+        current_sync_id = sync_status.get("sync_id", "unknown")
+        return {
+            "message": f"Sync already in progress (ID: {current_sync_id})",
+            "status": "running",
+            "current_sync_id": current_sync_id
+        }
+
     # Start sync in background
     asyncio.create_task(run_sync())
-    
+
     return {"message": "Sync started", "status": "started"}
 
 @app.post("/api/database/migrate")
@@ -1624,6 +1629,60 @@ async def get_sync_progress():
             "error": str(e)
         }
 
+@app.get("/api/sync/history")
+async def get_sync_history():
+    """Get sync history from database logs"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Get recent sync history from returns table last_synced_at timestamps
+        cursor.execute("""
+            SELECT
+                MAX(last_synced_at) as sync_time,
+                COUNT(*) as returns_count,
+                COUNT(CASE WHEN last_synced_at > DATEADD(day, -1, GETDATE()) THEN 1 END) as recent_count
+            FROM returns
+            WHERE last_synced_at IS NOT NULL
+            GROUP BY CAST(last_synced_at as DATE)
+            ORDER BY sync_time DESC
+        """ if USE_AZURE_SQL else """
+            SELECT
+                last_synced_at as sync_time,
+                COUNT(*) as returns_count
+            FROM returns
+            WHERE last_synced_at IS NOT NULL
+            GROUP BY DATE(last_synced_at)
+            ORDER BY sync_time DESC
+            LIMIT 10
+        """)
+
+        rows = cursor.fetchall()
+        history = []
+
+        if USE_AZURE_SQL and rows:
+            columns = [column[0] for column in cursor.description]
+            for row in rows:
+                history.append(dict(zip(columns, row)))
+        else:
+            for row in rows:
+                history.append({
+                    'sync_time': row[0],
+                    'returns_count': row[1]
+                })
+
+        conn.close()
+
+        return {
+            "history": history,
+            "current_sync_id": sync_status.get("sync_id"),
+            "is_running": sync_status["is_running"]
+        }
+
+    except Exception as e:
+        print(f"Error getting sync history: {e}")
+        return {"history": [], "error": str(e)}
+
 def convert_date_for_sql(date_string):
     """Convert API date string to SQL Server compatible format"""
     if not date_string:
@@ -1664,14 +1723,23 @@ async def run_sync():
     """Run the actual sync process"""
     global sync_status
 
-    # PROMINENT SYNC START LOGGING
-    print("=" * 80)
-    print("🚀 ================ WAREHANCE SYNC STARTING ================")
-    print(f"🕐 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"🔑 API Key: {WAREHANCE_API_KEY[:15]}...")
-    print(f"🗄️  Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}")
-    print("🎯 Target: Fetch all returns, products, orders, and return_items")
-    print("=" * 80)
+    # PROMINENT SYNC START LOGGING - FORCE IMMEDIATE OUTPUT
+    import sys
+    sync_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    print("=" * 80, flush=True)
+    print("🚀 ================ WAREHANCE SYNC STARTING ================", flush=True)
+    print(f"🆔 Sync ID: {sync_id}", flush=True)
+    print(f"🕐 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
+    print(f"🔑 API Key: {WAREHANCE_API_KEY[:15]}...", flush=True)
+    print(f"🗄️  Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}", flush=True)
+    print("🎯 Target: Fetch all returns, products, orders, and return_items", flush=True)
+    print("=" * 80, flush=True)
+    sys.stdout.flush()
+
+    # Store sync start in database for history
+    sync_status["sync_id"] = sync_id
+    sync_status["sync_start_logged"] = True
 
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
@@ -2139,17 +2207,22 @@ async def run_sync():
                 print(f"⚠️ Ignoring final commit transaction state error")
         conn.close()
         
-        # PROMINENT SYNC COMPLETION LOGGING
+        # PROMINENT SYNC COMPLETION LOGGING - FORCE IMMEDIATE OUTPUT
         end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print("=" * 80)
-        print("✅ ================ WAREHANCE SYNC COMPLETED ================")
-        print(f"🕐 End Time: {end_time}")
-        print(f"📊 Returns Synced: {sync_status['items_synced']}")
-        print(f"📦 Return Items Synced: {sync_status.get('return_items_synced', 0)}")
-        print(f"🛒 Products Synced: {sync_status.get('products_synced', 0)}")
-        print(f"📋 Orders Synced: {sync_status.get('orders_synced', 0)}")
-        print(f"👥 Customer Names Updated: {customers_updated}")
-        print("=" * 80)
+        sync_id = sync_status.get('sync_id', 'unknown')
+
+        print("=" * 80, flush=True)
+        print("✅ ================ WAREHANCE SYNC COMPLETED ================", flush=True)
+        print(f"🆔 Sync ID: {sync_id}", flush=True)
+        print(f"🕐 End Time: {end_time}", flush=True)
+        print(f"📊 Returns Synced: {sync_status['items_synced']}", flush=True)
+        print(f"📦 Return Items Synced: {sync_status.get('return_items_synced', 0)}", flush=True)
+        print(f"🛒 Products Synced: {sync_status.get('products_synced', 0)}", flush=True)
+        print(f"📋 Orders Synced: {sync_status.get('orders_synced', 0)}", flush=True)
+        print(f"👥 Customer Names Updated: {customers_updated}", flush=True)
+        print(f"⏱️ Duration: {datetime.now() - sync_status.get('sync_start_time', datetime.now())}", flush=True)
+        print("=" * 80, flush=True)
+        sys.stdout.flush()
 
         # Only mark as success if we actually synced something
         if sync_status['items_synced'] > 0:
@@ -3069,7 +3142,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.229-PROGRESS-ENDPOINT-FIX",
+        "version": "V87.230-SYNC-CONTROL-OVERHAUL",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
