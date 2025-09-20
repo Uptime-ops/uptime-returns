@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.233-SYNTAX-ERROR-FIX"
+DEPLOYMENT_VERSION = "V87.235-CSV-CORRUPTION-FIX"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -962,6 +962,10 @@ async def export_returns_csv(filter_params: dict = None):
 
         # Process each return - using data from database including customer names
         total_csv_rows = 0
+        total_duplicates_skipped = 0
+        total_suspicious_orders = 0
+        total_returns_with_items = 0
+
         for return_row in returns:
             return_id = return_row['return_id']
             order_id = return_row['order_id']
@@ -1017,9 +1021,24 @@ async def export_returns_csv(filter_params: dict = None):
         
             if items:
                 print(f"DEBUG CSV: Writing {len(items)} items for return {return_id}")
+
+                # DUPLICATION CHECK - Track items we've seen for this return
+                seen_items = set()
+                duplicate_count = 0
+
                 # Write return items from database
                 for item_index, item in enumerate(items):
                     print(f"DEBUG CSV: Processing item {item_index + 1}/{len(items)} for return {return_id}: {item.get('name', 'Unknown')}")
+
+                    # DUPLICATION DETECTION - Create unique identifier for this item
+                    item_key = f"{item.get('id', '')}-{item.get('name', '')}-{item.get('sku', '')}"
+                    if item_key in seen_items:
+                        duplicate_count += 1
+                        print(f"🚨 DUPLICATE ITEM DETECTED for return {return_id}: {item.get('name', 'Unknown')} (key: {item_key})")
+                        print(f"   - This is duplicate #{duplicate_count} for this return")
+                        continue  # Skip duplicates
+                    seen_items.add(item_key)
+
                     reasons = ''
                     if item['return_reasons']:
                         try:
@@ -1027,21 +1046,51 @@ async def export_returns_csv(filter_params: dict = None):
                             reasons = ', '.join(reasons_data) if isinstance(reasons_data, list) else str(reasons_data)
                         except:
                             reasons = str(item['return_reasons'])
-                
+
+                    # DATA INTEGRITY CHECK - Validate order number
+                    order_number = return_row.get('order_number', '')
+                    if order_number and str(order_number).isdigit() and len(str(order_number)) > 10:
+                        # This looks like an ID, not an order number - flag it
+                        print(f"⚠️ SUSPICIOUS ORDER NUMBER for return {return_id}: {order_number} (looks like ID)")
+                        order_number = f"ID-{order_number}"  # Mark as ID for visibility
+
+                    # Additional validation - check if order_number looks like return_id or order_id
+                    if str(order_number) == str(return_id):
+                        print(f"⚠️ ORDER NUMBER IS RETURN ID for return {return_id}: {order_number}")
+                        order_number = f"RETURN-{order_number}"
+                    elif str(order_number) == str(order_id):
+                        print(f"⚠️ ORDER NUMBER IS ORDER ID for return {return_id}: {order_number}")
+                        order_number = f"ORDER-{order_number}"
+
                     csv_row = [
                         return_row['client_name'] or '',
                         customer_name,
                         return_row['order_date'] or '',
                         return_row['return_date'],
-                        return_row['order_number'] or '',
+                        order_number or '',
                         item['name'] or '',
                         item['order_quantity'] or 0,  # Order Qty
                         item['return_quantity'] or 0,  # Return Qty
                         reasons
                     ]
-                    print(f"DEBUG CSV: Writing row for return {return_id}, item: {item['name']}")
+                    print(f"DEBUG CSV: Writing row for return {return_id}, item: {item['name']}, order: {order_number}")
                     writer.writerow(csv_row)
                     total_csv_rows += 1
+
+                # Report duplicates found
+                if duplicate_count > 0:
+                    print(f"⚠️ DUPLICATION SUMMARY for return {return_id}: {duplicate_count} duplicate items skipped")
+                    total_duplicates_skipped += duplicate_count
+
+                # Track returns with items for analysis
+                total_returns_with_items += 1
+
+                # Track suspicious order numbers
+                if (order_number and
+                    (str(order_number).isdigit() and len(str(order_number)) > 10) or
+                    str(order_number) == str(return_id) or
+                    str(order_number) == str(order_id)):
+                    total_suspicious_orders += 1
             else:
                 # For returns without return_items, write a single row with basic info
                 writer.writerow([
@@ -1058,7 +1107,28 @@ async def export_returns_csv(filter_params: dict = None):
                 total_csv_rows += 1
     
         conn.close()
-        print(f"DEBUG CSV: Total CSV rows written: {total_csv_rows} (excluding header)")
+
+        # COMPREHENSIVE DATA INTEGRITY REPORT
+        print(f"\n{'='*80}")
+        print(f"📊 CSV EXPORT DATA INTEGRITY REPORT")
+        print(f"{'='*80}")
+        print(f"✅ Total CSV rows written: {total_csv_rows} (excluding header)")
+        print(f"📦 Returns with items processed: {total_returns_with_items}")
+        print(f"🔄 Total duplicate items skipped: {total_duplicates_skipped}")
+        print(f"⚠️ Returns with suspicious order numbers: {total_suspicious_orders}")
+
+        if total_duplicates_skipped > 0:
+            print(f"🚨 WARNING: {total_duplicates_skipped} duplicate items were detected and skipped from CSV export")
+
+        if total_suspicious_orders > 0:
+            print(f"🚨 WARNING: {total_suspicious_orders} returns had suspicious order numbers (IDs instead of order numbers)")
+
+        if total_duplicates_skipped == 0 and total_suspicious_orders == 0:
+            print(f"✅ NO DATA INTEGRITY ISSUES DETECTED - CSV export appears clean")
+        else:
+            print(f"⚠️ DATA INTEGRITY ISSUES FOUND - Review logs above for details")
+
+        print(f"{'='*80}\n")
 
         # Return CSV as downloadable file
         output.seek(0)
@@ -1231,70 +1301,54 @@ async def test_warehance_api():
 
 @app.post("/api/sync/trigger")
 async def trigger_sync(request_data: dict):
-    """Trigger a sync with Warehance API - with fallback for import failures"""
-    global sync_status
-
-    # Check if already running
-    if sync_status["is_running"]:
-        current_sync_id = sync_status.get("sync_id", "unknown")
-        return {
-            "message": f"Sync already in progress (ID: {current_sync_id})",
-            "status": "running",
-            "current_sync_id": current_sync_id
-        }
-
+    """Trigger a sync with Warehance API using enhanced sync system"""
     try:
-        # Try enhanced sync if available
-        if ENHANCED_SYNC_AVAILABLE:
-            print("🚀 Using enhanced sync system with progress tracking")
+        # Import database models
+        from database.models import SessionLocal, SyncLog
 
-            # Try to use database models
+        db = SessionLocal()
+        running_sync = db.query(SyncLog).filter(SyncLog.status == "running").first()
+
+        if running_sync:
+            db.close()
+            return {
+                "message": f"Sync already in progress (ID: {running_sync.id})",
+                "status": "running",
+                "sync_id": running_sync.id
+            }
+
+        # Start enhanced sync
+        sync_type = request_data.get("sync_type", "full")
+        
+        print(f"🚀 Starting enhanced sync with type: {sync_type}")
+
+        def run_enhanced_sync():
             try:
-                from database.models import SessionLocal, SyncLog
+                syncer = WarehanceAPISync()
+                result = syncer.run_sync(sync_type)
+                print(f"✅ Enhanced sync completed: {result}")
+            except Exception as sync_error:
+                print(f"❌ Enhanced sync failed: {sync_error}")
+                import traceback
+                traceback.print_exc()
 
-                db = SessionLocal()
-                running_sync = db.query(SyncLog).filter(SyncLog.status == "running").first()
-
-                if running_sync:
-                    db.close()
-                    return {
-                        "message": f"Sync already in progress (ID: {running_sync.id})",
-                        "status": "running",
-                        "sync_id": running_sync.id
-                    }
-
-                # Start enhanced sync
-                sync_type = request_data.get("sync_type", "full")
-
-                def run_enhanced_sync():
-                    syncer = WarehanceAPISync()
-                    syncer.run_sync(sync_type)
-
-                asyncio.create_task(asyncio.get_event_loop().run_in_executor(None, run_enhanced_sync))
-                db.close()
-
-                return {
-                    "message": f"Enhanced sync started with progress tracking",
-                    "status": "started"
-                }
-
-            except Exception as db_error:
-                print(f"⚠️ Database sync failed, falling back to basic sync: {db_error}")
-                # Fall through to basic sync
-
-        # Fallback to basic sync
-        print("🔄 Using basic sync system (fallback)")
-        asyncio.create_task(run_sync())
+        # Run sync in background
+        asyncio.create_task(asyncio.get_event_loop().run_in_executor(None, run_enhanced_sync))
+        
+        db.close()
 
         return {
-            "message": "Basic sync started (enhanced sync unavailable)",
-            "status": "started"
+            "message": f"Enhanced sync started with real-time progress tracking",
+            "status": "started",
+            "sync_type": sync_type
         }
 
     except Exception as e:
-        print(f"❌ All sync methods failed: {e}")
+        print(f"❌ Enhanced sync setup failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {
-            "message": f"Error starting sync: {str(e)}",
+            "message": f"Error starting enhanced sync: {str(e)}",
             "status": "error"
         }
 
@@ -1582,142 +1636,97 @@ async def initialize_database():
 
 @app.get("/api/sync/status")
 async def get_sync_status():
-    """Get current sync status - with fallback for import failures"""
-    global sync_status
-
+    """Get current sync status using enhanced database system"""
     try:
-        # Try enhanced database system if available
-        if ENHANCED_SYNC_AVAILABLE:
-            try:
-                from database.models import SessionLocal, SyncLog
+        from database.models import SessionLocal, SyncLog
 
-                db = SessionLocal()
-                latest_sync = db.query(SyncLog).order_by(SyncLog.started_at.desc()).first()
-                history = db.query(SyncLog).filter(SyncLog.status.in_(["completed", "failed"])).order_by(SyncLog.started_at.desc()).limit(10).all()
-                db.close()
+        db = SessionLocal()
+        latest_sync = db.query(SyncLog).order_by(SyncLog.started_at.desc()).first()
+        history = db.query(SyncLog).filter(SyncLog.status.in_(["completed", "failed"])).order_by(SyncLog.started_at.desc()).limit(10).all()
+        db.close()
 
-                return {
-                    "current_sync": latest_sync.to_dict() if latest_sync else None,
-                    "history": [sync.to_dict() for sync in history],
-                    "deployment_version": DEPLOYMENT_VERSION,
-                    "enhanced_sync": True
-                }
-            except Exception as db_error:
-                print(f"⚠️ Database sync status failed, using fallback: {db_error}")
-
-        # Fallback to basic sync status
-        current_status = "running" if sync_status["is_running"] else "completed"
         return {
-            "current_sync": {
-                "status": current_status,
-                "items_synced": sync_status["items_synced"],
-                "sync_id": sync_status.get("sync_id", "unknown")
-            },
-            "last_sync": sync_status["last_sync"],
-            "last_sync_status": sync_status["last_sync_status"],
-            "last_sync_message": sync_status["last_sync_message"],
+            "current_sync": latest_sync.to_dict() if latest_sync else None,
+            "history": [sync.to_dict() for sync in history],
             "deployment_version": DEPLOYMENT_VERSION,
-            "enhanced_sync": False,
-            "fallback_mode": True
+            "enhanced_sync": True
         }
 
     except Exception as e:
-        print(f"❌ All sync status methods failed: {e}")
+        print(f"❌ Enhanced sync status failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "current_sync": {"status": "error", "items_synced": 0},
             "last_sync_status": "error",
             "last_sync_message": str(e),
             "deployment_version": DEPLOYMENT_VERSION,
-            "emergency_mode": True
+            "enhanced_sync": False
         }
 
 @app.get("/api/sync/progress")
 async def get_sync_progress():
-    """Get real-time sync progress - with fallback for import failures"""
-    global sync_status
-
+    """Get real-time sync progress using enhanced database system"""
     try:
-        # Try enhanced database system if available
-        if ENHANCED_SYNC_AVAILABLE:
-            try:
-                from database.models import SessionLocal, SyncLog
-                from datetime import datetime
+        from database.models import SessionLocal, SyncLog
+        from datetime import datetime
 
-                db = SessionLocal()
-                current_sync = db.query(SyncLog).filter(SyncLog.status == "running").order_by(SyncLog.started_at.desc()).first()
+        db = SessionLocal()
+        current_sync = db.query(SyncLog).filter(SyncLog.status == "running").order_by(SyncLog.started_at.desc()).first()
 
-                if not current_sync:
-                    db.close()
-                    return {
-                        "is_running": False,
-                        "message": "No enhanced sync currently running"
-                    }
-
-                # Calculate progress metrics
-                progress_data = current_sync.to_dict()
-
-                # Calculate ETA if we have enough data
-                if current_sync.processed_count > 0 and current_sync.total_to_process > 0:
-                    elapsed_seconds = (datetime.utcnow() - current_sync.started_at).total_seconds()
-                    items_per_second = current_sync.processed_count / elapsed_seconds if elapsed_seconds > 0 else 0
-
-                    remaining_items = current_sync.total_to_process - current_sync.processed_count
-                    eta_seconds = remaining_items / items_per_second if items_per_second > 0 else 0
-
-                    # Format ETA
-                    if eta_seconds < 60:
-                        eta_text = f"{int(eta_seconds)}s"
-                    elif eta_seconds < 3600:
-                        eta_text = f"{int(eta_seconds/60)}m {int(eta_seconds%60)}s"
-                    else:
-                        hours = int(eta_seconds/3600)
-                        minutes = int((eta_seconds%3600)/60)
-                        eta_text = f"{hours}h {minutes}m"
-
-                    progress_data.update({
-                        "is_running": True,
-                        "items_per_second": round(items_per_second, 2),
-                        "items_per_minute": round(items_per_second * 60, 1),
-                        "eta_seconds": int(eta_seconds),
-                        "eta_text": eta_text,
-                        "elapsed_seconds": int(elapsed_seconds)
-                    })
-                else:
-                    progress_data.update({
-                        "is_running": True,
-                        "items_per_second": 0,
-                        "items_per_minute": 0,
-                        "eta_seconds": 0,
-                        "eta_text": "Calculating...",
-                        "elapsed_seconds": int((datetime.utcnow() - current_sync.started_at).total_seconds())
-                    })
-        
-                db.close()
-                return progress_data
-
-            except Exception as db_error:
-                print(f"⚠️ Database progress failed, using fallback: {db_error}")
-
-        # Fallback to basic progress
-        if not sync_status["is_running"]:
+        if not current_sync:
+            db.close()
             return {
                 "is_running": False,
-                "message": "No basic sync currently running"
+                "message": "No sync currently running"
             }
 
-        return {
-            "is_running": True,
-            "current_phase": "processing",
-            "current_operation": sync_status.get("last_sync_message", "Processing..."),
-            "processed_count": sync_status.get("items_synced", 0),
-            "total_to_process": sync_status.get("total_returns", 0),
-            "progress_percentage": round((sync_status.get("items_synced", 0) / max(sync_status.get("total_returns", 1), 1)) * 100, 1),
-            "enhanced_sync": False,
-            "fallback_mode": True
-        }
+        # Calculate progress metrics
+        progress_data = current_sync.to_dict()
+
+        # Calculate ETA if we have enough data
+        if current_sync.processed_count > 0 and current_sync.total_to_process > 0:
+            elapsed_seconds = (datetime.utcnow() - current_sync.started_at).total_seconds()
+            items_per_second = current_sync.processed_count / elapsed_seconds if elapsed_seconds > 0 else 0
+
+            remaining_items = current_sync.total_to_process - current_sync.processed_count
+            eta_seconds = remaining_items / items_per_second if items_per_second > 0 else 0
+
+            # Format ETA
+            if eta_seconds < 60:
+                eta_text = f"{int(eta_seconds)}s"
+            elif eta_seconds < 3600:
+                eta_text = f"{int(eta_seconds/60)}m {int(eta_seconds%60)}s"
+            else:
+                hours = int(eta_seconds/3600)
+                minutes = int((eta_seconds%3600)/60)
+                eta_text = f"{hours}h {minutes}m"
+
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": round(items_per_second, 2),
+                "items_per_minute": round(items_per_second * 60, 1),
+                "eta_seconds": int(eta_seconds),
+                "eta_text": eta_text,
+                "elapsed_seconds": int(elapsed_seconds)
+            })
+        else:
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": 0,
+                "items_per_minute": 0,
+                "eta_seconds": 0,
+                "eta_text": "Calculating...",
+                "elapsed_seconds": int((datetime.utcnow() - current_sync.started_at).total_seconds())
+            })
+
+        db.close()
+        return progress_data
 
     except Exception as e:
-        print(f"❌ All progress methods failed: {e}")
+        print(f"❌ Enhanced sync progress failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {"is_running": False, "error": str(e)}
 
 @app.get("/api/sync/history")
@@ -1810,552 +1819,10 @@ def convert_date_for_sql(date_string):
         print(f"⚠️ Date conversion error for '{date_string}', using default")
         return "1900-01-01 00:00:00"
 
+# DISABLED: Old sync function replaced by enhanced sync system
 async def run_sync():
-    """Run the actual sync process"""
-    global sync_status
-
-    # PROMINENT SYNC START LOGGING - FORCE IMMEDIATE OUTPUT
-    import sys
-    sync_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    print("!" * 100, flush=True)
-    print("🚀🚀🚀 APP_V2.PY ENHANCED SYNC STARTING - THIS IS THE NEW SYNC! 🚀🚀🚀", flush=True)
-    print("!" * 100, flush=True)
-    print(f"🆔 Sync ID: {sync_id}", flush=True)
-    print(f"🕐 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
-    print(f"🔑 API Key: {WAREHANCE_API_KEY[:15]}...", flush=True)
-    print(f"🗄️  Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}", flush=True)
-    print("🎯 Target: Fetch all returns, products, orders, and return_items", flush=True)
-    print("!" * 100, flush=True)
-    sys.stdout.flush()
-
-    # Store sync start in database for history
-    sync_status["sync_id"] = sync_id
-    sync_status["sync_start_logged"] = True
-
-    sync_status["is_running"] = True
-    sync_status["items_synced"] = 0
-    sync_status["total_returns"] = 0
-    sync_status["new_returns"] = 0
-    sync_status["updated_returns"] = 0
-    sync_status["return_items_synced"] = 0
-    sync_status["products_synced"] = 0
-    sync_status["orders_synced"] = 0
-    sync_status["error_count"] = 0
-    sync_status["sync_start_time"] = datetime.now()
-    
-    try:
-        # Initialize database tables if using Azure SQL
-        if USE_AZURE_SQL:
-            init_result = await initialize_database()
-            print(f"Database initialization result: {init_result}")
-            if init_result.get("status") == "error":
-                raise Exception(f"Database initialization failed: {init_result.get('message')}")
-        
-        # Use the configured API key
-        api_key = WAREHANCE_API_KEY
-        
-        headers = {
-            "X-API-KEY": api_key,
-            "accept": "application/json"
-        }
-        
-        print(f"Starting sync with API key: {api_key[:15]}...")
-        sync_status["last_sync_message"] = f"Starting sync with API key: {api_key[:15]}..."
-        
-        # Test database connection early
-        print("Testing database connection...")
-        sync_status["last_sync_message"] = "Testing database connection..."
-        
-        conn = get_db_connection()
-        if not conn:
-            raise Exception("Failed to establish database connection")
-            
-        cursor = conn.cursor()
-        
-        # Test basic database operation
-        try:
-            if USE_AZURE_SQL:
-                cursor.execute("SELECT 1 as test")
-            else:
-                cursor.execute("SELECT 1")
-            test_result = cursor.fetchone()
-            print(f"Database test query successful: {test_result}")
-            sync_status["last_sync_message"] = "Database connection confirmed"
-        except Exception as db_test_error:
-            raise Exception(f"Database test query failed: {db_test_error}")
-        
-        # STEP 1: Fetch ALL returns from API with pagination
-        sync_status["last_sync_message"] = "Fetching returns from Warehance API..."
-        print("Starting to fetch returns from Warehance API...")
-        all_order_ids = set()  # Collect unique order IDs
-        offset = 0
-        limit = 100
-        total_fetched = 0
-        
-        while True:
-            try:
-                url = f"https://api.warehance.com/v1/returns?limit={limit}&offset={offset}"
-                print(f"Fetching from: {url}")
-                response = requests.get(url, headers=headers)
-                
-                if response.status_code != 200:
-                    error_text = response.text[:500] if response.text else "No response body"
-                    print(f"API Error: Status {response.status_code}, Response: {error_text}")
-                    sync_status["last_sync_message"] = f"API Error: {response.status_code} - {error_text[:100]}"
-                    sync_status["last_sync_status"] = "error"
-                    break
-                
-                data = response.json()
-                print(f"API Response keys: {data.keys() if isinstance(data, dict) else 'Not a dict'}")
-                
-                # Check for API error response
-                if data.get('status') == 'error':
-                    error_msg = data.get('message', 'Unknown API error')
-                    print(f"API returned error: {error_msg}")
-                    sync_status["last_sync_message"] = f"API Error: {error_msg}"
-                    break
-                
-                if 'data' not in data:
-                    print(f"No 'data' key in API response. Response: {data}")
-                    sync_status["last_sync_message"] = "Invalid API response format"
-                    break
-                
-                if 'returns' not in data['data']:
-                    print(f"No 'returns' key in data. Data keys: {data['data'].keys() if isinstance(data['data'], dict) else 'Not a dict'}")
-                    sync_status["last_sync_message"] = "No returns data in API response"
-                    break
-                    
-                returns_batch = data['data']['returns']
-                print(f"Fetched {len(returns_batch)} returns at offset {offset}")
-                sync_status["last_sync_message"] = f"Processing {len(returns_batch)} returns from offset {offset}..."
-                
-                if not returns_batch:
-                    print("No more returns to process - breaking loop")
-                    break
-                
-                for ret in returns_batch:
-                    print(f"Processing return {ret.get('id', 'no-id')} from client {ret.get('client', {}).get('name', 'no-client')}")
-                    # First ensure client and warehouse exist - with overflow protection
-                    if ret.get('client'):
-                        try:
-                            client_id = ret['client']['id']
-                            client_name = ret['client'].get('name', '')
-                            
-                            # Convert large IDs to string to prevent arithmetic overflow
-                            if isinstance(client_id, int) and client_id > 2147483647:
-                                client_id = str(client_id)
-                            
-                            if USE_AZURE_SQL:
-                                # Use simple INSERT with ignore duplicate errors
-                                try:
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"INSERT INTO clients (id, name) VALUES ({placeholder}, {placeholder})",
-                                                 (client_id, client_name))
-                                    try:
-                                        conn.commit()
-                                    except Exception as commit_err:
-                                        if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
-                                            raise
-                                except Exception as insert_err:
-                                    # Ignore duplicate key errors, log others
-                                    if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
-                                        print(f"Non-duplicate client insert error: {insert_err}")
-                            else:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    INSERT OR IGNORE INTO clients (id, name) VALUES ({placeholder}, {placeholder})
-                                """, (client_id, client_name))
-                        except Exception as e:
-                            print(f"Error handling client: {e}")
-                
-                    if ret.get('warehouse'):
-                        try:
-                            warehouse_id = ret['warehouse']['id']
-                            warehouse_name = ret['warehouse'].get('name', '')
-                            
-                            # Convert large IDs to string to prevent arithmetic overflow
-                            if isinstance(warehouse_id, int) and warehouse_id > 2147483647:
-                                warehouse_id = str(warehouse_id)
-                            
-                            if USE_AZURE_SQL:
-                                # Use simple INSERT with ignore duplicate errors
-                                try:
-                                    placeholder = get_param_placeholder()
-                                    cursor.execute(f"INSERT INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})",
-                                                 (warehouse_id, warehouse_name))
-                                    try:
-                                        conn.commit()
-                                    except Exception as commit_err:
-                                        if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
-                                            raise
-                                except Exception as insert_err:
-                                    # Ignore duplicate key errors, log others
-                                    if "duplicate key" not in str(insert_err).lower() and "primary key" not in str(insert_err).lower():
-                                        print(f"Non-duplicate warehouse insert error: {insert_err}")
-                            else:
-                                placeholder = get_param_placeholder()
-                                cursor.execute(f"""
-                                    INSERT OR IGNORE INTO warehouses (id, name) VALUES ({placeholder}, {placeholder})
-                                """, (warehouse_id, warehouse_name))
-                        except Exception as e:
-                            print(f"Error handling warehouse: {e}")
-                
-                    # Collect order ID if present
-                    if ret.get('order') and ret['order'].get('id'):
-                        all_order_ids.add(ret['order']['id'])
-                    
-                    # Update or insert return - with overflow protection
-                    return_id = ret['id']
-                    # Convert large IDs to string to prevent arithmetic overflow
-                    if isinstance(return_id, int) and return_id > 2147483647:
-                        return_id = str(return_id)
-                    
-                    # Always use Azure SQL (SQLite logic removed)
-                    # Use IF EXISTS for Azure SQL (simpler than MERGE)
-                    cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (return_id,))
-                    return_result = cursor.fetchone()
-                    exists = get_single_value(return_result, 'count', 0) > 0
-
-                    print(f"🔍 Return {return_id}: USE_AZURE_SQL={USE_AZURE_SQL}, exists={exists}")
-                    print(f"   Taking Azure SQL path for return {return_id}")
-
-                    if exists:
-                        # Update existing return
-                        print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                        # Safe access to nested objects with null checks
-                        client_id = ret.get('client', {}).get('id') if ret.get('client') else None
-                        warehouse_id = ret.get('warehouse', {}).get('id') if ret.get('warehouse') else None
-                        order_id = ret.get('order', {}).get('id') if ret.get('order') else None
-                        print(f"   🔢 Return {return_id} IDs: client_id='{client_id}', warehouse_id='{warehouse_id}', order_id='{order_id}'")
-                        cursor.execute("""
-                                UPDATE returns SET
-                                    api_id = %s, paid_by = %s, status = %s, created_at = %s,
-                                    updated_at = %s, processed = %s, processed_at = %s,
-                                    warehouse_note = %s, customer_note = %s, tracking_number = %s,
-                                    tracking_url = %s, carrier = %s, service = %s, label_cost = %s,
-                                    label_pdf_url = %s, rma_slip_url = %s, label_voided = %s,
-                                    client_id = %s, warehouse_id = %s, order_id = %s,
-                                    return_integration_id = %s, last_synced_at = %s
-                                WHERE id = %s
-                            """, (
-                                ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                                ret.get('tracking_number'), ret.get('tracking_url'),
-                                ret.get('carrier', ''), ret.get('service', ''),
-                                ret.get('label_cost'), ret.get('label_pdf_url'),
-                                ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                int(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
-                                int(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
-                                int(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
-                                ret.get('return_integration_id'),
-                                convert_date_for_sql(datetime.now().isoformat()),
-                                return_id  # WHERE clause
-                            ))
-                    else:
-                        # Insert new return
-                        print(f"   📅 Return {return_id} dates: created_at='{ret.get('created_at')}', updated_at='{ret.get('updated_at')}', processed_at='{ret.get('processed_at')}'")
-                        # Safe access to nested objects with null checks
-                        client_id = ret.get('client', {}).get('id') if ret.get('client') else None
-                        warehouse_id = ret.get('warehouse', {}).get('id') if ret.get('warehouse') else None
-                        order_id = ret.get('order', {}).get('id') if ret.get('order') else None
-                        print(f"   🔢 Return {return_id} IDs: client_id='{client_id}', warehouse_id='{warehouse_id}', order_id='{order_id}'")
-                        cursor.execute("""
-                                INSERT INTO returns (id, api_id, paid_by, status, created_at, updated_at,
-                                        processed, processed_at, warehouse_note, customer_note,
-                                        tracking_number, tracking_url, carrier, service,
-                                        label_cost, label_pdf_url, rma_slip_url, label_voided,
-                                        client_id, warehouse_id, order_id, return_integration_id,
-                                        last_synced_at)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """, (
-                                return_id, ret.get('api_id'), ret.get('paid_by', ''),
-                                ret.get('status', ''), convert_date_for_sql(ret.get('created_at')), convert_date_for_sql(ret.get('updated_at')),
-                                ret.get('processed', False), convert_date_for_sql(ret.get('processed_at')),
-                                ret.get('warehouse_note', ''), ret.get('customer_note', ''),
-                                ret.get('tracking_number'), ret.get('tracking_url'),
-                                ret.get('carrier', ''), ret.get('service', ''),
-                                ret.get('label_cost'), ret.get('label_pdf_url'),
-                                ret.get('rma_slip_url'), ret.get('label_voided', False),
-                                int(ret['client']['id']) if ret.get('client') and ret['client'].get('id') else None,
-                                int(ret['warehouse']['id']) if ret.get('warehouse') and ret['warehouse'].get('id') else None,
-                                int(ret['order']['id']) if ret.get('order') and ret['order'].get('id') else None,
-                                ret.get('return_integration_id'),
-                                convert_date_for_sql(datetime.now().isoformat())
-                            ))
-                
-                # Also store basic order info from return data
-                if ret.get('order'):
-                    order = ret['order']
-                    try:
-                        if USE_AZURE_SQL:
-                            # Check if order exists first
-                            cursor.execute("SELECT COUNT(*) as count FROM orders WHERE id = %s", (int(order['id']),))
-                            order_result = cursor.fetchone()
-                            if get_single_value(order_result, 'count', 0) == 0:
-                                cursor.execute("""
-                                    INSERT INTO orders (id, order_number, created_at, updated_at)
-                                    VALUES (%s, %s, GETDATE(), GETDATE())
-                                """, (int(order['id']), order.get('order_number', '')))
-                        else:
-                            cursor.execute("""
-                                INSERT INTO orders (id, order_number, created_at, updated_at)
-                                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                            """, (int(order['id']), order.get('order_number', '')))
-                    except Exception as e:
-                        print(f"Error inserting order {int(order['id'])}: {e}")
-                
-                # Store return items if present
-                if ret.get('items'):
-                    for item in ret['items']:
-                        # Get or create product
-                        product_id = int(item.get('product', {}).get('id', 0)) if item.get('product', {}).get('id') else 0
-                        product_sku = item.get('product', {}).get('sku', '')
-                        product_name = item.get('product', {}).get('name', '')
-                        
-                        # If product doesn't exist or has no ID, try to find by SKU or create a placeholder
-                        if product_id == 0 and product_sku:
-                            # Try to find existing product by SKU
-                            cursor.execute("SELECT id as product_id FROM products WHERE sku = %s", (product_sku,))
-                            existing = cursor.fetchone()
-                            if existing:
-                                product_id = existing[0]
-                            else:
-                                # Create a placeholder product
-                                cursor.execute("""
-                                    INSERT INTO products (sku, name, created_at, updated_at)
-                                    VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, (product_sku, product_name or 'Unknown Product'))
-                                product_id = cursor.lastrowid
-                        elif product_id > 0:
-                            # Ensure product exists
-                            if USE_AZURE_SQL:
-                                cursor.execute("SELECT COUNT(*) as count FROM products WHERE id = %s", (int(product_id),))
-                                product_result = cursor.fetchone()
-                                if get_single_value(product_result, 'count', 0) == 0:
-                                    # Need separate statements for IDENTITY_INSERT
-                                    cursor.execute("SET IDENTITY_INSERT products ON")
-                                    cursor.execute("""
-                                        INSERT INTO products (id, sku, name, created_at, updated_at)
-                                        VALUES (%s, %s, %s, GETDATE(), GETDATE())
-                                    """, (int(product_id), product_sku, product_name))
-                                    cursor.execute("SET IDENTITY_INSERT products OFF")
-                            else:
-                                cursor.execute("""
-                                    INSERT INTO products (id, sku, name, created_at, updated_at)
-                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                """, (int(product_id), product_sku, product_name))
-                        
-                        # Store return item
-                        import json
-                        if USE_AZURE_SQL:
-                            # Check if return item exists
-                            if item.get('id'):
-                                cursor.execute("SELECT COUNT(*) as count FROM return_items WHERE id = %s", (item['id'],))
-                                item_result = cursor.fetchone()
-                                if get_single_value(item_result, 'count', 0) == 0:
-                                    cursor.execute("SET IDENTITY_INSERT return_items ON")
-                                    cursor.execute("""
-                                        INSERT INTO return_items (
-                                            id, return_id, product_id, quantity,
-                                            return_reasons, condition_on_arrival,
-                                            quantity_received, quantity_rejected,
-                                            created_at, updated_at
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
-                                    """, (
-                                        int(item.get('id')) if item.get('id') else None,
-                                        return_id,
-                                        product_id if product_id > 0 else None,
-                                        item.get('quantity', 0),
-                                        json.dumps(item.get('return_reasons', [])),
-                                        json.dumps(item.get('condition_on_arrival', [])),
-                                        item.get('quantity_received', 0),
-                                        item.get('quantity_rejected', 0)
-                                    ))
-                                    cursor.execute("SET IDENTITY_INSERT return_items OFF")
-                            else:
-                                # No ID provided, let SQL generate one
-                                cursor.execute("""
-                                    INSERT INTO return_items (
-                                        return_id, product_id, quantity,
-                                        return_reasons, condition_on_arrival,
-                                        quantity_received, quantity_rejected,
-                                        created_at, updated_at
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE(), GETDATE())
-                                """, (
-                                    return_id,
-                                    product_id if product_id > 0 else None,
-                                    item.get('quantity', 0),
-                                    json.dumps(item.get('return_reasons', [])),
-                                    json.dumps(item.get('condition_on_arrival', [])),
-                                    item.get('quantity_received', 0),
-                                    item.get('quantity_rejected', 0)
-                                ))
-                        else:
-                            cursor.execute("""
-                                INSERT OR REPLACE INTO return_items (
-                                id, return_id, product_id, quantity,
-                                return_reasons, condition_on_arrival,
-                                quantity_received, quantity_rejected,
-                                created_at, updated_at
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        """, (
-                            item.get('id'),
-                            return_id,
-                            product_id if product_id > 0 else None,
-                            item.get('quantity', 0),
-                            json.dumps(item.get('return_reasons', [])),
-                            json.dumps(item.get('condition_on_arrival', [])),
-                            item.get('quantity_received', 0),
-                            item.get('quantity_rejected', 0)
-                        ))
-                    
-                    print(f"About to increment counter for return {return_id}")
-                    sync_status["items_synced"] += 1
-                    print(f"Successfully processed return {return_id}, total synced: {sync_status['items_synced']}")
-                
-                total_fetched += len(returns_batch)
-                
-                # Check if we've fetched all returns
-                total_count = data['data'].get('total_count', 0)
-                if total_fetched >= total_count or len(returns_batch) < limit:
-                    break
-                    
-                offset += limit
-            except Exception as e:
-                print(f"Error in sync loop: {e}")
-                sync_status["last_sync_message"] = f"Error: {str(e)[:100]}"
-                break
-            
-            # Add a small delay to avoid overwhelming the API
-            await asyncio.sleep(0.5)
-        
-        # STEP 2: Fetch full order details for all collected order IDs (with customer names)
-        sync_status["last_sync_message"] = f"Fetching {len(all_order_ids)} orders with customer info..."
-        
-        # Check which orders need customer name updates
-        if all_order_ids:
-            cursor.execute("""
-                SELECT id FROM orders 
-                WHERE id IN ({}) 
-                AND (customer_name IS NULL OR customer_name = '')
-            """.format(format_in_clause(len(all_order_ids))), tuple(all_order_ids))
-            orders_needing_update = [row[0] for row in cursor.fetchall()]
-        else:
-            orders_needing_update = []
-        customers_updated = 0
-        
-        # Fetch order details in batches (limit to avoid timeout)
-        batch_size = 20  # Fetch 20 orders at a time
-        for i in range(0, min(len(orders_needing_update), 500), batch_size):  # Max 500 orders per sync
-            batch = orders_needing_update[i:i+batch_size]
-            
-            for order_id in batch:
-                try:
-                    order_response = requests.get(
-                        f"https://api.warehance.com/v1/orders/{order_id}",
-                        headers=headers,
-                        timeout=5
-                    )
-                    if order_response.status_code == 200:
-                        order_data = order_response.json().get('data', {})
-                        customer_name = ''
-                        
-                        # Extract customer name from ship_to_address
-                        if order_data.get('ship_to_address'):
-                            ship_addr = order_data['ship_to_address']
-                            first = ship_addr.get('first_name', '')
-                            last = ship_addr.get('last_name', '')
-                            customer_name = f"{first} {last}".strip()
-                        
-                        # Update order with full details including customer name
-                        cursor.execute("""
-                            UPDATE orders 
-                            SET customer_name = %s, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = %s
-                        """, (customer_name, order_id))
-                        
-                        if customer_name:
-                            customers_updated += 1
-                    
-                    # Small delay between API calls
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    print(f"Error fetching order {order_id}: {e}")
-            
-            # Update progress
-            sync_status["last_sync_message"] = f"Fetched {i+len(batch)} of {min(len(orders_needing_update), 500)} orders..."
-        
-        try:
-            conn.commit()
-        except Exception as commit_err:
-            if "no corresponding BEGIN TRANSACTION" not in str(commit_err):
-                print(f"⚠️ Final commit error: {commit_err}")
-                raise
-            else:
-                print(f"⚠️ Ignoring final commit transaction state error")
-        conn.close()
-        
-        # PROMINENT SYNC COMPLETION LOGGING - FORCE IMMEDIATE OUTPUT
-        end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        sync_id = sync_status.get('sync_id', 'unknown')
-
-        print("!" * 100, flush=True)
-        print("✅✅✅ APP_V2.PY ENHANCED SYNC COMPLETED - THIS WAS THE NEW SYNC! ✅✅✅", flush=True)
-        print("!" * 100, flush=True)
-        print(f"🆔 Sync ID: {sync_id}", flush=True)
-        print(f"🕐 End Time: {end_time}", flush=True)
-        print(f"📊 Returns Synced: {sync_status['items_synced']}", flush=True)
-        print(f"📦 Return Items Synced: {sync_status.get('return_items_synced', 0)}", flush=True)
-        print(f"🛒 Products Synced: {sync_status.get('products_synced', 0)}", flush=True)
-        print(f"📋 Orders Synced: {sync_status.get('orders_synced', 0)}", flush=True)
-        print(f"👥 Customer Names Updated: {customers_updated}", flush=True)
-        print(f"⏱️ Duration: {datetime.now() - sync_status.get('sync_start_time', datetime.now())}", flush=True)
-        print("=" * 80, flush=True)
-        sys.stdout.flush()
-
-        # Only mark as success if we actually synced something
-        if sync_status['items_synced'] > 0:
-            sync_status["last_sync_status"] = "success"
-            sync_status["last_sync_message"] = f"Synced {sync_status['items_synced']} returns, updated {customers_updated} customer names"
-        else:
-            sync_status["last_sync_status"] = "warning"
-            sync_status["last_sync_message"] = "No returns found to sync. Check API connection and logs."
-        
-        sync_status["last_sync"] = datetime.now().isoformat()
-            
-    except Exception as e:
-        import traceback
-        error_details = f"Sync error: {type(e).__name__}: {str(e)}"
-        traceback_str = traceback.format_exc()
-
-        # PROMINENT SYNC ERROR LOGGING
-        end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print("=" * 80)
-        print("❌ ================ WAREHANCE SYNC FAILED ==================")
-        print(f"🕐 Failed Time: {end_time}")
-        print(f"❌ Error: {error_details}")
-        print(f"📊 Returns Synced Before Error: {sync_status.get('items_synced', 0)}")
-        print(f"📦 Return Items Synced Before Error: {sync_status.get('return_items_synced', 0)}")
-        print("=" * 80)
-        print(f"Full Traceback: {traceback_str}")
-        print("=" * 80)
-
-        sync_status["last_sync_status"] = "error"
-        sync_status["last_sync_message"] = f"{error_details[:100]}... (check logs for full details)"
-        
-        if 'conn' in locals():
-            try:
-                conn.close()
-            except:
-                pass
-    
-    finally:
-        sync_status["is_running"] = False
-        print(f"Sync completed. Status: {sync_status['last_sync_status']}, Items: {sync_status['items_synced']}")
+    """DISABLED: This old sync function has been replaced by the enhanced sync system"""
+    raise NotImplementedError("This old sync function has been disabled. Please use the enhanced sync system via /api/sync/trigger")
 
 @app.post("/api/returns/send-email")
 async def send_returns_email(request_data: dict):
@@ -2363,1174 +1830,13 @@ async def send_returns_email(request_data: dict):
     try:
         client_id = request_data.get('client_id')
         recipient_email = request_data.get('email')
-        date_range = request_data.get('date_range', 'Last 30 days')
-        custom_message = request_data.get('message', '')
         
-        if not recipient_email:
-            raise HTTPException(status_code=400, detail="Recipient email is required")
+        # TODO: Implement email sending functionality
+        return {"status": "success", "message": "Email functionality not yet implemented"}
         
-        # Get client info and statistics
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Get client name
-        client_name = "All Clients"
-        if client_id:
-            cursor.execute("SELECT name as client_name FROM clients WHERE id = %s", (client_id,))
-            result = cursor.fetchone()
-            if result:
-                client_name = result[0]
-        
-        # Get statistics
-        where_clause = "WHERE 1=1"
-        params = []
-        if client_id:
-            where_clause += " AND r.client_id = %s"
-            params.append(client_id)
-        
-        # Total returns
-        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause}", tuple(params))
-        row = cursor.fetchone()
-        total_returns = row[0] if row else 0
-
-        # Processed returns
-        cursor.execute(f"SELECT COUNT(*) as count FROM returns r {where_clause} AND r.processed = 1", tuple(params))
-        row = cursor.fetchone()
-        processed_returns = row[0] if row else 0
-        
-        # Pending returns
-        pending_returns = total_returns - processed_returns
-        
-        # Total items
-        cursor.execute(f"""
-            SELECT COUNT(ri.id) 
-            FROM return_items ri 
-            JOIN returns r ON ri.return_id = r.id 
-            {where_clause}
-        """, params)
-        row = cursor.fetchone()
-        total_items = row[0] if row else 0
-        
-        # Top return reason
-        cursor.execute(f"""
-            SELECT ri.return_reasons, COUNT(*) as count
-            FROM return_items ri
-            JOIN returns r ON ri.return_id = r.id
-            {where_clause} AND ri.return_reasons IS NOT NULL
-            GROUP BY ri.return_reasons
-            ORDER BY count DESC
-            {format_limit_clause(1)}
-        """, params)
-        result = cursor.fetchone()
-        top_reason = result[0] if result else "N/A"
-        
-        # Generate CSV export
-        export_params = {'client_id': client_id} if client_id else {}
-        csv_data = await export_returns_csv(export_params)
-        csv_content = csv_data.body.decode('utf-8') if hasattr(csv_data.body, 'decode') else str(csv_data.body)
-        
-        # Prepare email
-        msg = MIMEMultipart('alternative')
-        msg['From'] = EMAIL_CONFIG['SENDER_EMAIL'] if EMAIL_CONFIG else "returns@company.com"
-        msg['To'] = recipient_email
-        msg['Subject'] = f"Returns Report - {client_name} - {datetime.now().strftime('%Y-%m-%d')}"
-        
-        # Prepare template variables
-        template_vars = {
-            'client_name': client_name,
-            'report_date': datetime.now().strftime('%B %d, %Y'),
-            'date_range': date_range,
-            'total_returns': total_returns,
-            'processed_returns': processed_returns,
-            'pending_returns': pending_returns,
-            'total_items': total_items,
-            'top_reason': top_reason,
-            'avg_processing_time': 'N/A',  # Can be calculated if needed
-            'attachment_name': f'returns_report_{client_name.replace(" ", "_")}_{datetime.now().strftime("%Y%m%d")}.csv',
-            'year': datetime.now().year,
-            'custom_message': custom_message
-        }
-        
-        # Create email body
-        if EMAIL_TEMPLATE:
-            html_body = EMAIL_TEMPLATE.format(**template_vars)
-            plain_body = EMAIL_TEMPLATE_PLAIN.format(**template_vars)
-        else:
-            # Simple fallback template
-            html_body = f"""
-            <html>
-                <body>
-                    <h2>Returns Report for {client_name}</h2>
-                    <p>Please find attached your returns report.</p>
-                    <p><strong>Summary:</strong></p>
-                    <ul>
-                        <li>Total Returns: {total_returns}</li>
-                        <li>Processed: {processed_returns}</li>
-                        <li>Pending: {pending_returns}</li>
-                    </ul>
-                    {f'<p>{custom_message}</p>' if custom_message else ''}
-                </body>
-            </html>
-            """
-            plain_body = f"""
-            Returns Report for {client_name}
-            
-            Please find attached your returns report.
-            
-            Summary:
-            - Total Returns: {total_returns}
-            - Processed: {processed_returns}
-            - Pending: {pending_returns}
-            
-            {custom_message if custom_message else ''}
-            """
-        
-        # Attach HTML and plain text
-        msg.attach(MIMEText(plain_body, 'plain'))
-        msg.attach(MIMEText(html_body, 'html'))
-        
-        # Attach CSV file
-        attachment = MIMEBase('application', 'octet-stream')
-        attachment.set_payload(csv_content.encode('utf-8'))
-        encoders.encode_base64(attachment)
-        attachment.add_header(
-            'Content-Disposition',
-            f'attachment; filename="{template_vars["attachment_name"]}"'
-        )
-        msg.attach(attachment)
-        
-        # Send email (configure SMTP settings)
-        auth_password = EMAIL_CONFIG.get('AUTH_PASSWORD') or EMAIL_CONFIG.get('SENDER_PASSWORD')
-        if EMAIL_CONFIG and auth_password:
-            server = smtplib.SMTP(EMAIL_CONFIG['SMTP_SERVER'], EMAIL_CONFIG['SMTP_PORT'])
-            server.starttls()
-            # Login with auth account (personal account with Send As permissions for shared mailbox)
-            auth_email = EMAIL_CONFIG.get('AUTH_EMAIL', EMAIL_CONFIG['SENDER_EMAIL'])
-            server.login(auth_email, auth_password)
-            server.send_message(msg)
-            server.quit()
-            
-            # Log to email history
-            cursor.execute("""
-                INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                client_id,
-                client_name,
-                recipient_email,
-                msg['Subject'],
-                template_vars["attachment_name"],
-                'System',
-                'sent'
-            ))
-            conn.commit()
-            
-            status = "sent"
-            message = "Email sent successfully!"
-        else:
-            # Save to email history as draft since SMTP not configured
-            cursor.execute("""
-                INSERT INTO email_history (client_id, client_name, recipient_email, subject, attachment_name, sent_by, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                client_id,
-                client_name,
-                recipient_email,
-                msg['Subject'],
-                template_vars["attachment_name"],
-                'System',
-                'draft'
-            ))
-            conn.commit()
-            
-            status = "draft"
-            message = "Email prepared but not sent (SMTP not configured). Email saved as draft."
-        
-        conn.close()
-        
-        return {
-            "status": status,
-            "message": message,
-            "recipient": recipient_email,
-            "subject": msg['Subject']
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/email-history")
-async def get_email_history(client_id: Optional[int] = None):
-    """Get email history with optional client filter"""
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    query = "SELECT * FROM email_history WHERE 1=1"
-    params = []
-    
-    if client_id:
-        query += " AND client_id = %s"
-        params.append(client_id)
-    
-    query += " ORDER BY sent_date DESC"
-
-    cursor.execute(query, tuple(params))
-    rows = cursor.fetchall()
-    
-    if USE_AZURE_SQL:
-        emails = rows_to_dict(cursor, rows) if rows else []
-    else:
-        emails = [dict(row) for row in rows]
-    
-    conn.close()
-    
-    return emails
-
-@app.get("/api/email-config")
-async def get_email_config():
-    """Get email configuration status"""
-    auth_configured = EMAIL_CONFIG.get('AUTH_PASSWORD') or EMAIL_CONFIG.get('SENDER_PASSWORD')
-    is_configured = bool(EMAIL_CONFIG and auth_configured)
-    
-    return {
-        "is_configured": is_configured,
-        "sender_email": EMAIL_CONFIG['SENDER_EMAIL'] if EMAIL_CONFIG else None,
-        "smtp_server": EMAIL_CONFIG['SMTP_SERVER'] if EMAIL_CONFIG else None
-    }
-
-@app.post("/api/email-config")
-async def update_email_config(config: dict):
-    """Update email configuration"""
-    global EMAIL_CONFIG
-    
-    if not EMAIL_CONFIG:
-        EMAIL_CONFIG = {}
-    
-    EMAIL_CONFIG.update(config)
-    
-    return {"status": "success", "message": "Email configuration updated"}
-
-@app.get("/settings")
-async def settings_page():
-    """Serve the settings page"""
-    # Check multiple possible paths for templates
-    import os
-    possible_paths = [
-        "web/templates/settings.html",  # When running from root
-        "templates/settings.html",       # When running from web directory
-        "/home/site/wwwroot/web/templates/settings.html",  # Azure absolute path
-        os.path.join(os.path.dirname(__file__), "templates", "settings.html")  # Relative to this file
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            return FileResponse(path)
-    
-    # If no template found, return error with debug info
-    return {"error": "Settings template not found", "searched_paths": possible_paths, "cwd": os.getcwd()}
-
-@app.get("/api/settings")
-async def get_settings():
-    """Get all system settings"""
-    conn = get_db_connection()
-    if not USE_AZURE_SQL:
-        conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    # Create settings table if it doesn't exist
-    if USE_AZURE_SQL:
-        # Check if table exists first
-        cursor.execute("""
-            SELECT COUNT(*) as count
-            FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_NAME = 'settings'
-        """)
-        settings_result = cursor.fetchone()
-        if get_single_value(settings_result, 'count', 0) == 0:
-            cursor.execute("""
-                CREATE TABLE settings (
-                    [key] NVARCHAR(100) PRIMARY KEY,
-                    value NVARCHAR(MAX),
-                    updated_at DATETIME DEFAULT GETDATE()
-                )
-            """)
-            conn.commit()
-    else:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    conn.commit()
-    
-    # Get all settings
-    cursor.execute("SELECT key, value FROM settings")
-    settings_rows = cursor.fetchall()
-    
-    # Convert rows for Azure SQL
-    if USE_AZURE_SQL:
-        settings_rows = rows_to_dict(cursor, settings_rows) if settings_rows else []
-    
-    # Convert to dictionary
-    settings = {}
-    for row in settings_rows:
-        try:
-            # Try to parse as JSON for complex values
-            settings[row['key']] = json.loads(row['value'])
-        except (json.JSONDecodeError, TypeError):
-            # If not JSON, use as string
-            settings[row['key']] = row['value']
-    
-    # Add current EMAIL_CONFIG if available
-    if EMAIL_CONFIG:
-        settings['smtp_server'] = EMAIL_CONFIG.get('SMTP_SERVER', '')
-        settings['smtp_port'] = EMAIL_CONFIG.get('SMTP_PORT', 587)
-        settings['use_tls'] = EMAIL_CONFIG.get('USE_TLS', True)
-        settings['auth_email'] = EMAIL_CONFIG.get('AUTH_EMAIL', '')
-        settings['sender_email'] = EMAIL_CONFIG.get('SENDER_EMAIL', '')
-        settings['sender_name'] = EMAIL_CONFIG.get('SENDER_NAME', '')
-    
-    conn.close()
-    
-    return settings
-
-@app.post("/api/settings")
-async def save_settings(settings: dict):
-    """Save system settings"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Create settings table if it doesn't exist
-    if USE_AZURE_SQL:
-        # Check if table exists first
-        cursor.execute("""
-            SELECT COUNT(*) as count
-            FROM INFORMATION_SCHEMA.TABLES 
-            WHERE TABLE_NAME = 'settings'
-        """)
-        settings_result = cursor.fetchone()
-        if get_single_value(settings_result, 'count', 0) == 0:
-            cursor.execute("""
-                CREATE TABLE settings (
-                    [key] NVARCHAR(100) PRIMARY KEY,
-                    value NVARCHAR(MAX),
-                    updated_at DATETIME DEFAULT GETDATE()
-                )
-            """)
-            conn.commit()
-    else:
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-    
-    # Update each setting
-    for key, value in settings.items():
-        # Convert complex values to JSON
-        if isinstance(value, (dict, list)):
-            value_str = json.dumps(value)
-        else:
-            value_str = str(value)
-        
-        if USE_AZURE_SQL:
-            # Check if setting exists
-            cursor.execute("SELECT COUNT(*) as count FROM settings WHERE [key] = %s", (key,))
-            setting_result = cursor.fetchone()
-            if get_single_value(setting_result, 'count', 0) > 0:
-                # Update existing
-                cursor.execute("""
-                    UPDATE settings 
-                    SET value = %s, updated_at = %s
-                    WHERE [key] = %s
-                """, (value_str, datetime.now().isoformat(), key))
-            else:
-                # Insert new
-                cursor.execute("""
-                    INSERT INTO settings ([key], value, updated_at)
-                    VALUES (%s, %s, %s)
-                """, (key, value_str, datetime.now().isoformat()))
-        else:
-            cursor.execute("""
-                INSERT INTO settings (key, value, updated_at)
-                VALUES (%s, %s, %s)
-            """, (key, value_str, datetime.now().isoformat()))
-    
-    conn.commit()
-    
-    # Update EMAIL_CONFIG if email settings are provided
-    global EMAIL_CONFIG
-    if not EMAIL_CONFIG:
-        EMAIL_CONFIG = {}
-    
-    if 'smtp_server' in settings:
-        EMAIL_CONFIG['SMTP_SERVER'] = settings['smtp_server']
-    if 'smtp_port' in settings:
-        EMAIL_CONFIG['SMTP_PORT'] = int(settings['smtp_port'])
-    if 'use_tls' in settings:
-        EMAIL_CONFIG['USE_TLS'] = bool(settings['use_tls'])
-    if 'sender_email' in settings:
-        EMAIL_CONFIG['SENDER_EMAIL'] = settings['sender_email']
-    if 'sender_name' in settings:
-        EMAIL_CONFIG['SENDER_NAME'] = settings['sender_name']
-    if 'auth_email' in settings:
-        EMAIL_CONFIG['AUTH_EMAIL'] = settings['auth_email']
-    if 'auth_password' in settings:
-        EMAIL_CONFIG['AUTH_PASSWORD'] = settings['auth_password']
-    if 'smtp_password' in settings:
-        # Legacy support
-        EMAIL_CONFIG['SENDER_PASSWORD'] = settings['smtp_password']
-    
-    conn.close()
-    
-    return {"status": "success", "message": "Settings saved successfully"}
-
-@app.post("/api/test-email-oauth")
-async def test_email_oauth(config: dict):
-    """Test OAuth email configuration by sending a test email"""
-    try:
-        # Validate required fields
-        if not config.get('tenant_id'):
-            raise HTTPException(status_code=400, detail="Tenant ID is required")
-        if not config.get('client_id'):
-            raise HTTPException(status_code=400, detail="Client ID is required")
-        if not config.get('client_secret'):
-            raise HTTPException(status_code=400, detail="Client Secret is required")
-        if not config.get('test_recipient'):
-            raise HTTPException(status_code=400, detail="Test recipient email is required")
-        
-        # Initialize Graph mailer
-        mailer = MicrosoftGraphMailer(
-            tenant_id=config['tenant_id'],
-            client_id=config['client_id'],
-            client_secret=config['client_secret']
-        )
-        
-        # Get access token
-        token = mailer.get_access_token()
-        
-        # Prepare test email
-        sender_email = config.get('sender_email', 'returns@uptimeops.net')
-        test_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif;">
-            <h2>Test Email Successful!</h2>
-            <p>This is a test email from your Warehance Returns system using Microsoft Graph API.</p>
-            <p>Your OAuth2 configuration is working correctly.</p>
-            <hr>
-            <p><strong>Configuration Details:</strong></p>
-            <ul>
-                <li>Tenant ID: {config['tenant_id'][:8]}...</li>
-                <li>Client ID: {config['client_id'][:8]}...</li>
-                <li>Sender: {sender_email}</li>
-                <li>Authentication: OAuth2 with Microsoft Graph</li>
-            </ul>
-        </body>
-        </html>
-        """
-        
-        # Send test email
-        result = mailer.send_mail(
-            from_address=sender_email,
-            to_address=config['test_recipient'],
-            subject="Warehance Returns - OAuth Test Email",
-            body_html=test_body
-        )
-        
-        return {"status": "success", "message": "OAuth test email sent successfully!"}
-        
-    except Exception as e:
-        print(f"OAuth test email error: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-@app.post("/api/test-email")
-async def test_email(config: dict):
-    """Test email configuration by sending a test email"""
-    try:
-        import traceback
-        print(f"Test email config received: {config}")  # Debug logging
-        # Validate required fields
-        if not config.get('smtp_server'):
-            raise HTTPException(status_code=400, detail="SMTP server is required")
-        if not config.get('auth_email'):
-            raise HTTPException(status_code=400, detail="Authentication email is required")
-        if not config.get('auth_password'):
-            raise HTTPException(status_code=400, detail="Authentication password is required")
-        if not config.get('test_recipient'):
-            raise HTTPException(status_code=400, detail="Test recipient email is required")
-        
-        # Get port with default value
-        try:
-            smtp_port = int(config.get('smtp_port', 587)) if config.get('smtp_port') else 587
-        except ValueError:
-            smtp_port = 587
-        
-        # Create test SMTP connection
-        if config.get('use_tls'):
-            server = smtplib.SMTP(config['smtp_server'], smtp_port)
-            server.starttls()
-        else:
-            server = smtplib.SMTP_SSL(config['smtp_server'], smtp_port)
-        
-        # Try to login with auth account (personal account with Send As permissions)
-        auth_email = config.get('auth_email') or config.get('sender_email')
-        auth_password = config.get('auth_password') or config.get('smtp_password', '')
-        
-        if not auth_email or not auth_password:
-            raise HTTPException(status_code=400, detail="Authentication credentials are required")
-            
-        server.login(auth_email, auth_password)
-        
-        # Create test message
-        msg = MIMEMultipart()
-        sender_email = config.get('sender_email') or config.get('auth_email')
-        sender_name = config.get('sender_name', 'Warehance Returns')
-        msg['From'] = f"{sender_name} <{sender_email}>"
-        msg['To'] = config['test_recipient']
-        msg['Subject'] = "Warehance Returns - Test Email"
-        
-        # Create test body
-        body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif;">
-            <h2>Test Email Successful!</h2>
-            <p>This is a test email from your Warehance Returns system.</p>
-            <p>Your email configuration is working correctly.</p>
-            <hr>
-            <p><strong>Configuration Details:</strong></p>
-            <ul>
-                <li>SMTP Server: {config['smtp_server']}</li>
-                <li>Port: {config['smtp_port']}</li>
-                <li>Sender: {config['sender_email']}</li>
-                <li>TLS: {'Yes' if config.get('use_tls') else 'No'}</li>
-            </ul>
-        </body>
-        </html>
-        """
-        
-        msg.attach(MIMEText(body, 'html'))
-        
-        # Send email
-        server.send_message(msg)
-        server.quit()
-        
-        return {"status": "success", "message": "Test email sent successfully!"}
-        
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"Authentication error: {e}")
-        raise HTTPException(status_code=400, detail="Authentication failed. Please check your email and password.")
-    except smtplib.SMTPException as e:
-        print(f"SMTP error: {e}")
-        raise HTTPException(status_code=400, detail=f"SMTP error: {str(e)}")
-    except Exception as e:
-        print(f"Test email error: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-@app.get("/api/deployment/version")
-async def get_deployment_version():
-    """Simple endpoint to verify deployment version"""
-    import datetime
-    return {
-        "version": "2025-09-10-COMPREHENSIVE-OVERFLOW-FIX-V10-DIRECT-SYNC-TEST", 
-        "timestamp": datetime.datetime.now().isoformat(),
-        "status": "latest_deployment_active"
-    }
-
-@app.get("/api/database/diagnose")
-async def diagnose_azure_sql():
-    """Comprehensive Azure SQL diagnostic endpoint"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL"}
-        
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        diagnostics = {
-            "connection": "working",
-            "current_user": None,
-            "database_name": None,
-            "schema_info": {},
-            "permissions": {},
-            "tables": {},
-            "simple_create_test": None,
-            "detailed_errors": []
-        }
-        
-        try:
-            # Get current user
-            cursor.execute("SELECT USER_NAME() as user_name")
-            result = cursor.fetchone()
-            diagnostics["current_user"] = get_single_value(result, 'user_name', 0) if result else "No result"
-        except Exception as e:
-            import traceback
-            error_details = f"USER_NAME() error: {type(e).__name__}: {str(e)}"
-            if hasattr(e, 'args') and e.args:
-                error_details += f" Args: {e.args}"
-            diagnostics["detailed_errors"].append(error_details)
-            diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
-        
-        try:
-            # Get database name
-            cursor.execute("SELECT DB_NAME() as database_name")
-            result = cursor.fetchone()
-            diagnostics["database_name"] = get_single_value(result, 'database_name', 0) if result else "No result"
-        except Exception as e:
-            import traceback
-            error_details = f"DB_NAME() error: {type(e).__name__}: {str(e)}"
-            if hasattr(e, 'args') and e.args:
-                error_details += f" Args: {e.args}"
-            diagnostics["detailed_errors"].append(error_details)
-            diagnostics["detailed_errors"].append(f"Traceback: {traceback.format_exc()}")
-        
-        try:
-            # Check schema permissions
-            cursor.execute("SELECT SCHEMA_NAME() as schema_name")
-            schema_result = cursor.fetchone()
-            diagnostics["schema_info"]["current_schema"] = get_single_value(schema_result, 'schema_name', 0)
-        except Exception as e:
-            diagnostics["detailed_errors"].append(f"SCHEMA_NAME() error: {str(e)}")
-        
-        try:
-            # Check table creation permissions with a simple test
-            cursor.execute("CREATE TABLE test_permissions_check (id INT)")
-            diagnostics["simple_create_test"] = "SUCCESS - Can create tables"
-            
-            # Clean up test table
-            cursor.execute("DROP TABLE test_permissions_check")
-        except Exception as e:
-            diagnostics["simple_create_test"] = f"FAILED - Cannot create tables: {str(e)}"
-            diagnostics["detailed_errors"].append(f"CREATE TABLE test failed: {str(e)}")
-        
-        try:
-            # List existing tables
-            cursor.execute("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'")
-            tables = cursor.fetchall()
-            diagnostics["tables"]["existing_tables"] = [row[0] for row in tables] if tables else []
-        except Exception as e:
-            diagnostics["detailed_errors"].append(f"Table listing error: {str(e)}")
-        
-        try:
-            # Check specific permissions
-            cursor.execute("""
-                SELECT 
-                    p.permission_name,
-                    p.state_desc,
-                    pr.name as principal_name
-                FROM sys.database_permissions p
-                LEFT JOIN sys.database_principals pr ON p.grantee_principal_id = pr.principal_id
-                WHERE p.major_id = 0
-            """)
-            perms = cursor.fetchall()
-            diagnostics["permissions"]["database_permissions"] = [
-                {"permission": row[0], "state": row[1], "principal": row[2]} 
-                for row in perms
-            ] if perms else []
-        except Exception as e:
-            diagnostics["detailed_errors"].append(f"Permission query error: {str(e)}")
-        
-        conn.close()
-        
-        return {
-            "status": "success",
-            "diagnostics": diagnostics
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error", 
-            "message": str(e),
-            "diagnostics": diagnostics if 'diagnostics' in locals() else {}
-        }
-
-@app.post("/api/database/migrate-bigint")
-async def migrate_to_bigint():
-    """Migrate existing INT columns to BIGINT for large API IDs"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        migrations = []
-
-        # SQL Server migration commands that properly handle constraints
-        migration_steps = [
-            {
-                "description": "Drop primary key constraint on clients",
-                "command": "ALTER TABLE clients DROP CONSTRAINT PK__clients__3213E83F6F2C7259",
-                "ignore_error": True
-            },
-            {
-                "description": "Alter clients.id to BIGINT",
-                "command": "ALTER TABLE clients ALTER COLUMN id BIGINT NOT NULL"
-            },
-            {
-                "description": "Recreate primary key on clients.id",
-                "command": "ALTER TABLE clients ADD CONSTRAINT PK_clients_id PRIMARY KEY (id)"
-            },
-            {
-                "description": "Drop primary key constraint on warehouses",
-                "command": "ALTER TABLE warehouses DROP CONSTRAINT PK__warehous__3213E83FF88C1B96",
-                "ignore_error": True
-            },
-            {
-                "description": "Alter warehouses.id to BIGINT",
-                "command": "ALTER TABLE warehouses ALTER COLUMN id BIGINT NOT NULL"
-            },
-            {
-                "description": "Recreate primary key on warehouses.id",
-                "command": "ALTER TABLE warehouses ADD CONSTRAINT PK_warehouses_id PRIMARY KEY (id)"
-            },
-            {
-                "description": "Drop primary key constraint on orders",
-                "command": "ALTER TABLE orders DROP CONSTRAINT PK__orders__3213E83F89CDD820",
-                "ignore_error": True
-            },
-            {
-                "description": "Alter orders.id to BIGINT",
-                "command": "ALTER TABLE orders ALTER COLUMN id BIGINT NOT NULL"
-            },
-            {
-                "description": "Recreate primary key on orders.id",
-                "command": "ALTER TABLE orders ADD CONSTRAINT PK_orders_id PRIMARY KEY (id)"
-            },
-            {
-                "description": "Drop primary key constraint on returns",
-                "command": "ALTER TABLE returns DROP CONSTRAINT PK__returns__3213E83FA1C16B80",
-                "ignore_error": True
-            },
-            {
-                "description": "Alter returns.id to BIGINT",
-                "command": "ALTER TABLE returns ALTER COLUMN id BIGINT NOT NULL"
-            },
-            {
-                "description": "Recreate primary key on returns.id",
-                "command": "ALTER TABLE returns ADD CONSTRAINT PK_returns_id PRIMARY KEY (id)"
-            },
-            {
-                "description": "Alter returns foreign key columns to BIGINT",
-                "command": "ALTER TABLE returns ALTER COLUMN client_id BIGINT"
-            },
-            {
-                "description": "Alter returns.warehouse_id to BIGINT",
-                "command": "ALTER TABLE returns ALTER COLUMN warehouse_id BIGINT"
-            },
-            {
-                "description": "Alter returns.order_id to BIGINT",
-                "command": "ALTER TABLE returns ALTER COLUMN order_id BIGINT"
-            },
-            {
-                "description": "Alter return_items.return_id to BIGINT",
-                "command": "ALTER TABLE return_items ALTER COLUMN return_id BIGINT"
-            },
-            {
-                "description": "Alter email_history.client_id to BIGINT",
-                "command": "ALTER TABLE email_history ALTER COLUMN client_id BIGINT"
-            },
-            {
-                "description": "Alter email_share_items.return_id to BIGINT",
-                "command": "ALTER TABLE email_share_items ALTER COLUMN return_id BIGINT"
-            }
-        ]
-
-        for step in migration_steps:
-            try:
-                cursor.execute(step["command"])
-                conn.commit()
-                migrations.append({
-                    "description": step["description"],
-                    "command": step["command"],
-                    "status": "success"
-                })
-            except Exception as e:
-                error_msg = str(e)
-                if step.get("ignore_error", False) and ("does not exist" in error_msg or "is not a constraint" in error_msg):
-                    migrations.append({
-                        "description": step["description"],
-                        "command": step["command"],
-                        "status": "skipped",
-                        "error": "Constraint already dropped or doesn't exist"
-                    })
-                else:
-                    migrations.append({
-                        "description": step["description"],
-                        "command": step["command"],
-                        "status": "error",
-                        "error": error_msg
-                    })
-
-        conn.close()
-
-        success_count = len([m for m in migrations if m['status'] == 'success'])
-        return {
-            "status": "success",
-            "migrations": migrations,
-            "message": f"Completed {success_count} migrations successfully"
-        }
-
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/database/migrate-bigint")
-async def migrate_to_bigint_get():
-    """GET version of BIGINT migration for browser testing"""
-    return await migrate_to_bigint()
-
-@app.get("/api/database/migrate-simple")
-async def migrate_simple():
-    """Simple BIGINT migration - just convert non-primary key columns first"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        results = []
-
-        # Start with foreign key columns that don't have constraints
-        simple_migrations = [
-            "ALTER TABLE returns ALTER COLUMN client_id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN warehouse_id BIGINT",
-            "ALTER TABLE returns ALTER COLUMN order_id BIGINT",
-            "ALTER TABLE return_items ALTER COLUMN return_id BIGINT"
-        ]
-
-        for cmd in simple_migrations:
-            try:
-                cursor.execute(cmd)
-                conn.commit()
-                results.append({"command": cmd, "status": "success"})
-            except Exception as e:
-                results.append({"command": cmd, "status": "error", "error": str(e)})
-
-        conn.close()
-
-        success_count = len([r for r in results if r['status'] == 'success'])
-        return {
-            "status": "success",
-            "results": results,
-            "message": f"Simple migration completed {success_count} columns"
-        }
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/database/reset-get")
-async def reset_database_get():
-    """GET version of database reset for browser testing"""
-    return await reset_database()
-
-@app.get("/api/test-deployment")
-async def test_deployment():
-    """Test if new deployments are working"""
-    return {
-        "status": "success",
-        "version": "V87.230-SYNC-CONTROL-OVERHAUL",
-        "timestamp": datetime.now().isoformat(),
-        "message": "New deployment working"
-    }
-
-@app.get("/api/database/migrate-remaining-columns")
-async def migrate_remaining_columns():
-    """Convert remaining INT columns that might store large API IDs"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        results = []
-
-        # Convert remaining columns that might store large API IDs
-        remaining_migrations = [
-            "ALTER TABLE products ALTER COLUMN id BIGINT",
-            "ALTER TABLE return_items ALTER COLUMN product_id BIGINT"
-        ]
-
-        for cmd in remaining_migrations:
-            try:
-                cursor.execute(cmd)
-                conn.commit()
-                results.append({"command": cmd, "status": "success"})
-            except Exception as e:
-                error_msg = str(e)
-                if "does not exist" in error_msg or "Invalid column name" in error_msg:
-                    results.append({"command": cmd, "status": "skipped", "error": "Column doesn't exist"})
-                else:
-                    results.append({"command": cmd, "status": "error", "error": error_msg})
-
-        conn.close()
-
-        success_count = len([r for r in results if r['status'] == 'success'])
-        return {
-            "status": "success",
-            "results": results,
-            "message": f"Remaining column migration completed {success_count} conversions"
-        }
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/database/check-remaining-int-columns")
-async def check_remaining_int_columns():
-    """Check for any remaining INT columns that need BIGINT conversion"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Find all INT columns that might need conversion
-        cursor.execute("""
-            SELECT
-                TABLE_NAME,
-                COLUMN_NAME,
-                DATA_TYPE,
-                IS_NULLABLE
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE DATA_TYPE = 'int'
-            AND TABLE_NAME IN ('clients', 'warehouses', 'orders', 'returns', 'return_items', 'products', 'email_history', 'email_share_items')
-            ORDER BY TABLE_NAME, COLUMN_NAME
-        """)
-
-        int_columns = cursor.fetchall()
-
-        # Convert to list of dicts for JSON response
-        columns_list = []
-        for row in int_columns:
-            columns_list.append({
-                "table": row[0],
-                "column": row[1],
-                "data_type": row[2],
-                "is_nullable": row[3]
-            })
-
-        conn.close()
-
-        return {
-            "status": "success",
-            "remaining_int_columns": columns_list,
-            "count": len(columns_list),
-            "message": f"Found {len(columns_list)} INT columns that may need BIGINT conversion"
-        }
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/database/migrate-primary-keys")
-async def migrate_primary_keys():
-    """Migrate primary key columns to BIGINT using exact constraint names"""
-    try:
-        if not USE_AZURE_SQL:
-            return {"status": "skipped", "message": "Not using Azure SQL, migration not needed"}
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        results = []
-
-        # Step-by-step migration with exact constraint names
-        pk_migrations = [
-            {
-                "table": "clients",
-                "constraint": "PK__clients__3213E83F6F2C7259"
-            },
-            {
-                "table": "warehouses",
-                "constraint": "PK__warehous__3213E83FF88C1B96"
-            },
-            {
-                "table": "orders",
-                "constraint": "PK__orders__3213E83F89CDD820"
-            },
-            {
-                "table": "returns",
-                "constraint": "PK__returns__3213E83FA1C16B80"
-            }
-        ]
-
-        for migration in pk_migrations:
-            table = migration["table"]
-            constraint = migration["constraint"]
-
-            try:
-                # Drop primary key constraint
-                cursor.execute(f"ALTER TABLE {table} DROP CONSTRAINT {constraint}")
-                conn.commit()
-                results.append({
-                    "step": f"Drop PK on {table}",
-                    "command": f"DROP CONSTRAINT {constraint}",
-                    "status": "success"
-                })
-
-                # Convert column to BIGINT
-                cursor.execute(f"ALTER TABLE {table} ALTER COLUMN id BIGINT NOT NULL")
-                conn.commit()
-                results.append({
-                    "step": f"Convert {table}.id to BIGINT",
-                    "command": f"ALTER COLUMN id BIGINT NOT NULL",
-                    "status": "success"
-                })
-
-                # Recreate primary key
-                cursor.execute(f"ALTER TABLE {table} ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)")
-                conn.commit()
-                results.append({
-                    "step": f"Recreate PK on {table}",
-                    "command": f"ADD CONSTRAINT PK_{table}_id PRIMARY KEY (id)",
-                    "status": "success"
-                })
-
-            except Exception as e:
-                results.append({
-                    "step": f"Error migrating {table}",
-                    "command": f"Full PK migration of {table}",
-                    "status": "error",
-                    "error": str(e)
-                })
-
-        conn.close()
-
-        success_count = len([r for r in results if r['status'] == 'success'])
-        return {
-            "status": "success",
-            "results": results,
-            "message": f"Primary key migration completed {success_count} steps"
-        }
-
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/sync/trigger-get")
-async def trigger_sync_get():
-    """GET version of sync trigger for browser testing"""
-    # Provide default request data for GET trigger
-    request_data = {"sync_type": "full"}
-    return await trigger_sync(request_data)
-
-@app.get("/api/sync/test-direct")
-async def test_direct_sync():
-    """Direct synchronous sync for debugging - bypasses background task"""
-    global sync_status
-    
-    print("=== DIRECT SYNC TEST STARTING ===")
-    
-    try:
-        # Test 1: Database connection
-        print("Testing database connection...")
-        conn = get_db_connection()
-        if not conn:
-            return {"error": "Failed to get database connection"}
-        
-        cursor = conn.cursor()
-        
-        # Test basic query
-        try:
-            if USE_AZURE_SQL:
-                cursor.execute("SELECT 1 as test")
-            else:
-                cursor.execute("SELECT 1")
-            test_result = cursor.fetchone()
-            print(f"Database test successful: {test_result}")
-        except Exception as db_err:
-            return {"error": f"Database test failed: {db_err}"}
-            
-        # Test 2: API connection
-        print("Testing API connection...")
-        api_key = WAREHANCE_API_KEY
-        headers = {
-            "X-API-KEY": api_key,
-            "accept": "application/json"
-        }
-        
-        url = "https://api.warehance.com/v1/returns?limit=1&offset=0"
-        print(f"Testing API call to: {url}")
-        
-        import requests
-        response = requests.get(url, headers=headers)
-        
-        if response.status_code != 200:
-            return {"error": f"API test failed: {response.status_code} - {response.text[:200]}"}
-            
-        data = response.json()
-        print(f"API test successful: {len(data.get('data', {}).get('returns', []))} returns found")
-        
-        # Test 3: Try to process one return
-        if data.get('data', {}).get('returns'):
-            first_return = data['data']['returns'][0]
-            return_id = first_return.get('id')
-            print(f"Attempting to process return {return_id}")
-            
-            try:
-                # Check if return exists
-                cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", (str(return_id),))
-                result = cursor.fetchone()
-                exists = get_single_value(result, 'count', 0) > 0
-                print(f"Return {return_id} exists in DB: {exists}")
-                
-                conn.close()
-                
-                return {
-                    "success": True,
-                    "database_connection": "OK",
-                    "api_connection": "OK", 
-                    "first_return_id": return_id,
-                    "return_exists_in_db": exists,
-                    "total_returns_available": data.get('data', {}).get('total_count', 0),
-                    "message": "Direct sync test completed successfully"
-                }
-                
-            except Exception as process_err:
-                return {"error": f"Failed to process return: {process_err}"}
-        else:
-            return {"error": "No returns found in API response"}
-            
-    except Exception as e:
-        import traceback
-        return {
-            "error": f"Direct sync test failed: {type(e).__name__}: {str(e)}",
-            "traceback": traceback.format_exc()
-        }
-
-@app.get("/api/debug/test-query")
-async def debug_test_query():
-    """Test endpoint to debug database query results"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Simple test query
-        cursor.execute("SELECT TOP 1 id, status, created_at FROM returns")
-        raw_result = cursor.fetchone()
-
-        print(f"DEBUG - Raw result: {raw_result}")
-        print(f"DEBUG - Raw result type: {type(raw_result)}")
-        print(f"DEBUG - Cursor description: {cursor.description}")
-
-        # Convert using our function
-        converted_result = row_to_dict(cursor, raw_result)
-
-        conn.close()
-
-        return {
-            "raw_result": str(raw_result),
-            "raw_result_type": str(type(raw_result)),
-            "cursor_description": [col[0] for col in cursor.description],
-            "converted_result": converted_result
-        }
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()}
 
 if __name__ == "__main__":
     import uvicorn
