@@ -368,14 +368,21 @@ class WarehanceAPISync:
             sync_log = SyncLog(
                 sync_type=sync_type,
                 started_at=datetime.utcnow(),
-                status="running"
+                status="running",
+                current_phase="initializing",
+                current_operation="Starting sync process..."
             )
             db.add(sync_log)
             db.commit()
             
             logger.info(f"Starting {sync_type} sync...")
             
-            # Fetch all returns from API
+            # Phase 1: Fetching returns from API
+            sync_log.current_phase = "fetching"
+            sync_log.current_operation = "Fetching returns from Warehance API..."
+            sync_log.last_progress_update = datetime.utcnow()
+            db.commit()
+            
             all_returns = self.fetch_all_returns()
             
             if not all_returns:
@@ -383,15 +390,24 @@ class WarehanceAPISync:
                 sync_log.status = "completed"
                 sync_log.completed_at = datetime.utcnow()
                 sync_log.total_returns_fetched = 0
+                sync_log.current_phase = "completed"
+                sync_log.current_operation = "No returns found to sync"
                 db.commit()
                 return {"status": "completed", "returns_fetched": 0}
             
-            # Process returns
+            # Phase 2: Processing returns
+            sync_log.current_phase = "processing"
+            sync_log.total_to_process = len(all_returns)
+            sync_log.processed_count = 0
+            sync_log.current_operation = f"Processing {len(all_returns)} returns..."
+            sync_log.last_progress_update = datetime.utcnow()
+            db.commit()
+            
             new_count = 0
             updated_count = 0
             error_count = 0
             
-            for return_data in all_returns:
+            for i, return_data in enumerate(all_returns):
                 try:
                     is_new, is_updated = self.sync_return(db, return_data)
                     if is_new:
@@ -402,9 +418,16 @@ class WarehanceAPISync:
                     # Commit after each return for SQLite
                     db.commit()
                     
-                    # Log progress every 50 returns
-                    if (new_count + updated_count) % 50 == 0:
-                        logger.info(f"Progress: {new_count} new, {updated_count} updated")
+                    # Update progress every 10 returns or at the end
+                    if (i + 1) % 10 == 0 or i == len(all_returns) - 1:
+                        sync_log.processed_count = i + 1
+                        sync_log.current_operation = f"Processing return {i + 1} of {len(all_returns)} ({new_count} new, {updated_count} updated)"
+                        sync_log.last_progress_update = datetime.utcnow()
+                        db.commit()
+                        
+                        # Log progress every 50 returns
+                        if (new_count + updated_count) % 50 == 0:
+                            logger.info(f"Progress: {new_count} new, {updated_count} updated")
                         
                 except Exception as e:
                     error_count += 1
@@ -414,9 +437,11 @@ class WarehanceAPISync:
             # Final commit
             db.commit()
             
-            # Update sync log
+            # Phase 3: Completion
             sync_log.status = "completed"
             sync_log.completed_at = datetime.utcnow()
+            sync_log.current_phase = "completed"
+            sync_log.current_operation = f"Sync completed successfully! {new_count} new, {updated_count} updated, {error_count} errors"
             sync_log.total_returns_fetched = len(all_returns)
             sync_log.new_returns = new_count
             sync_log.updated_returns = updated_count
@@ -442,6 +467,8 @@ class WarehanceAPISync:
             if sync_log:
                 sync_log.status = "failed"
                 sync_log.completed_at = datetime.utcnow()
+                sync_log.current_phase = "failed"
+                sync_log.current_operation = f"Sync failed: {str(e)}"
                 sync_log.error_message = str(e)
                 db.commit()
             

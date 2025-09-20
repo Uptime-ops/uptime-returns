@@ -207,41 +207,74 @@
                 </div>
                 <div class="col-md-6">
                     <div id="syncProgressContainer" style="display: none;">
-                        <div class="progress sync-progress mb-2" style="height: 8px;">
+                        <!-- Progress Bar -->
+                        <div class="progress sync-progress mb-3" style="height: 12px;">
                             <div id="syncProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%"></div>
                         </div>
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <small id="syncCurrentOperation" class="text-primary fw-bold"></small>
-                            <small id="syncProgressPercent" class="text-muted">0%</small>
+                        
+                        <!-- Current Operation and Progress -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <small id="syncCurrentOperation" class="text-primary fw-bold"></small>
+                                <br>
+                                <small id="syncCurrentPhase" class="text-muted"></small>
+                            </div>
+                            <div class="text-end">
+                                <span id="syncProgressPercent" class="badge bg-primary fs-6">0%</span>
+                                <br>
+                                <small id="syncProgressText" class="text-muted">0 / 0</small>
+                            </div>
                         </div>
-                          <div class="row text-center">
-                              <div class="col-3">
-                                  <small class="text-muted">Returns</small><br>
-                                  <span id="syncReturnsCount" class="badge bg-primary">0</span>
-                              </div>
-                              <div class="col-3">
-                                  <small class="text-muted">Products</small><br>
-                                  <span id="syncProductsCount" class="badge bg-success">0</span>
-                              </div>
-                              <div class="col-3">
-                                  <small class="text-muted">Items</small><br>
-                                  <span id="syncItemsCount" class="badge bg-info">0</span>
-                              </div>
-                              <div class="col-3">
-                                  <small class="text-muted">Orders</small><br>
-                                  <span id="syncOrdersCount" class="badge bg-warning">0</span>
-                              </div>
-                          </div>
-                          <div class="row text-center mt-2">
-                              <div class="col-6">
-                                  <small class="text-muted">Speed</small><br>
-                                  <span id="syncSpeed" class="badge bg-secondary">0/min</span>
-                              </div>
-                              <div class="col-6">
-                                  <small class="text-muted">ETA</small><br>
-                                  <span id="syncETA" class="badge bg-dark">--</span>
-                              </div>
-                          </div>
+                        
+                        <!-- Real-time Stats -->
+                        <div class="row text-center g-2">
+                            <div class="col-3">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">Processed</small>
+                                    <span id="syncProcessedCount" class="fw-bold text-primary">0</span>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">New</small>
+                                    <span id="syncNewCount" class="fw-bold text-success">0</span>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">Updated</small>
+                                    <span id="syncUpdatedCount" class="fw-bold text-info">0</span>
+                                </div>
+                            </div>
+                            <div class="col-3">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">Errors</small>
+                                    <span id="syncErrorCount" class="fw-bold text-danger">0</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Speed and ETA -->
+                        <div class="row text-center mt-3 g-2">
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">Speed</small>
+                                    <span id="syncSpeed" class="fw-bold text-secondary">0/min</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">ETA</small>
+                                    <span id="syncETA" class="fw-bold text-dark">--</span>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="border rounded p-2 bg-light">
+                                    <small class="text-muted d-block">Elapsed</small>
+                                    <span id="syncElapsed" class="fw-bold text-muted">0s</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div id="syncStatusContainer">
                         <span id="syncStatusDisplay" class="text-muted">Loading sync status...</span>
@@ -1033,19 +1066,26 @@
                       $('#syncProgressContainer').show();
                       $('#syncStatusContainer').hide();
                       console.log('Progress bar should now be visible');
-                      $('#syncProgressBar').css('width', '2%').addClass('progress-bar-animated');
+                      
+                      // Initialize progress bar
+                      $('#syncProgressBar').css('width', '0%').addClass('progress-bar-animated').removeClass('bg-success bg-warning').addClass('bg-primary');
                       $('#syncCurrentOperation').text('Starting sync...');
+                      $('#syncCurrentPhase').text('Initializing...');
                       $('#syncProgressPercent').text('0%');
+                      $('#syncProgressText').text('0 / 0');
+                      
+                      // Reset all counters
+                      $('#syncProcessedCount').text('0');
+                      $('#syncNewCount').text('0');
+                      $('#syncUpdatedCount').text('0');
+                      $('#syncErrorCount').text('0');
+                      $('#syncSpeed').text('0/min');
+                      $('#syncETA').text('--');
+                      $('#syncElapsed').text('0s');
                       
                       // Initialize sync start time for speed calculation
                       window.syncStartTime = Date.now();
                       console.log('Sync started, checking status...');
-
-                    // Reset counters
-                    $('#syncReturnsCount').text('0');
-                    $('#syncProductsCount').text('0');
-                    $('#syncItemsCount').text('0');
-                    $('#syncOrdersCount').text('0');
 
                     $('#syncMessage').text(result.message);
                     const toast = new bootstrap.Toast($('#syncToast')[0]);
@@ -1061,14 +1101,14 @@
             }
         }
         
-        // Check sync status
+        // Check sync status using new real-time progress API
         async function checkSyncStatus() {
             try {
-                console.log('Checking sync status...');
+                console.log('Checking sync progress...');
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for Azure SQL sync operations
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
                 
-                const response = await fetch('/api/sync/status', {
+                const response = await fetch('/api/sync/progress', {
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);
@@ -1077,83 +1117,96 @@
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
-                const data = await response.json();
-                console.log('Sync status data:', data);
-                console.log('Current sync object:', data.current_sync);
-                console.log('Current sync status:', data.current_sync ? data.current_sync.status : 'undefined');
+                const progressData = await response.json();
+                console.log('Sync progress data:', progressData);
                 
-                if (data.current_sync && data.current_sync.status === 'running') {
-                    // Show enhanced progress display
+                if (progressData.is_running) {
+                    // Show progress display
                     $('#syncProgressContainer').show();
                     $('#syncStatusContainer').hide();
-
+                    
+                    // Update progress bar
+                    const progressPercent = progressData.progress_percentage || 0;
+                    $('#syncProgressBar').css('width', progressPercent + '%');
+                    $('#syncProgressPercent').text(progressPercent + '%');
+                    $('#syncProgressText').text(`${progressData.processed_count || 0} / ${progressData.total_to_process || 0}`);
+                    
+                    // Update current operation and phase
+                    $('#syncCurrentOperation').text(progressData.current_operation || 'Processing...');
+                    $('#syncCurrentPhase').text(`Phase: ${progressData.current_phase || 'unknown'}`);
+                    
                     // Update counters
-                    $('#syncReturnsCount').text(data.current_sync.items_synced || 0);
-                    $('#syncProductsCount').text(data.current_sync.products_synced || 0);
-                    $('#syncItemsCount').text(data.current_sync.return_items_synced || 0);
-                    $('#syncOrdersCount').text(data.current_sync.orders_synced || 0);
+                    $('#syncProcessedCount').text(progressData.processed_count || 0);
+                    $('#syncNewCount').text(progressData.new_returns || 0);
+                    $('#syncUpdatedCount').text(progressData.updated_returns || 0);
+                    $('#syncErrorCount').text(progressData.metadata?.error_count || 0);
                     
-                    // Calculate dynamic progress based on actual data
-                    const itemsProcessed = data.current_sync.items_synced || 0;
-                    const estimatedTotal = Math.max(500, itemsProcessed * 2); // Dynamic estimate
-                    const progress = Math.min(95, Math.max(5, (itemsProcessed / estimatedTotal) * 100));
-                    $('#syncProgressBar').css('width', progress + '%');
-                    $('#syncProgressPercent').text(Math.round(progress) + '%');
+                    // Update speed and ETA
+                    $('#syncSpeed').text(`${progressData.items_per_minute || 0}/min`);
+                    $('#syncETA').text(progressData.eta_text || '--');
                     
-                    // Calculate speed and ETA
-                    const startTime = window.syncStartTime || Date.now();
-                    const elapsedMinutes = (Date.now() - startTime) / 60000;
-                    const speed = elapsedMinutes > 0 ? Math.round(itemsProcessed / elapsedMinutes) : 0;
-                    $('#syncSpeed').text(speed + '/min');
+                    // Update elapsed time
+                    const elapsedSeconds = progressData.elapsed_seconds || 0;
+                    const elapsedText = elapsedSeconds < 60 ? `${elapsedSeconds}s` : 
+                                      elapsedSeconds < 3600 ? `${Math.floor(elapsedSeconds/60)}m ${elapsedSeconds%60}s` :
+                                      `${Math.floor(elapsedSeconds/3600)}h ${Math.floor((elapsedSeconds%3600)/60)}m`;
+                    $('#syncElapsed').text(elapsedText);
                     
-                    // Calculate ETA
-                    if (speed > 0 && estimatedTotal > itemsProcessed) {
-                        const remaining = estimatedTotal - itemsProcessed;
-                        const etaMinutes = Math.round(remaining / speed);
-                        const etaText = etaMinutes < 60 ? `${etaMinutes}m` : `${Math.round(etaMinutes/60)}h ${etaMinutes%60}m`;
-                        $('#syncETA').text(etaText);
-                    } else {
-                        $('#syncETA').text('--');
-                    }
-
-                    // Update current operation and progress
-                    const message = data.last_sync_message || 'Syncing...';
-                    $('#syncCurrentOperation').text(formatSyncMessage(message));
-
-                    setTimeout(checkSyncStatus, 2000); // Check more frequently during sync
-                    } else if (data.current_sync && data.current_sync.status === 'completed') {
-                      // Show completion with final stats
-                      const totalTime = window.syncStartTime ? Math.round((Date.now() - window.syncStartTime) / 1000) : 0;
-                      const finalSpeed = totalTime > 0 ? Math.round((data.current_sync.items_synced || 0) / (totalTime / 60)) : 0;
-                      
-                      $('#syncCurrentOperation').text(`✅ Sync completed! (${finalSpeed}/min avg)`);
-                      $('#syncProgressBar').css('width', '100%').removeClass('progress-bar-animated').addClass('bg-success');
-                      $('#syncProgressPercent').text('100%');
-                      
-                      // Hide progress display after showing completion
-                      setTimeout(() => {
-                          $('#syncProgressContainer').hide();
-                          $('#syncStatusContainer').show();
-                          updateSyncStatusDisplay(data);
-                      }, 2000);
-
-                    loadDashboard(); // Reload dashboard data
-                    applyFilters(); // Reload returns
+                    // Continue checking every 2 seconds
+                    setTimeout(checkSyncStatus, 2000);
+                    
                 } else {
-                    // Not running - hide progress and show status
-                    $('#syncProgressContainer').hide();
-                    $('#syncStatusContainer').show();
-                    updateSyncStatusDisplay(data);
+                    // Sync not running - check if it just completed
+                    const statusResponse = await fetch('/api/sync/status');
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.current_sync && statusData.current_sync.status === 'completed') {
+                        // Show completion
+                        $('#syncCurrentOperation').text('✅ Sync completed successfully!');
+                        $('#syncCurrentPhase').text('All done!');
+                        $('#syncProgressBar').css('width', '100%').removeClass('progress-bar-animated').addClass('bg-success');
+                        $('#syncProgressPercent').text('100%');
+                        
+                        // Update final stats
+                        $('#syncProcessedCount').text(statusData.current_sync.total_returns_fetched || 0);
+                        $('#syncNewCount').text(statusData.current_sync.new_returns || 0);
+                        $('#syncUpdatedCount').text(statusData.current_sync.updated_returns || 0);
+                        $('#syncErrorCount').text(statusData.current_sync.metadata?.error_count || 0);
+                        
+                        // Hide progress after 3 seconds
+                        setTimeout(() => {
+                            $('#syncProgressContainer').hide();
+                            $('#syncStatusContainer').show();
+                            updateSyncStatusDisplay(statusData);
+                        }, 3000);
+                        
+                        // Reload data
+                        loadDashboard();
+                        applyFilters();
+                        
+                    } else {
+                        // No sync running - hide progress and show status
+                        $('#syncProgressContainer').hide();
+                        $('#syncStatusContainer').show();
+                        updateSyncStatusDisplay(statusData);
+                    }
                 }
                 
             } catch (error) {
-                console.error('Error checking sync status:', error);
-                // Show error state in progress display
-                $('#syncCurrentOperation').text('⚠️ Connection error - retrying...');
-                $('#syncProgressBar').removeClass('progress-bar-animated').addClass('bg-warning');
+                console.error('Error checking sync progress:', error);
                 
-                // Retry after a delay
-                setTimeout(checkSyncStatus, 5000);
+                // Show error state
+                if ($('#syncProgressContainer').is(':visible')) {
+                    $('#syncCurrentOperation').text('⚠️ Connection error - retrying...');
+                    $('#syncCurrentPhase').text('Retrying in 5 seconds...');
+                    $('#syncProgressBar').removeClass('progress-bar-animated').addClass('bg-warning');
+                    
+                    // Retry after delay
+                    setTimeout(checkSyncStatus, 5000);
+                } else {
+                    // If progress not visible, just show error in status
+                    $('#syncStatusDisplay').text('Error checking sync status');
+                }
             }
         }
         

@@ -500,6 +500,67 @@ async def get_sync_status(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/sync/progress")
+async def get_sync_progress(db: Session = Depends(get_db)):
+    """Get real-time sync progress with ETA calculation"""
+    try:
+        # Get current running sync
+        current_sync = db.query(SyncLog).filter(
+            SyncLog.status == "running"
+        ).order_by(SyncLog.started_at.desc()).first()
+        
+        if not current_sync:
+            return {
+                "is_running": False,
+                "message": "No sync currently running"
+            }
+        
+        # Calculate progress metrics
+        progress_data = current_sync.to_dict()
+        
+        # Calculate ETA if we have enough data
+        if current_sync.processed_count > 0 and current_sync.total_to_process > 0:
+            elapsed_seconds = (datetime.utcnow() - current_sync.started_at).total_seconds()
+            items_per_second = current_sync.processed_count / elapsed_seconds if elapsed_seconds > 0 else 0
+            
+            remaining_items = current_sync.total_to_process - current_sync.processed_count
+            eta_seconds = remaining_items / items_per_second if items_per_second > 0 else 0
+            
+            # Format ETA
+            if eta_seconds < 60:
+                eta_text = f"{int(eta_seconds)}s"
+            elif eta_seconds < 3600:
+                eta_text = f"{int(eta_seconds/60)}m {int(eta_seconds%60)}s"
+            else:
+                hours = int(eta_seconds/3600)
+                minutes = int((eta_seconds%3600)/60)
+                eta_text = f"{hours}h {minutes}m"
+            
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": round(items_per_second, 2),
+                "items_per_minute": round(items_per_second * 60, 1),
+                "eta_seconds": int(eta_seconds),
+                "eta_text": eta_text,
+                "elapsed_seconds": int(elapsed_seconds)
+            })
+        else:
+            progress_data.update({
+                "is_running": True,
+                "items_per_second": 0,
+                "items_per_minute": 0,
+                "eta_seconds": 0,
+                "eta_text": "Calculating...",
+                "elapsed_seconds": int((datetime.utcnow() - current_sync.started_at).total_seconds())
+            })
+        
+        return progress_data
+        
+    except Exception as e:
+        logger.error(f"Error getting sync progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/export/returns")
 async def export_returns(
     format: str = Query(default="csv", regex="^(csv|excel)$"),

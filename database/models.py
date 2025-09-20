@@ -302,6 +302,13 @@ class SyncLog(Base):
     error_message = Column(Text)
     sync_metadata = Column('metadata', JSON)
     
+    # Real-time progress tracking
+    current_phase = Column(String(100), default="initializing")  # initializing, fetching, processing, completed
+    total_to_process = Column(Integer, default=0)  # Total items that need to be processed
+    processed_count = Column(Integer, default=0)  # Items processed so far
+    last_progress_update = Column(DateTime, default=datetime.utcnow)
+    current_operation = Column(String(500))  # Current operation description
+    
     # Indexes
     __table_args__ = (
         Index("idx_sync_logs_status", "status"),
@@ -321,7 +328,15 @@ class SyncLog(Base):
             "new_returns": self.new_returns,
             "updated_returns": self.updated_returns,
             "error_message": self.error_message,
-            "metadata": self.sync_metadata
+            "metadata": self.sync_metadata,
+            # Real-time progress fields
+            "current_phase": self.current_phase,
+            "total_to_process": self.total_to_process,
+            "processed_count": self.processed_count,
+            "last_progress_update": self.last_progress_update.isoformat() if self.last_progress_update else None,
+            "current_operation": self.current_operation,
+            # Calculated progress percentage
+            "progress_percentage": round((self.processed_count / self.total_to_process * 100), 1) if self.total_to_process > 0 else 0
         }
 
 

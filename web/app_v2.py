@@ -6,7 +6,7 @@ import os
 
 # VERSION IDENTIFIER - Update this when deploying
 import datetime
-DEPLOYMENT_VERSION = "V87.227-SYNTAX-FIX"
+DEPLOYMENT_VERSION = "V87.228-ENHANCED-SYNC-LOGGING"
 DEPLOYMENT_TIME = datetime.datetime.now().isoformat()
 print(f"=== STARTING APP_V2.PY VERSION: {DEPLOYMENT_VERSION} ===")
 print(f"=== DEPLOYMENT TIME: {DEPLOYMENT_TIME} ===")
@@ -1618,7 +1618,16 @@ def convert_date_for_sql(date_string):
 async def run_sync():
     """Run the actual sync process"""
     global sync_status
-    
+
+    # PROMINENT SYNC START LOGGING
+    print("=" * 80)
+    print("🚀 ================ WAREHANCE SYNC STARTING ================")
+    print(f"🕐 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔑 API Key: {WAREHANCE_API_KEY[:15]}...")
+    print(f"🗄️  Database: {'Azure SQL' if USE_AZURE_SQL else 'SQLite'}")
+    print("🎯 Target: Fetch all returns, products, orders, and return_items")
+    print("=" * 80)
+
     sync_status["is_running"] = True
     sync_status["items_synced"] = 0
     
@@ -2077,6 +2086,18 @@ async def run_sync():
                 print(f"⚠️ Ignoring final commit transaction state error")
         conn.close()
         
+        # PROMINENT SYNC COMPLETION LOGGING
+        end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print("=" * 80)
+        print("✅ ================ WAREHANCE SYNC COMPLETED ================")
+        print(f"🕐 End Time: {end_time}")
+        print(f"📊 Returns Synced: {sync_status['items_synced']}")
+        print(f"📦 Return Items Synced: {sync_status.get('return_items_synced', 0)}")
+        print(f"🛒 Products Synced: {sync_status.get('products_synced', 0)}")
+        print(f"📋 Orders Synced: {sync_status.get('orders_synced', 0)}")
+        print(f"👥 Customer Names Updated: {customers_updated}")
+        print("=" * 80)
+
         # Only mark as success if we actually synced something
         if sync_status['items_synced'] > 0:
             sync_status["last_sync_status"] = "success"
@@ -2091,9 +2112,19 @@ async def run_sync():
         import traceback
         error_details = f"Sync error: {type(e).__name__}: {str(e)}"
         traceback_str = traceback.format_exc()
-        print(f"SYNC FAILED: {error_details}")
-        print(f"Traceback: {traceback_str}")
-        
+
+        # PROMINENT SYNC ERROR LOGGING
+        end_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print("=" * 80)
+        print("❌ ================ WAREHANCE SYNC FAILED ==================")
+        print(f"🕐 Failed Time: {end_time}")
+        print(f"❌ Error: {error_details}")
+        print(f"📊 Returns Synced Before Error: {sync_status.get('items_synced', 0)}")
+        print(f"📦 Return Items Synced Before Error: {sync_status.get('return_items_synced', 0)}")
+        print("=" * 80)
+        print(f"Full Traceback: {traceback_str}")
+        print("=" * 80)
+
         sync_status["last_sync_status"] = "error"
         sync_status["last_sync_message"] = f"{error_details[:100]}... (check logs for full details)"
         
@@ -2985,7 +3016,7 @@ async def test_deployment():
     """Test if new deployments are working"""
     return {
         "status": "success",
-        "version": "V87.227-SYNTAX-FIX",
+        "version": "V87.228-ENHANCED-SYNC-LOGGING",
         "timestamp": datetime.now().isoformat(),
         "message": "New deployment working"
     }
