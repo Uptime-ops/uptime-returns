@@ -6,11 +6,6 @@ import io
 import asyncio
 from datetime import datetime
 from typing import Optional, Dict
-import os
-import sys
-
-# Add current directory to Python path for module imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import clean services
 from services.sync_service import CleanSyncService

@@ -1,0 +1,5 @@
+# Clean Warehance Returns app dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pyodbc==5.0.1
+requests==2.31.0
