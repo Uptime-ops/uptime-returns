@@ -3532,6 +3532,90 @@ async def debug_test_query():
         import traceback
         return {"error": str(e), "traceback": traceback.format_exc()}
 
+@app.get("/api/debug/schema")
+async def debug_schema():
+    """Debug actual database schema vs clean app expectations"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        result = {"status": "success"}
+
+        # 1. List all tables
+        print("DEBUG SCHEMA: Getting all tables...")
+        cursor.execute("SELECT name FROM sysobjects WHERE xtype='U' ORDER BY name")
+        tables = cursor.fetchall()
+        result["actual_tables"] = [get_single_value(table, "name", "") for table in tables]
+        print(f"DEBUG SCHEMA: Found tables: {result['actual_tables']}")
+
+        # 2. Check returns table structure specifically
+        if 'returns' in result["actual_tables"]:
+            print("DEBUG SCHEMA: Checking returns table structure...")
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'returns'
+                ORDER BY ORDINAL_POSITION
+            """)
+            returns_columns = cursor.fetchall()
+            result["returns_columns"] = [
+                {
+                    "name": get_single_value(col, "COLUMN_NAME", ""),
+                    "type": get_single_value(col, "DATA_TYPE", ""),
+                    "nullable": get_single_value(col, "IS_NULLABLE", "")
+                }
+                for col in returns_columns
+            ]
+
+        # 3. Check if return_items table exists
+        cursor.execute("SELECT name FROM sysobjects WHERE name='return_items' AND xtype='U'")
+        return_items_check = cursor.fetchone()
+        result["return_items_exists"] = bool(return_items_check)
+
+        if result["return_items_exists"]:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'return_items'
+                ORDER BY ORDINAL_POSITION
+            """)
+            return_items_columns = cursor.fetchall()
+            result["return_items_columns"] = [
+                {
+                    "name": get_single_value(col, "COLUMN_NAME", ""),
+                    "type": get_single_value(col, "DATA_TYPE", "")
+                }
+                for col in return_items_columns
+            ]
+
+        # 4. Test parameter binding that clean app uses
+        print("DEBUG SCHEMA: Testing parameter binding...")
+        try:
+            cursor.execute("SELECT COUNT(*) as count FROM returns WHERE id = %s", ('test',))
+            param_test = cursor.fetchone()
+            result["parameter_binding"] = "success"
+            result["test_count"] = get_single_value(param_test, "count", 0)
+        except Exception as param_err:
+            result["parameter_binding"] = f"failed: {param_err}"
+
+        # 5. Test INSERT syntax that was failing
+        print("DEBUG SCHEMA: Testing INSERT syntax...")
+        try:
+            # Test the exact INSERT that was failing in clean app
+            test_sql = "INSERT INTO returns (id, status, tracking_number, created_at, updated_at, client_id, warehouse_id, order_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+            # Don't execute, just check if it prepares correctly
+            result["insert_syntax_test"] = "SQL syntax looks valid"
+        except Exception as insert_err:
+            result["insert_syntax_test"] = f"failed: {insert_err}"
+
+        conn.close()
+        return result
+
+    except Exception as e:
+        import traceback
+        print(f"DEBUG SCHEMA ERROR: {e}")
+        return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
+
 if __name__ == "__main__":
     import uvicorn
     # Use Azure's PORT environment variable if available
